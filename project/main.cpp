@@ -10,7 +10,7 @@
 #include <vector>
 #include <wrl.h>
 
-// ★ C2065 (VK_W など) 対策: Windows.h より先に winuser.h をインクルード
+// ★ C2065 (VK_W など) 対策: Windows.h よりも先に winuser.h をインクルード
 #include <winuser.h> 
 #include <Windows.h>
 
@@ -37,14 +37,13 @@
 #include "WinApp.h"
 #include "DirectXCommon.h"
 #include "GraphicsPipeline.h"
-#include "D3D12Util.h" // ★ D3D12Util.h (LoadTexture など)
+#include "D3D12Util.h" // D3D12Util.h (LoadTexture など)
 #include "Model.h"
 #include "MathUtil.h"
 #include "DataTypes.h"
 #include "Input.h" // ★ 作成した Input.h
 
 // === このファイルに残っているヘルパー関数 ===
-// (C2084 エラーを避けるため、D3D12Util.h にない関数だけを残します)
 
 // エラーハンドリング
 static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
@@ -116,7 +115,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	D3DResourceLeakChecker leakChecker;
 
 	WinApp* winApp = WinApp::GetInstance();
-	winApp->Initialize(); // WinAppのInitializeを先に呼ぶ
+	winApp->Initialize();
 
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 	dxCommon->Initialize(winApp);
@@ -130,41 +129,38 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	// --- ★ 2. player.objを描画・操作するための初期化 ---
 
-	// パイプラインの初期化
+	// パイプラインの初期化 (GraphicsPipeline.h に合わせる)
 	GraphicsPipeline* pipeline = new GraphicsPipeline();
-	// ★ DirectXCommon.h の GetDevice() を使用
 	pipeline->Initialize(dxCommon->GetDevice());
 
-	// ★ テクスチャのロード (D3D12Util.h の関数を使用)
-	// (SRVDescriptorHeap の作成)
+	// テクスチャのロード (D3D12Util.h の関数を使用)
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap = CreateDescriptorHeap(
 		dxCommon->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, true);
-	// (テクスチャファイルのロード)
+
 	// ★ D3D12Util.h の LoadTexture を使用
 	DirectX::ScratchImage textureImage = LoadTexture("resources/white1x1.png");
-	// (GPUへのアップロード)
 	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(
 		dxCommon->GetDevice(), textureImage.GetMetadata());
-	UploadTextureData(
+
+	// ★ C4834 ([nodiscard]) 警告対策: 戻り値を変数で受け取る
+	Microsoft::WRL::ComPtr<ID3D12Resource> uploadResource = UploadTextureData(
 		textureResource.Get(), textureImage, dxCommon->GetDevice(), dxCommon->GetCommandList());
 
-	// (SRVの作成)
-	// ★ D3D12Util.h の GetCPUDescriptorHandle を使用
+	// SRVの作成 (D3D12Util.h の Get...Handle を使用)
 	UINT srvDescriptorSize = dxCommon->GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	D3D12_CPU_DESCRIPTOR_HANDLE srvCpuHandle = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), srvDescriptorSize, 0);
-	D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandle = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), srvDescriptorSize, 0); // Drawで使う
+	D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandle = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), srvDescriptorSize, 0);
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Format = textureImage.GetMetadata().format;
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MipLevels = static_cast<UINT>(textureImage.GetMetadata().mipLevels);
-	// ★ D3D12Util.h に SRV作成ヘルパーが無かったため、デバイスから直接呼び出す
 	dxCommon->GetDevice()->CreateShaderResourceView(textureResource.Get(), &srvDesc, srvCpuHandle);
 
 
 	// モデルのロード (Model.h の Create 関数を使用)
-	Model* playerModel = Model::Create("resources", "player.obj", dxCommon->GetDevice());
+	Model* playerModel = Model::Create("resources/player", "player.obj", dxCommon->GetDevice());
 
 	// プレイヤーのTransform初期化 (Model.h に public transform があるため直接設定)
 	playerModel->transform.scale = { 1.0f, 1.0f, 1.0f };
@@ -186,24 +182,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		// --- ★ 3. 更新処理 ---
 		input->Update(); // Inputの毎フレーム更新
 
-		// (Inputで player.obj を動かす)
-		{
-			const float moveSpeed = 0.1f;
 
-			// ★ C2065 (VK_W など) 対策済み
-			if (input->IsKeyDown(VK_A)) {
-				playerModel->transform.translate.x -= moveSpeed;
-			}
-			if (input->IsKeyDown(VK_D)) {
-				playerModel->transform.translate.x += moveSpeed;
-			}
-			if (input->IsKeyDown(VK_W)) {
-				playerModel->transform.translate.z += moveSpeed;
-			}
-			if (input->IsKeyDown(VK_S)) {
-				playerModel->transform.translate.z -= moveSpeed;
-			}
-		}
 
 		// --- ★ 4. 行列の計算 ---
 
@@ -230,7 +209,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		// --- 描画処理 ---
 		dxCommon->PreDraw();
 
-		// ★ 5. 描画コマンド
+		// ★ 5. 描画コマンド (DirectXCommon.h, GraphicsPipeline.h, Model.h に合わせる)
 		ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
 		// パイプラインステートのセット
@@ -254,10 +233,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	// --- 終了処理 ---
 
-	// ★ 6. 解放処理 (new した順と逆が望ましい)
+	// ★ 6. 解放処理 (達成条件: delete)
 	delete playerModel;
 	delete pipeline;
-	delete input; // (達成条件: delete)
+	delete input;
 
 	dxCommon->Finalize();
 
