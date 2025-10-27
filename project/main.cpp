@@ -121,7 +121,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 	dxCommon->Initialize(winApp);
 
-	Input* input = Input::GetInstance();
+	// ★ 変更点 1: GetInstance() から new に変更
+	Input* input = new Input();
 	input->Initialize(winApp);
 
 	CoInitializeEx(0, COINIT_MULTITHREADED);
@@ -203,10 +204,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		const float kMoveSpeed = 0.1f;
 
 		if (input->IsKeyPressed(DIK_W)) {
-			move.z += kMoveSpeed; 
+			move.z += kMoveSpeed;
 		}
 		if (input->IsKeyPressed(DIK_S)) {
-			move.z -= kMoveSpeed; 
+			move.z -= kMoveSpeed;
 		}
 		if (input->IsKeyPressed(DIK_A)) {
 			move.x -= kMoveSpeed;
@@ -234,23 +235,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// Model::Draw の中で [0], [1], [2] が設定される
 		// [3] ライト
 		commandList->SetGraphicsRootConstantBufferView(3, lightResource->GetGPUVirtualAddress());
-		// [4] カメラ
+		// [4} カメラ
 		commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
-		
+
 		playerModel->Draw(commandList, viewProjectionMatrix, textureSrvHandleGPU);
 
 		dxCommon->PostDraw();
 	}
 
 	// --- 終了処理 ---
-	
+
 	delete playerModel;
-	
+
 	delete pipeline;
 	// (ComPtrで管理されているリソースは自動解放されます)
 
-	input->Finalize();
+	// ★ 変更点 2: Finalize() から delete に変更
+	delete input;
+
 	dxCommon->Finalize();
 	CoUninitialize();
 	winApp->Finalize();
