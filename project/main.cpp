@@ -237,16 +237,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// [4] カメラ
 		commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
-		// ★ 9. モデルの描画
+		
 		playerModel->Draw(commandList, viewProjectionMatrix, textureSrvHandleGPU);
 
 		dxCommon->PostDraw();
 	}
 
 	// --- 終了処理 ---
-	// ★ モデルの解放
+	
 	delete playerModel;
-	// ★ パイプラインの解放
+	
 	delete pipeline;
 	// (ComPtrで管理されているリソースは自動解放されます)
 
