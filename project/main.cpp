@@ -22,13 +22,14 @@
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
-#include <xaudio2.h>
-#pragma comment(lib, "xaudio2.lib")
+#include <xaudio2.h> // 元のファイルにあったため残しています
+#pragma comment(lib, "xaudio2.lib") // 元のファイルにあったため残しています
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dbghelp.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxcompiler.lib")
+#pragma comment(lib, "dinput8.lib") // Inputクラス用
 
 #include "WinApp.h"
 #include "DirectXCommon.h"
@@ -37,6 +38,7 @@
 #include "Model.h"
 #include "MathUtil.h"
 #include "DataTypes.h"
+#include "Input.h" // Inputクラスをインクルード
 
 // === このファイルに残っているヘルパー関数 ===
 
@@ -115,27 +117,53 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 	dxCommon->Initialize(winApp);
 
+	// ★ Inputの初期化 (WinAppとDXCommonの後)
+	Input* input = Input::GetInstance();
+	input->Initialize(winApp);
+
 	CoInitializeEx(0, COINIT_MULTITHREADED);
 	SetUnhandledExceptionFilter(ExportDump);
 
 	// --- 初期化処理を簡略化 ---
+	// (ここにモデルやカメラの初期化処理を追加していく)
 
+
+	// --- メインループ ---
 	while (!winApp->IsEndRequested()) {
 		winApp->ProcessMessage();
 
+		// ★ Inputの毎フレーム更新
+		input->Update();
+
+
 		// --- 更新処理は空 ---
+		// (例: ESCキーで終了)
+		if (input->IsKeyTriggered(DIK_ESCAPE)) {
+			break; // ループを抜ける
+		}
+
+		// (ここにゲームの更新処理を追加していく)
+
 
 		// --- 描画処理 ---
 		// 描画前処理（画面クリアなど）
 		dxCommon->PreDraw();
 
 		// ここに描画コマンドを記述しない
+		// (ここにモデルの描画処理などを追加していく)
+
 
 		// 描画後処理（コマンド実行と画面表示）
 		dxCommon->PostDraw();
 	}
 
 	// --- 終了処理 ---
+
+	// (ここにゲームの終了処理を追加していく)
+
+	// ★ Inputの終了処理
+	input->Finalize();
+
 	dxCommon->Finalize();
 
 	CoUninitialize();
