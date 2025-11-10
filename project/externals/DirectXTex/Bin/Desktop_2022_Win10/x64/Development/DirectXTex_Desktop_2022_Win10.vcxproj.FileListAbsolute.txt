@@ -1,5 +1,0 @@
-C:\Users\k024g\Desktop\CG-1-06-03 (1)\CG-1-06-03\externals\DirectXTex\Bin\Desktop_2022_Win10\x64\Development\DirectXTex.lib
-C:\Users\k024g\Desktop\CG-1-06-03 (1)\Game\externals\DirectXTex\Bin\Desktop_2022_Win10\x64\Development\DirectXTex.lib
-C:\Users\k024g\Desktop\GE3&CG3\CG-1-06-03\externals\DirectXTex\Bin\Desktop_2022_Win10\x64\Development\DirectXTex.lib
-C:\Users\k024g\Desktop\GE3&CG3\GE3-CG3\externals\DirectXTex\Bin\Desktop_2022_Win10\x64\Development\DirectXTex.lib
-C:\Users\k024g\Desktop\GE3&CG3\project\externals\DirectXTex\Bin\Desktop_2022_Win10\x64\Development\DirectXTex.lib

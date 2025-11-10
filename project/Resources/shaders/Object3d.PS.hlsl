@@ -20,16 +20,16 @@ PixelShaderOutput main(VertexShaderOutput input)
     PixelShaderOutput output;
     output.color = gMaterial.color;
 
-    //‚±‚ê‚Í•s—v“¯‚¶ƒXƒR[ƒv‚Å“ñ‰ñéŒ¾‚·‚é‚ÆƒGƒ‰[‚É‚È‚é‚©‚ç‚Ë[06_01
+    //ï¿½ï¿½ï¿½ï¿½Í•sï¿½vï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½Rï¿½[ï¿½vï¿½Å“ï¿½ï¿½éŒ¾ï¿½ï¿½ï¿½ï¿½ÆƒGï¿½ï¿½ï¿½[ï¿½É‚È‚é‚©ï¿½ï¿½Ë[06_01
     //float32_t4 textureColor = gTexture.Sample(gSampler, input.texcoord);
 
-    // UVÀ•W‚ğ“¯ŸÀ•WŒn‚ÉŠg’£‚µ‚Äix, y, 1.0jAƒAƒtƒBƒ“•ÏŠ·‚ğ“K—p‚·‚é
+    // UVï¿½ï¿½ï¿½Wï¿½ğ“¯ï¿½ï¿½ï¿½ï¿½Wï¿½nï¿½ÉŠgï¿½ï¿½ï¿½ï¿½ï¿½Äix, y, 1.0ï¿½jï¿½Aï¿½Aï¿½tï¿½Bï¿½ï¿½ï¿½ÏŠï¿½ï¿½ï¿½Kï¿½pï¿½ï¿½ï¿½ï¿½
     float4 transformedUV = mul(float32_t4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
-    // •ÏŠ·Œã‚ÌUVÀ•W‚ğg‚Á‚ÄƒeƒNƒXƒ`ƒƒ‚©‚çF‚ğƒTƒ“ƒvƒŠƒ“ƒO‚·‚é
+    // ï¿½ÏŠï¿½ï¿½ï¿½ï¿½UVï¿½ï¿½ï¿½Wï¿½ï¿½gï¿½ï¿½ï¿½Äƒeï¿½Nï¿½Xï¿½`ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Fï¿½ï¿½Tï¿½ï¿½ï¿½vï¿½ï¿½ï¿½ï¿½ï¿½Oï¿½ï¿½ï¿½ï¿½
     float32_t4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
         
     
-    if (gMaterial.enableLighting != 0)//Lighting‚·‚éê‡
+    if (gMaterial.enableLighting != 0)//Lightingï¿½ï¿½ï¿½ï¿½ê‡
     {
         //float cos = saturate(dot(normalize(input.normal), -gDirectionalLight.direction));
         //output.color = gMaterial.color * textureColor * gDirectionalLight.color * cos * gDirectionalLight.intensity;
@@ -42,7 +42,7 @@ PixelShaderOutput main(VertexShaderOutput input)
         
     }
     else
-    { //Lighting‚µ‚È‚¢ê‡‘O‰ñ‚Ü‚Å‚Æ“¯‚¶ŒvZ
+    { //Lightingï¿½ï¿½ï¿½È‚ï¿½ï¿½ê‡ï¿½Oï¿½ï¿½Ü‚Å‚Æ“ï¿½ï¿½ï¿½ï¿½vï¿½Z
         output.color = gMaterial.color * textureColor;
     }
     
