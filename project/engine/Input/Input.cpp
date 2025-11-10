@@ -1,6 +1,6 @@
 #include "Input.h"
 #include "WinApp.h" 
-#include <cassert>  
+#include <cassert>
 
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
@@ -43,7 +43,7 @@ void Input::Initialize(WinApp* winApp) {
 	assert(SUCCEEDED(hr));
 }
 
-/
+
 void Input::Finalize() {
 	if (keyboard_) {
 		keyboard_->Unacquire(); 
