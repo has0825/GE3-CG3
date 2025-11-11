@@ -1,15 +1,15 @@
 #include "object3d.hlsli"
 
-// 1ƒCƒ“ƒXƒ^ƒ“ƒX‚ ‚½‚è‚Ìƒf[ƒ^\‘¢
-// C++‘¤‚ÌInstancingData\‘¢‘Ì‚Æˆê’v‚³‚¹‚é
+// 1ï¿½Cï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½Xï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ìƒfï¿½[ï¿½^ï¿½\ï¿½ï¿½
+// C++ï¿½ï¿½ï¿½ï¿½InstancingDataï¿½\ï¿½ï¿½ï¿½Ì‚Æˆï¿½vï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 struct InstancingData
 {
     float32_t4x4 WVP;
     float32_t4x4 World;
 };
 
-// ‘SƒCƒ“ƒXƒ^ƒ“ƒX‚Ìƒf[ƒ^‚ğó‚¯æ‚é‚½‚ß‚Ì\‘¢‰»ƒoƒbƒtƒ@
-// t1ƒŒƒWƒXƒ^‚ÉƒoƒCƒ“ƒh‚·‚é
+// ï¿½Sï¿½Cï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½Xï¿½Ìƒfï¿½[ï¿½^ï¿½ï¿½ó‚¯ï¿½é‚½ï¿½ß‚Ì\ï¿½ï¿½ï¿½ï¿½ï¿½oï¿½bï¿½tï¿½@
+// t1ï¿½ï¿½ï¿½Wï¿½Xï¿½^ï¿½Éƒoï¿½Cï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½
 StructuredBuffer<InstancingData> gInstancingData : register(t1);
 
 struct VertexShaderInput
@@ -20,19 +20,19 @@ struct VertexShaderInput
 };
 
 
-// mainŠÖ”‚Ìˆø”‚ÉƒCƒ“ƒXƒ^ƒ“ƒXID‚ğ’Ç‰Á
+// mainï¿½Öï¿½ï¿½Ìˆï¿½ï¿½ï¿½ï¿½ÉƒCï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½XIDï¿½ï¿½Ç‰ï¿½
 VertexShaderOutput main(VertexShaderInput input, uint instanceID : SV_InstanceID)
 {
     VertexShaderOutput output;
 
-    // ƒCƒ“ƒXƒ^ƒ“ƒXID‚ğg‚Á‚ÄA‚±‚Ì’¸“_‚É‘Î‰‚·‚éƒCƒ“ƒXƒ^ƒ“ƒX‚Ìƒf[ƒ^‚ğæ“¾
+    // ï¿½Cï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½XIDï¿½ï¿½gï¿½ï¿½ï¿½ÄAï¿½ï¿½ï¿½Ì’ï¿½ï¿½_ï¿½É‘Î‰ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½Xï¿½Ìƒfï¿½[ï¿½^ï¿½ï¿½æ“¾
     InstancingData instancingData = gInstancingData[instanceID];
 
-    // æ“¾‚µ‚½ƒCƒ“ƒXƒ^ƒ“ƒXŒÅ—L‚Ìs—ñ‚ğg‚Á‚ÄÀ•W•ÏŠ·
+    // ï¿½æ“¾ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½Xï¿½Å—Lï¿½Ìsï¿½ï¿½ï¿½gï¿½ï¿½ï¿½Äï¿½ï¿½Wï¿½ÏŠï¿½
     output.position = mul(input.position, instancingData.WVP);
     output.texcoord = input.texcoord;
     output.normal = normalize(mul(input.normal, (float32_t3x3) instancingData.World));
-    output.worldPosition = mul(input.position, instancingData.World).xyz; // worldPosition‚à–Y‚ê‚¸‚ÉŒvZ
+    output.worldPosition = mul(input.position, instancingData.World).xyz; // worldPositionï¿½ï¿½Yï¿½ê‚¸ï¿½ÉŒvï¿½Z
 
     return output;
 }

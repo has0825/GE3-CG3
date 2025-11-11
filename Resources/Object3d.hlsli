@@ -4,7 +4,7 @@ struct VertexShaderOutput
     float32_t4 position : SV_POSITION;
     float32_t2 texcoord : TEXCOORD0;
     float32_t3 normal : NORMAL0;
-    float32_t3 worldPosition : TEXCOORD1; // <<< ï¿½ï¿½ï¿½Ìsï¿½ï¿½Ç‰ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½
+    float32_t3 worldPosition : TEXCOORD1; // <<< ‚±‚Ìs‚ð’Ç‰Á‚µ‚Ü‚µ‚½
 };
 
 //05_03
