@@ -161,7 +161,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	// テクスチャ読み込み (スプライト用およびモデル用)
 	// ※ファイルパスはResourcesフォルダからの相対パス
-	TextureManager::GetInstance()->LoadTexture("monsterBall.png");
+	TextureManager::GetInstance()->LoadTexture("monsterBall.png"); 
 	TextureManager::GetInstance()->LoadTexture("block/block.png");
 	TextureManager::GetInstance()->LoadTexture("uvChecker.png"); // もしjpgが存在すれば
 
