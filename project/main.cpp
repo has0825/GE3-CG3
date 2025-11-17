@@ -50,7 +50,7 @@
 #include "DataTypes.h"
 #include "Input.h"
 
-// ★ 追加ヘッダー
+// マネージャー・スプライト
 #include "TextureManager.h"
 #include "ModelManager.h"
 #include "Sprite.h"
@@ -128,7 +128,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 	dxCommon->Initialize(winApp);
 
-	// ★修正: Inputはシングルトンとして取得
+	// Inputはシングルトンとして取得
 	Input* input = Input::GetInstance();
 	input->Initialize(winApp);
 
@@ -145,9 +145,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// -----------------------------------------------------------
 	// ★ 達成条件対応: マネージャーの初期化
 	// -----------------------------------------------------------
-	// TextureManagerの初期化 (Resourcesフォルダをルートとする)
+	// TextureManager (Resourcesフォルダをルート)
 	TextureManager::GetInstance()->Initialize(device, "Resources/");
-	// ModelManagerの初期化
+	// ModelManager
 	ModelManager::GetInstance()->Initialize(device);
 
 
@@ -155,14 +155,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// ★ 達成条件対応: リソースの一括ロード
 	// -----------------------------------------------------------
 
-	// 3Dモデル読み込み (Block と Axis)
+	// 3Dモデル読み込み
 	ModelManager::GetInstance()->LoadModel("Resources/block", "block.obj");
-	ModelManager::GetInstance()->LoadModel("Resources", "axis.obj"); // ルートにあるaxis
+	ModelManager::GetInstance()->LoadModel("Resources", "axis.obj");
 
-	// テクスチャ読み込み (スプライト用)
-	// ※ 3Dモデル用のテクスチャ(block.pngなど)はModel描画時に自動ロードされますが、
-	// ここで明示的にロードしても問題ありません。
+	// テクスチャ読み込み (スプライト用およびモデル用)
+	// ※ファイルパスはResourcesフォルダからの相対パス
 	TextureManager::GetInstance()->LoadTexture("monsterBall.png");
+	TextureManager::GetInstance()->LoadTexture("block/block.png");
+	TextureManager::GetInstance()->LoadTexture("uvChecker.png"); // もしjpgが存在すれば
 
 
 	// -----------------------------------------------------------
@@ -174,28 +175,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// 1. ブロック (左側)
 	Model* modelBlock1 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
 	modelBlock1->transform.translate = { -2.0f, 0.0f, 0.0f };
+	// ★追加: 黒くなるのを防ぐため、明示的にテクスチャを指定
+	modelBlock1->SetTexture("block/block.png");
 
 	// 2. ブロック (右側) ★同一モデルデータの使い回し・座標指定
 	Model* modelBlock2 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
 	modelBlock2->transform.translate = { 2.0f, 0.0f, 0.0f };
+	// ★追加: テクスチャ指定
+	modelBlock2->SetTexture("block/block.png");
 
 	// 3. 軸モデル (中央) ★モデルの切り替え
 	Model* modelAxis = ModelManager::GetInstance()->CreateModel("Resources", "axis.obj");
 	modelAxis->transform.translate = { 0.0f, 0.0f, 0.0f };
+	// ★追加: テクスチャ指定
+	modelAxis->SetTexture("uvChecker.png");
 
 
 	// --- 2Dスプライト ---
 
 	// 1. モンスターボール (左上)
 	Sprite* spriteBall = Sprite::Create("monsterBall.png", { 50.0f, 50.0f });
-	// サイズ指定 (画像のピクセルサイズが分からないので適当に100x100にする)
+	// サイズ指定 (頂点は1x1なので、ここでピクセルサイズを指定する)
 	spriteBall->transform.scale = { 100.0f, 100.0f, 1.0f };
 
-	// 2. 切り取りテスト用モンスターボール (右の方) ★範囲指定切り取り
+	// 2. 切り取りテスト用 (右側)
 	Sprite* spriteCut = Sprite::Create("monsterBall.png", { 300.0f, 50.0f });
-	spriteCut->transform.scale = { 100.0f, 100.0f, 1.0f }; // 表示サイズ
-	// 画像の左上(0,0)から、半分のサイズだけ切り取るようなイメージ（数値は仮定）
-	// ※画像サイズが不明なので、とりあえず 64x64 切り取りとします
+	spriteCut->transform.scale = { 100.0f, 100.0f, 1.0f };
+	// 画像の左上から64x64ピクセル分を切り抜いて表示
 	spriteCut->SetTextureRect(0.0f, 0.0f, 64.0f, 64.0f);
 
 
@@ -208,7 +214,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	DirectionalLight* lightData = nullptr;
 	lightResource->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
 	lightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	lightData->direction = { 0.0f, -1.0f, 1.0f }; // 少し斜め前から
+	lightData->direction = { 0.0f, -1.0f, 1.0f };
 	lightData->intensity = 1.0f;
 
 	// 3Dカメラ
@@ -243,11 +249,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// ブロック1の回転
 		modelBlock1->transform.rotate.y += 0.02f;
 
-		// ブロック2の移動 (キー操作)
+		// ブロック2の移動
 		if (input->IsKeyPressed(DIK_D)) { modelBlock2->transform.translate.x += 0.1f; }
 		if (input->IsKeyPressed(DIK_A)) { modelBlock2->transform.translate.x -= 0.1f; }
 
-		// スプライトの移動テスト
+		// スプライトの移動
 		if (input->IsKeyPressed(DIK_RIGHT)) { spriteBall->transform.translate.x += 2.0f; }
 		if (input->IsKeyPressed(DIK_LEFT)) { spriteBall->transform.translate.x -= 2.0f; }
 
@@ -269,11 +275,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		commandList->SetPipelineState(pipeline->GetPipelineState());
 		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		// ★ TextureManagerが管理するSRVヒープをセット
+		// SRVヒープセット
 		ID3D12DescriptorHeap* ppHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
 		commandList->SetDescriptorHeaps(1, ppHeaps);
 
-		// 共通定数バッファ (Light / Camera)
+		// 共通定数バッファ
 		commandList->SetGraphicsRootConstantBufferView(3, lightResource->GetGPUVirtualAddress());
 		commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
@@ -283,8 +289,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		modelAxis->Draw(commandList, viewProjectionMatrix);
 
 		// --- 2Dスプライト描画 ---
-		// Z書き込みを無効にするPipelineStateに変えるのが理想ですが、簡易的にこのまま描画
-		// 深度テストで負けないようにZ座標を手前などで調整するか、3Dの後に描画することで上書き期待
 		spriteBall->Draw(commandList, projectionMatrixSprite);
 		spriteCut->Draw(commandList, projectionMatrixSprite);
 
@@ -302,11 +306,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	delete spriteCut;
 
 	delete pipeline;
-	// delete input; // シングルトンのため削除不要
-
-	// マネージャーのシングルトンインスタンスは、プログラム終了時に
-	// OSによってメモリ解放されるため、簡易的にはそのままでもリーク検出以外では問題起きませんが、
-	// 厳密には終了処理関数(Finalize)を作って呼ぶのが良いです。今回は省略します。
 
 	dxCommon->Finalize();
 	CoUninitialize();
