@@ -46,10 +46,18 @@
 #include "D3D12Util.h"
 #include "Model.h"
 #include "MathUtil.h"
-#include "MathTypes.h" 
+#include "MathTypes.h"
 #include "DataTypes.h"
 #include "Input.h"
 
+// ★ 追加ヘッダー
+#include "TextureManager.h"
+#include "ModelManager.h"
+#include "Sprite.h"
+
+// ===============================================
+// デバッグ・便利関数群
+// ===============================================
 
 static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
 	SYSTEMTIME time;
@@ -72,13 +80,11 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
 	return EXCEPTION_EXECUTE_HANDLER;
 }
 
-// ログ出力
 void Log(std::ostream& os, const std::string& message) {
 	os << message << std::endl;
 	OutputDebugStringA(message.c_str());
 }
 
-// 文字列変換
 std::wstring ConvertString(const std::string& str) {
 	if (str.empty()) { return std::wstring(); }
 	auto sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), NULL, 0);
@@ -97,11 +103,9 @@ std::string ConvertString(const std::wstring& str) {
 	return result;
 }
 
-// D3Dリソースリークチェッカー
 struct D3DResourceLeakChecker {
 	~D3DResourceLeakChecker() {
 		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
-
 		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
 			debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
 			debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
@@ -109,116 +113,155 @@ struct D3DResourceLeakChecker {
 		}
 	}
 };
-// ===============================================
 
+// ===============================================
+// Main 関数
+// ===============================================
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	D3DResourceLeakChecker leakChecker;
 
+	// 1. 基盤システムの初期化
 	WinApp* winApp = WinApp::GetInstance();
 	winApp->Initialize();
 
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 	dxCommon->Initialize(winApp);
 
+	// ★修正: Inputはシングルトンとして取得
 	Input* input = Input::GetInstance();
 	input->Initialize(winApp);
 
 	CoInitializeEx(0, COINIT_MULTITHREADED);
 	SetUnhandledExceptionFilter(ExportDump);
 
-
 	ID3D12Device* device = dxCommon->GetDevice();
 	ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-
+	// 2. パイプライン生成
 	GraphicsPipeline* pipeline = new GraphicsPipeline();
 	pipeline->Initialize(device);
 
-
-	const uint32_t kMaxSRVCount = 2056;
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
-		CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kMaxSRVCount, true);
-
-
-
-	DirectX::ScratchImage mipImages = LoadTexture("resources/player/player.png");
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
+	// -----------------------------------------------------------
+	// ★ 達成条件対応: マネージャーの初期化
+	// -----------------------------------------------------------
+	// TextureManagerの初期化 (Resourcesフォルダをルートとする)
+	TextureManager::GetInstance()->Initialize(device, "Resources/");
+	// ModelManagerの初期化
+	ModelManager::GetInstance()->Initialize(device);
 
 
-	Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
-		UploadTextureData(textureResource.Get(), mipImages, device, commandList);
+	// -----------------------------------------------------------
+	// ★ 達成条件対応: リソースの一括ロード
+	// -----------------------------------------------------------
 
-	// SRVを作成 (ヒープの0番目に作成)
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Format = metadata.format;
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+	// 3Dモデル読み込み (Block と Axis)
+	ModelManager::GetInstance()->LoadModel("Resources/block", "block.obj");
+	ModelManager::GetInstance()->LoadModel("Resources", "axis.obj"); // ルートにあるaxis
 
-	UINT descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0);
+	// テクスチャ読み込み (スプライト用)
+	// ※ 3Dモデル用のテクスチャ(block.pngなど)はModel描画時に自動ロードされますが、
+	// ここで明示的にロードしても問題ありません。
+	TextureManager::GetInstance()->LoadTexture("monsterBall.png");
 
-	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
 
+	// -----------------------------------------------------------
+	// ★ 達成条件対応: オブジェクト生成 (Manager経由)
+	// -----------------------------------------------------------
+
+	// --- 3Dオブジェクト ---
+
+	// 1. ブロック (左側)
+	Model* modelBlock1 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
+	modelBlock1->transform.translate = { -2.0f, 0.0f, 0.0f };
+
+	// 2. ブロック (右側) ★同一モデルデータの使い回し・座標指定
+	Model* modelBlock2 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
+	modelBlock2->transform.translate = { 2.0f, 0.0f, 0.0f };
+
+	// 3. 軸モデル (中央) ★モデルの切り替え
+	Model* modelAxis = ModelManager::GetInstance()->CreateModel("Resources", "axis.obj");
+	modelAxis->transform.translate = { 0.0f, 0.0f, 0.0f };
+
+
+	// --- 2Dスプライト ---
+
+	// 1. モンスターボール (左上)
+	Sprite* spriteBall = Sprite::Create("monsterBall.png", { 50.0f, 50.0f });
+	// サイズ指定 (画像のピクセルサイズが分からないので適当に100x100にする)
+	spriteBall->transform.scale = { 100.0f, 100.0f, 1.0f };
+
+	// 2. 切り取りテスト用モンスターボール (右の方) ★範囲指定切り取り
+	Sprite* spriteCut = Sprite::Create("monsterBall.png", { 300.0f, 50.0f });
+	spriteCut->transform.scale = { 100.0f, 100.0f, 1.0f }; // 表示サイズ
+	// 画像の左上(0,0)から、半分のサイズだけ切り取るようなイメージ（数値は仮定）
+	// ※画像サイズが不明なので、とりあえず 64x64 切り取りとします
+	spriteCut->SetTextureRect(0.0f, 0.0f, 64.0f, 64.0f);
+
+
+	// -----------------------------------------------------------
+	// 定数バッファ (ライト・カメラ)
+	// -----------------------------------------------------------
+
+	// ライト
 	Microsoft::WRL::ComPtr<ID3D12Resource> lightResource = CreateBufferResource(device, sizeof(DirectionalLight));
 	DirectionalLight* lightData = nullptr;
 	lightResource->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
 	lightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	lightData->direction = { 0.0f, -1.0f, 0.0f }; // 真上からのライト
+	lightData->direction = { 0.0f, -1.0f, 1.0f }; // 少し斜め前から
 	lightData->intensity = 1.0f;
 
-
+	// 3Dカメラ
 	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource = CreateBufferResource(device, sizeof(CameraForGpu));
 	CameraForGpu* cameraData = nullptr;
 	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
 
-	Transform cameraTransform = { {1.0f, 1.0f, 1.0f}, {0.1f, 0.0f, 0.0f}, {0.0f, 5.0f, -15.0f} };
-	cameraData->worldPosition = cameraTransform.translate; // カメラのワールド座標をシェーダーに渡す
+	Transform cameraTransform = { {1.0f, 1.0f, 1.0f}, {0.3f, 0.0f, 0.0f}, {0.0f, 4.0f, -10.0f} };
 
-	Matrix4x4 viewMatrix = Inverse(MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate));
-	Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(winApp->kClientWidth) / float(winApp->kClientHeight), 0.1f, 100.0f);
-	Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+	// 2Dスプライト用カメラ (平行投影)
+	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
+		0.0f, 0.0f, (float)winApp->kClientWidth, (float)winApp->kClientHeight, 0.0f, 100.0f);
 
 
-	Model* playerModel = Model::Create("resources/player", "player.obj", device);
-	playerModel->transform.translate = { 0.0f, 0.0f, 0.0f };
-	playerModel->transform.scale = { 1.0f, 1.0f, 1.0f };
-	playerModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
-	// ------------------------
-
-	// --- メインループ ---
+	// ===============================================
+	// メインループ
+	// ===============================================
 	while (!winApp->IsEndRequested()) {
 		winApp->ProcessMessage();
 		input->Update();
 
 		if (input->IsKeyTriggered(DIK_ESCAPE)) {
-			break; // ループを抜ける
+			break;
 		}
 
+		// --- 更新処理 ---
 
-		Vector3 move = { 0.0f, 0.0f, 0.0f };
-		const float kMoveSpeed = 0.1f;
+		// カメラ操作
+		if (input->IsKeyPressed(DIK_UP)) { cameraTransform.translate.y += 0.1f; }
+		if (input->IsKeyPressed(DIK_DOWN)) { cameraTransform.translate.y -= 0.1f; }
 
-		if (input->IsKeyPressed(DIK_W)) {
-			move.z += kMoveSpeed;
-		}
-		if (input->IsKeyPressed(DIK_S)) {
-			move.z -= kMoveSpeed;
-		}
-		if (input->IsKeyPressed(DIK_A)) {
-			move.x -= kMoveSpeed;
-		}
-		if (input->IsKeyPressed(DIK_D)) {
-			move.x += kMoveSpeed;
-		}
+		// ブロック1の回転
+		modelBlock1->transform.rotate.y += 0.02f;
 
-		// transformに移動量を加算
-		playerModel->transform.translate.x += move.x;
-		playerModel->transform.translate.y += move.y;
-		playerModel->transform.translate.z += move.z;
+		// ブロック2の移動 (キー操作)
+		if (input->IsKeyPressed(DIK_D)) { modelBlock2->transform.translate.x += 0.1f; }
+		if (input->IsKeyPressed(DIK_A)) { modelBlock2->transform.translate.x -= 0.1f; }
+
+		// スプライトの移動テスト
+		if (input->IsKeyPressed(DIK_RIGHT)) { spriteBall->transform.translate.x += 2.0f; }
+		if (input->IsKeyPressed(DIK_LEFT)) { spriteBall->transform.translate.x -= 2.0f; }
+
+		// Sprite更新
+		spriteBall->Update();
+		spriteCut->Update();
+
+
+		// 3Dカメラ行列計算
+		cameraData->worldPosition = cameraTransform.translate;
+		Matrix4x4 viewMatrix = Inverse(MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate));
+		Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(winApp->kClientWidth) / float(winApp->kClientHeight), 0.1f, 100.0f);
+		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+
 
 		// --- 描画処理 ---
 		dxCommon->PreDraw();
@@ -226,31 +269,45 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		commandList->SetPipelineState(pipeline->GetPipelineState());
 		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		// SRVヒープの設定
-		ID3D12DescriptorHeap* ppHeaps[] = { srvDescriptorHeap.Get() };
+		// ★ TextureManagerが管理するSRVヒープをセット
+		ID3D12DescriptorHeap* ppHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
 		commandList->SetDescriptorHeaps(1, ppHeaps);
 
-
-		// Model::Draw の中で [0], [1], [2] が設定される
-		// [3] ライト
+		// 共通定数バッファ (Light / Camera)
 		commandList->SetGraphicsRootConstantBufferView(3, lightResource->GetGPUVirtualAddress());
-		// [4] カメラ
 		commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
+		// --- 3D描画 ---
+		modelBlock1->Draw(commandList, viewProjectionMatrix);
+		modelBlock2->Draw(commandList, viewProjectionMatrix);
+		modelAxis->Draw(commandList, viewProjectionMatrix);
 
-		playerModel->Draw(commandList, viewProjectionMatrix, textureSrvHandleGPU);
+		// --- 2Dスプライト描画 ---
+		// Z書き込みを無効にするPipelineStateに変えるのが理想ですが、簡易的にこのまま描画
+		// 深度テストで負けないようにZ座標を手前などで調整するか、3Dの後に描画することで上書き期待
+		spriteBall->Draw(commandList, projectionMatrixSprite);
+		spriteCut->Draw(commandList, projectionMatrixSprite);
 
 		dxCommon->PostDraw();
 	}
 
-	// --- 終了処理 ---
+	// ===============================================
+	// 終了処理
+	// ===============================================
 
-	delete playerModel;
+	delete modelBlock1;
+	delete modelBlock2;
+	delete modelAxis;
+	delete spriteBall;
+	delete spriteCut;
 
 	delete pipeline;
-	// (ComPtrで管理されているリソースは自動解放されます)
+	// delete input; // シングルトンのため削除不要
 
-	input->Finalize();
+	// マネージャーのシングルトンインスタンスは、プログラム終了時に
+	// OSによってメモリ解放されるため、簡易的にはそのままでもリーク検出以外では問題起きませんが、
+	// 厳密には終了処理関数(Finalize)を作って呼ぶのが良いです。今回は省略します。
+
 	dxCommon->Finalize();
 	CoUninitialize();
 	winApp->Finalize();

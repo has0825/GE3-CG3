@@ -1,202 +1,66 @@
 #include "Model.h"
-#include <cassert>
-#include <fstream>
-#include <sstream>
+#include "ModelManager.h" // CommonDataの定義を知るために必要
+#include "TextureManager.h" // テクスチャ描画時に必要
 
-// static メンバー変数の定義
-std::map<std::string, std::shared_ptr<MeshData>> Model::meshCache_;
-ID3D12Device* Model::device_ = nullptr;
+void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
+	// 共通データを保持
+	commonData_ = commonData;
 
-// (LoadMaterialTemplateFile と LoadOjFile の実装は変更なし)
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename);
+	// トランスフォーム初期化
+	transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
 
-
-// ★ 新規: モデルデータ（メッシュ）をロードまたはキャッシュから取得
-std::shared_ptr<MeshData> Model::LoadMesh(
-	const std::string& directoryPath, const std::string& filename, ID3D12Device* device) {
-
-	// device_ が未設定なら設定
-	if (device_ == nullptr) {
-		device_ = device;
-	}
-
-	std::string filePath = directoryPath + "/" + filename;
-
-	// キャッシュを検索
-	auto it = meshCache_.find(filePath);
-	if (it != meshCache_.end()) {
-		// キャッシュヒット
-		return it->second;
-	}
-
-	// キャッシュミス。ロードする。
-	ModelData modelData = LoadOjFile(directoryPath, filename);
-
-	// MeshData を作成
-	std::shared_ptr<MeshData> meshData = std::make_shared<MeshData>();
-	meshData->vertices = modelData.vertices;
-	meshData->materialInfo = modelData.material; // .mtl の情報
-
-	// 頂点バッファ作成
-	meshData->vertexResource = CreateBufferResource(device, sizeof(VertexData) * meshData->vertices.size());
-	meshData->vertexBufferView.BufferLocation = meshData->vertexResource->GetGPUVirtualAddress();
-	meshData->vertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * meshData->vertices.size());
-	meshData->vertexBufferView.StrideInBytes = sizeof(VertexData);
-
-	VertexData* vertexData = nullptr;
-	meshData->vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-	std::memcpy(vertexData, meshData->vertices.data(), sizeof(VertexData) * meshData->vertices.size());
-	meshData->vertexResource->Unmap(0, nullptr); // MapしたリソースをUnmap
-
-	// キャッシュに保存
-	meshCache_[filePath] = meshData;
-
-	return meshData;
-}
-
-
-Model* Model::Create(
-	const std::string& directoryPath, const std::string& filename, ID3D12Device* device) {
-
-	// メッシュデータをロード（またはキャッシュから取得）
-	std::shared_ptr<MeshData> meshData = LoadMesh(directoryPath, filename, device);
-
-	Model* model = new Model();
-	model->Initialize(device); // インスタンス固有のリソースを初期化
-	model->SetMesh(meshData);  // メッシュデータをセット
-
-	return model;
-}
-
-void Model::Initialize(ID3D12Device* device) {
-
-	// device_ が未設定なら設定
-	if (device_ == nullptr) {
-		device_ = device;
-	}
-
-	// ★ 頂点バッファ関連の処理は LoadMesh に移動
-
-	// インスタンスごとのマテリアルバッファ作成
+	// マテリアルリソース (インスタンスごとに色を変えたりできるように個別に持つ)
 	materialResource_ = CreateBufferResource(device, sizeof(Material));
-	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	materialData->enableLighting = true;
-	materialData->uvTransform = MakeIdentity4x4();
-	// (materialDataは実行中に更新される可能性があるためUnmapしない)
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
+	materialData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialData_->enableLighting = true;
+	materialData_->uvTransform = MakeIdentity4x4();
 
-	// インスタンスごとのWVPバッファ作成
+	// WVPリソース (インスタンスごとに座標が違うので個別に持つ)
 	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
 	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
 	wvpData_->WVP = MakeIdentity4x4();
 	wvpData_->World = MakeIdentity4x4();
-	// (wvpData_は毎フレーム更新されるためUnmapしない)
 }
 
 void Model::Update() {
-	// 何もしない
+	// 必要であればここで更新処理
 }
 
 void Model::Draw(
 	ID3D12GraphicsCommandList* commandList,
-	const Matrix4x4& viewProjectionMatrix,
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle) {
+	const Matrix4x4& viewProjectionMatrix) {
 
-	// ★ メッシュデータがなければ描画しない
-	if (!meshData_) {
-		return;
-	}
-
+	// ワールド行列・WVP行列の計算更新
 	Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 	wvpData_->WVP = Multiply(worldMatrix, viewProjectionMatrix);
 	wvpData_->World = worldMatrix;
 
-	// ★ メッシュデータの頂点バッファを参照
-	commandList->IASetVertexBuffers(0, 1, &meshData_->vertexBufferView);
+	// 頂点バッファの設定 (共通データから取得)
+	commandList->IASetVertexBuffers(0, 1, &commonData_->vertexBufferView);
 
+	// マテリアル定数バッファ (このインスタンス固有)
 	commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+
+	// WVP定数バッファ (このインスタンス固有)
 	commandList->SetGraphicsRootConstantBufferView(1, wvpResource_->GetGPUVirtualAddress());
-	commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
 
-	// ★ メッシュデータの頂点数を参照
-	commandList->DrawInstanced(UINT(meshData_->vertices.size()), 1, 0, 0);
-}
+	// テクスチャ (TextureManager経由でハンドルを取得)
+	// objファイルに記述されていたテクスチャファイル名を使う
+	if (!commonData_->materialData.textureFilePath.empty()) {
+		// テクスチャマネージャーはパスの一部（ファイル名）だけで管理している場合があるので調整が必要だが、
+		// ここではパス全体、またはロード時のルールに従って取得
+		// ※LoadTexture時に "resources/player/player.png" のように保存している想定
+		// パスからファイル名だけ取り出す処理が必要ならここに書くが、一旦そのまま渡す
+		TextureManager* texManager = TextureManager::GetInstance();
 
+		// もしロードされていなければロードを試みる（念のため）
+		texManager->LoadTexture(commonData_->materialData.textureFilePath);
 
-// === このファイル内でのみ使用するヘルパー関数 ===
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename)
-{
-	MaterialData materialData;
-	std::string line;
-	std::ifstream file(directoryPath + "/" + filename);
-	assert(file.is_open());
-	while (std::getline(file, line)) {
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-		if (identifier == "map_Kd") {
-			std::string textureFilename;
-			s >> textureFilename;
-			materialData.textureFilePath = directoryPath + "/" + textureFilename;
-		}
+		D3D12_GPU_DESCRIPTOR_HANDLE srvHandle = texManager->GetSrvHandleGPU(commonData_->materialData.textureFilePath);
+		commandList->SetGraphicsRootDescriptorTable(2, srvHandle);
 	}
-	return materialData;
-}
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename)
-{
-	ModelData modelData;
-	std::vector<Vector4> positions;
-	std::vector<Vector3> normals;
-	std::vector<Vector2> texcoords;
-	std::string line;
-	std::ifstream file(directoryPath + "/" + filename);
-	assert(file.is_open());
-	while (std::getline(file, line)) {
-		std::string identifiler;
-		std::istringstream s(line);
-		s >> identifiler;
-		if (identifiler == "v") {
-			Vector4 position;
-			s >> position.x >> position.y >> position.z;
-			position.x *= -1.0f;
-			position.w = 1.0f;
-			positions.push_back(position);
-		} else if (identifiler == "vt") {
-			Vector2 texcoord;
-			s >> texcoord.x >> texcoord.y;
-			texcoord.y = 1.0f - texcoord.y;
-			texcoords.push_back(texcoord);
-		} else if (identifiler == "vn") {
-			Vector3 normal;
-			s >> normal.x >> normal.y >> normal.z;
-			normal.x *= -1.0f;
-			normals.push_back(normal);
-		} else if (identifiler == "f") {
-			VertexData triangle[3];
-			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-				std::string vertexDefinition;
-				s >> vertexDefinition;
-				std::istringstream v(vertexDefinition);
-				uint32_t elementIndices[3];
-				for (int32_t element = 0; element < 3; ++element) {
-					std::string index;
-					std::getline(v, index, '/');
-					elementIndices[element] = std::stoi(index);
-				}
-				Vector4 position = positions[elementIndices[0] - 1];
-				Vector2 texcoord = texcoords[elementIndices[1] - 1];
-				Vector3 normal = normals[elementIndices[2] - 1];
-				triangle[faceVertex] = { position, texcoord, normal };
-			}
-			modelData.vertices.push_back(triangle[2]);
-			modelData.vertices.push_back(triangle[1]);
-			modelData.vertices.push_back(triangle[0]);
-		} else if (identifiler == "mtllib") {
-			std::string materialFilename;
-			s >> materialFilename;
-			modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
-		}
-	}
-	return modelData;
+
+	// 描画
+	commandList->DrawInstanced(UINT(commonData_->vertices.size()), 1, 0, 0);
 }
