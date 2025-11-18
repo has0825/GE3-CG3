@@ -182,7 +182,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	cameraForGpuResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraForGpuData));
 
 	Transform cameraTransform{ { 1.0f, 1.0f, 1.0f }, { 0.2f, 0.0f, 0.0f }, { 0.0f, 5.0f, -15.0f } };
-	// === 変更点 2: Plane Rotate Y の初期値を -180度 (-PIラジアン) に設定 ===
+	
 	Transform globalPlaneTransform{ { 1.0f, 1.0f, 1.0f }, { 0.0f, -static_cast<float>(M_PI), 0.0f }, { 0.0f, 0.0f, 0.0f } };
 	bool useDefaultTexture = true;
 
