@@ -1,5 +1,5 @@
 #include "GraphicsPipeline.h"
-#include "DataTypes.h" // VertexDataの定義のために追加
+#include "DataTypes.h"
 #include <cassert>
 #include <format>
 #include <fstream>
@@ -38,24 +38,39 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     descriptionRootSignature.pStaticSamplers = staticSamplers;
     descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
-    D3D12_ROOT_PARAMETER rootParameters[6] = {}; // サイズを6に変更
+    // パラメータ数を4つに設定
+    D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
     // Param [0]: Material (PS, b0)
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].Descriptor.ShaderRegister = 0;
 
-    // Param [1]: WVP/World (VS, b0) - 通常描画用
-    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    rootParameters[1].Descriptor.ShaderRegister = 0;
+    // Param [1]: TransformationMatrices (VS, t1) - StructuredBuffer
+    D3D12_DESCRIPTOR_RANGE descriptorRangeForInstancing[1] = {};
+
+    // ★修正: BaseShaderRegister を 1 に設定 (VS.hlslの register(t1) と一致させる)
+    descriptorRangeForInstancing[0].BaseShaderRegister = 1;
+
+    descriptorRangeForInstancing[0].NumDescriptors = 1;
+    descriptorRangeForInstancing[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptorRangeForInstancing[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX; // VSで使用
+    rootParameters[1].DescriptorTable.pDescriptorRanges = descriptorRangeForInstancing;
+    rootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(descriptorRangeForInstancing);
 
     // Param [2]: Texture (PS, t0)
     D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
+
+    // ★確認: こちらは 0 のまま (PS.hlslの register(t0) と一致させる)
     descriptorRange[0].BaseShaderRegister = 0;
+
     descriptorRange[0].NumDescriptors = 1;
     descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
     rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
@@ -66,18 +81,8 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[3].Descriptor.ShaderRegister = 1;
 
-    // Param [4]: Camera (PS, b2)
-    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    rootParameters[4].Descriptor.ShaderRegister = 2;
-
-    // Param [5]: Instancing Buffer (VS, t1) - インスタンシング用
-    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    rootParameters[5].Descriptor.ShaderRegister = 1; // t1レジスタ
-
     descriptionRootSignature.pParameters = rootParameters;
-    descriptionRootSignature.NumParameters = _countof(rootParameters); // サイズを6にしているのでOK
+    descriptionRootSignature.NumParameters = _countof(rootParameters);
 
     Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
@@ -89,10 +94,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     hr = device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(), IID_PPV_ARGS(&rootSignature_));
     assert(SUCCEEDED(hr));
 
-
-    Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Object3d.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    // シェーダーファイルを "Particle" 用に変更
+    Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Particle.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
     assert(vertexShaderBlob != nullptr);
-    Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Object3d.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Particle.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
     assert(pixelShaderBlob != nullptr);
 
     D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
