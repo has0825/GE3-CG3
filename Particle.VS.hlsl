@@ -1,7 +1,7 @@
 #include "Particle.hlsli"
 
-// ★修正: InstancingData ではなく、hlsliで定義した TransformationMatrix を使う
-StructuredBuffer<TransformationMatrix> gInstancingData : register(t1);
+// ★修正: 型を ParticleForGPU に変更
+StructuredBuffer<ParticleForGPU> gParticle : register(t1);
 
 struct VertexShaderInput
 {
@@ -14,12 +14,15 @@ VertexShaderOutput main(VertexShaderInput input, uint instanceID : SV_InstanceID
 {
     VertexShaderOutput output;
 
-    // ★修正: 型名を合わせる
-    TransformationMatrix instancingData = gInstancingData[instanceID];
+	// ★修正: ParticleForGPU としてデータ取得
+    ParticleForGPU particle = gParticle[instanceID];
 
-    output.position = mul(input.position, instancingData.WVP);
+    output.position = mul(input.position, particle.WVP);
     output.texcoord = input.texcoord;
-    output.normal = normalize(mul(input.normal, (float32_t3x3) instancingData.World));
-    
+    output.normal = normalize(mul(input.normal, (float32_t3x3) particle.World));
+	
+	// ★追加: ここで色（透明度含む）を渡すことで、消える処理が可能になる
+    output.color = particle.color;
+	
     return output;
 }
