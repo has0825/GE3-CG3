@@ -358,14 +358,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
+		// ==========================================================================================
+		// ★ キーボード入力による設定切り替え
+		// ==========================================================================================
+		if (GetAsyncKeyState('1') & 0x8000) currentEffect = kTypeExplosion;
+		if (GetAsyncKeyState('2') & 0x8000) currentEffect = kTypeFountain;
+		if (GetAsyncKeyState('3') & 0x8000) currentEffect = kTypeSpiral;
+		if (GetAsyncKeyState('4') & 0x8000) currentEffect = kTypeRain;
+
+		// Gキーで重力トグル (最下位ビットで押した瞬間を検出)
+		if (GetAsyncKeyState('G') & 0x0001) {
+			useGravity = !useGravity;
+		}
+
 		ImGui::Begin("Particle Controller");
-		ImGui::Text("Effect Type");
+		ImGui::Text("Effect Type (Keys: 1-4)");
 		ImGui::RadioButton("Explosion", &currentEffect, kTypeExplosion); ImGui::SameLine();
 		ImGui::RadioButton("Fountain", &currentEffect, kTypeFountain); ImGui::SameLine();
 		ImGui::RadioButton("Spiral", &currentEffect, kTypeSpiral); ImGui::SameLine();
 		ImGui::RadioButton("Rain", &currentEffect, kTypeRain);
 		ImGui::Separator();
-		ImGui::Text("Settings");
+		ImGui::Text("Settings (Key: G)");
 		ImGui::Checkbox("Use Gravity", &useGravity);
 		ImGui::Checkbox("Glow (Additive Blend)", &useAdditiveBlend);
 		ImGui::DragFloat3("Emitter Pos", &emitterPos.x, 0.1f);
