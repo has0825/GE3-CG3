@@ -14,7 +14,7 @@ public:
     static WinApp* GetInstance();
 
     // ウィンドウの初期化
-    void Initialize(const wchar_t* title = L"CG2");
+    void Initialize(const wchar_t* title = L"LE2B_11_シミズグチ_ハル");
 
     // 終了処理
     void Finalize();
