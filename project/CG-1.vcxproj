@@ -15,6 +15,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Camera.cpp" />
     <ClCompile Include="engine\D3D12Util\D3D12Util.cpp" />
     <ClCompile Include="engine\Basic functions\DirectXCommon.cpp" />
     <ClCompile Include="externals\imgui\imgui.cpp" />
@@ -34,10 +35,21 @@
     <ClCompile Include="engine\Model\Model.cpp" />
     <ClCompile Include="engine\window\WinApp.cpp" />
     <ClCompile Include="ModelManager.cpp" />
+    <ClCompile Include="ParticleManager.cpp" />
     <ClCompile Include="Sprite.cpp" />
     <ClCompile Include="TextureManager.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <FxCompile Include="Particle.PS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Development|x64'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="Particle.VS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Development|x64'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+    </FxCompile>
     <FxCompile Include="Resources\shaders\Object3d.PS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
@@ -56,6 +68,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Camera.h" />
     <ClInclude Include="engine\D3D12Util\D3D12Util.h" />
     <ClInclude Include="DataTypes.h" />
     <ClInclude Include="engine\Basic functions\DirectXCommon.h" />
@@ -74,6 +87,7 @@
     <ClInclude Include="engine\window\WinApp.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="ModelManager.h" />
+    <ClInclude Include="ParticleManager.h" />
     <ClInclude Include="Sprite.h" />
     <ClInclude Include="TextureManager.h" />
   </ItemGroup>
@@ -86,6 +100,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Particle.hlsli" />
     <None Include="Resources\shaders\Object3d.hlsli">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</ExcludedFromBuild>

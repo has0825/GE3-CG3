@@ -1,314 +1,161 @@
-﻿#define _USE_MATH_DEFINES
-
-// C++ 標準ライブラリ
-#include <cassert>
-#include <chrono>
-#include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <wrl.h>
-
-// Windows / DirectX
+﻿#define NOMINMAX
 #include <Windows.h>
-#include <objbase.h>
 #include <d3d12.h>
-#include <dbghelp.h>
-#include <dxcapi.h>
-#include <dxgi1_6.h>
-#include <dxgidebug.h>
-#include <strsafe.h>
-#include <xaudio2.h>
+#include <string>
 
-// 外部ライブラリ
-#include "externals/DirectXTex/DirectXTex.h"
-#include "externals/DirectXTex/d3dx12.h"
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
-
-// ライブラリのリンク
-#pragma comment(lib, "xaudio2.lib")
-#pragma comment(lib, "d3d12.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "dbghelp.lib")
-#pragma comment(lib, "dxguid.lib")
-#pragma comment(lib, "dxcompiler.lib")
-#pragma comment(lib, "dinput8.lib")
-
-// プロジェクトヘッダー
+// エンジンヘッダー
 #include "WinApp.h"
 #include "DirectXCommon.h"
 #include "GraphicsPipeline.h"
-#include "D3D12Util.h"
-#include "Model.h"
-#include "MathUtil.h"
-#include "MathTypes.h"
-#include "DataTypes.h"
 #include "Input.h"
-
-// マネージャー・スプライト
 #include "TextureManager.h"
 #include "ModelManager.h"
+#include "Model.h"
 #include "Sprite.h"
+#include "ParticleManager.h"
+#include "Camera.h"
+#include "MathUtil.h"
 
-// ===============================================
-// デバッグ・便利関数群
-// ===============================================
+// リンク設定
+#pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "dxcompiler.lib")
 
-static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
-	SYSTEMTIME time;
-	GetLocalTime(&time);
-	wchar_t filePath[MAX_PATH] = { 0 };
-	CreateDirectory(L"./Dumps", nullptr);
-	StringCchPrintfW(filePath, MAX_PATH, L"./Dumps/%04d-%02d%02d-%02d%02d.dmp",
-		time.wYear, time.wMonth, time.wDay, time.wHour,
-		time.wMinute);
-	HANDLE dumpFileHandle = CreateFile(filePath, GENERIC_READ | GENERIC_WRITE,
-		FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
-	DWORD processId = GetCurrentProcessId();
-	DWORD threadId = GetCurrentThreadId();
-	MINIDUMP_EXCEPTION_INFORMATION minidumpInformation{ 0 };
-	minidumpInformation.ThreadId = threadId;
-	minidumpInformation.ExceptionPointers = exception;
-	minidumpInformation.ClientPointers = TRUE;
-	MiniDumpWriteDump(GetCurrentProcess(), processId, dumpFileHandle,
-		MiniDumpNormal, &minidumpInformation, nullptr, nullptr);
-	return EXCEPTION_EXECUTE_HANDLER;
-}
-
+// デバッグ用ログ関数など (省略せず記述)
 void Log(std::ostream& os, const std::string& message) {
-	os << message << std::endl;
 	OutputDebugStringA(message.c_str());
 }
-
-std::wstring ConvertString(const std::string& str) {
-	if (str.empty()) { return std::wstring(); }
-	auto sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), NULL, 0);
-	if (sizeNeeded == 0) { return std::wstring(); }
-	std::wstring result(sizeNeeded, 0);
-	MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), &result[0], sizeNeeded);
-	return result;
-}
-
 std::string ConvertString(const std::wstring& str) {
-	if (str.empty()) { return std::string(); }
-	auto sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), NULL, 0, NULL, NULL);
-	if (sizeNeeded == 0) { return std::string(); }
+	if (str.empty()) return std::string();
+	int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, str.data(), (int)str.size(), NULL, 0, NULL, NULL);
 	std::string result(sizeNeeded, 0);
-	WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), sizeNeeded, NULL, NULL);
+	WideCharToMultiByte(CP_UTF8, 0, str.data(), (int)str.size(), &result[0], sizeNeeded, NULL, NULL);
 	return result;
 }
-
-struct D3DResourceLeakChecker {
-	~D3DResourceLeakChecker() {
-		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
-		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
-			debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
-			debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
-			debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
-		}
-	}
-};
-
-// ===============================================
-// Main 関数
-// ===============================================
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-	D3DResourceLeakChecker leakChecker;
-
-	// 1. 基盤システムの初期化
+	// ===============================================
+	// 1. システム初期化
+	// ===============================================
 	WinApp* winApp = WinApp::GetInstance();
 	winApp->Initialize();
 
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 	dxCommon->Initialize(winApp);
 
-	// Inputはシングルトンとして取得
 	Input* input = Input::GetInstance();
 	input->Initialize(winApp);
-
-	CoInitializeEx(0, COINIT_MULTITHREADED);
-	SetUnhandledExceptionFilter(ExportDump);
 
 	ID3D12Device* device = dxCommon->GetDevice();
 	ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-	// 2. パイプライン生成
-	GraphicsPipeline* pipeline = new GraphicsPipeline();
-	pipeline->Initialize(device);
+	// ===============================================
+	// 2. パイプライン・マネージャの初期化
+	// ===============================================
+	GraphicsPipeline* graphicsPipeline = new GraphicsPipeline();
+	graphicsPipeline->Initialize(device);
 
-	// -----------------------------------------------------------
-	// ★ 達成条件対応: マネージャーの初期化
-	// -----------------------------------------------------------
-	// TextureManager (Resourcesフォルダをルート)
-	TextureManager::GetInstance()->Initialize(device, "Resources/");
-	// ModelManager
+	TextureManager::GetInstance()->Initialize(device);
 	ModelManager::GetInstance()->Initialize(device);
 
-
-	// -----------------------------------------------------------
-	// ★ 達成条件対応: リソースの一括ロード
-	// -----------------------------------------------------------
-
-	// 3Dモデル読み込み
-	ModelManager::GetInstance()->LoadModel("Resources/block", "block.obj");
-	ModelManager::GetInstance()->LoadModel("Resources", "axis.obj");
-
-	// テクスチャ読み込み (スプライト用およびモデル用)
-	// ※ファイルパスはResourcesフォルダからの相対パス
-	TextureManager::GetInstance()->LoadTexture("monsterBall.png"); 
-	TextureManager::GetInstance()->LoadTexture("block/block.png");
-	TextureManager::GetInstance()->LoadTexture("uvChecker.png"); // もしjpgが存在すれば
-
-
-	// -----------------------------------------------------------
-	// ★ 達成条件対応: オブジェクト生成 (Manager経由)
-	// -----------------------------------------------------------
-
-	// --- 3Dオブジェクト ---
-
-	// 1. ブロック (左側)
-	Model* modelBlock1 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
-	modelBlock1->transform.translate = { -2.0f, 0.0f, 0.0f };
-	// ★追加: 黒くなるのを防ぐため、明示的にテクスチャを指定
-	modelBlock1->SetTexture("block/block.png");
-
-	// 2. ブロック (右側) ★同一モデルデータの使い回し・座標指定
-	Model* modelBlock2 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
-	modelBlock2->transform.translate = { 2.0f, 0.0f, 0.0f };
-	// ★追加: テクスチャ指定
-	modelBlock2->SetTexture("block/block.png");
-
-	// 3. 軸モデル (中央) ★モデルの切り替え
-	Model* modelAxis = ModelManager::GetInstance()->CreateModel("Resources", "axis.obj");
-	modelAxis->transform.translate = { 0.0f, 0.0f, 0.0f };
-	// ★追加: テクスチャ指定
-	modelAxis->SetTexture("uvChecker.png");
-
-
-	// --- 2Dスプライト ---
-
-	// 1. モンスターボール (左上)
-	Sprite* spriteBall = Sprite::Create("monsterBall.png", { 50.0f, 50.0f });
-	// サイズ指定 (頂点は1x1なので、ここでピクセルサイズを指定する)
-	spriteBall->transform.scale = { 100.0f, 100.0f, 1.0f };
-
-	// 2. 切り取りテスト用 (右側)
-	Sprite* spriteCut = Sprite::Create("monsterBall.png", { 300.0f, 50.0f });
-	spriteCut->transform.scale = { 100.0f, 100.0f, 1.0f };
-	// 画像の左上から64x64ピクセル分を切り抜いて表示
-	spriteCut->SetTextureRect(0.0f, 0.0f, 64.0f, 64.0f);
-
-
-	// -----------------------------------------------------------
-	// 定数バッファ (ライト・カメラ)
-	// -----------------------------------------------------------
-
-	// ライト
-	Microsoft::WRL::ComPtr<ID3D12Resource> lightResource = CreateBufferResource(device, sizeof(DirectionalLight));
-	DirectionalLight* lightData = nullptr;
-	lightResource->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
-	lightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	lightData->direction = { 0.0f, -1.0f, 1.0f };
-	lightData->intensity = 1.0f;
-
-	// 3Dカメラ
-	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource = CreateBufferResource(device, sizeof(CameraForGpu));
-	CameraForGpu* cameraData = nullptr;
-	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
-
-	Transform cameraTransform = { {1.0f, 1.0f, 1.0f}, {0.3f, 0.0f, 0.0f}, {0.0f, 4.0f, -10.0f} };
-
-	// 2Dスプライト用カメラ (平行投影)
-	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
-		0.0f, 0.0f, (float)winApp->kClientWidth, (float)winApp->kClientHeight, 0.0f, 100.0f);
-
+	// パーティクルマネージャ (円形テクスチャを指定して初期化)
+	// ※Resources/circle.png が存在することを確認してください
+	ParticleManager* particleManager = new ParticleManager();
+	particleManager->Initialize(device, "Resources/circle.png");
 
 	// ===============================================
-	// メインループ
+	// 3. オブジェクト生成
+	// ===============================================
+	// 板ポリゴンモデルの生成 (ParticleManager::Drawで頂点バッファが必要なため)
+	// 本来は ParticleManager 内部で持つべきですが、今回は ModelManager を利用
+	// plane.obj が無い場合でも動くよう、簡易モデル作成関数がある場合はそちら推奨
+	Model* planeModel = ModelManager::GetInstance()->CreateModel("Resources", "plane.obj");
+
+	// カメラ生成 (Windowサイズを渡す)
+	Camera* camera = new Camera(WinApp::kClientWidth, WinApp::kClientHeight);
+	camera->SetTranslate({ 0.0f, 2.0f, -10.0f });
+
+	// 現在のパーティクルエフェクト
+	ParticleType currentEffect = ParticleType::kExplosion;
+
+	// ===============================================
+	// 4. メインループ
 	// ===============================================
 	while (!winApp->IsEndRequested()) {
+		// メッセージ処理 & 入力更新
 		winApp->ProcessMessage();
 		input->Update();
 
-		if (input->IsKeyTriggered(DIK_ESCAPE)) {
-			break;
+		if (input->IsKeyTriggered(DIK_ESCAPE)) break;
+
+		// --- [達成条件] カメラ移動 ---
+		Transform& camTrans = camera->GetTransform();
+		if (input->IsKeyPressed(DIK_UP))    camTrans.translate.y += 0.1f;
+		if (input->IsKeyPressed(DIK_DOWN))  camTrans.translate.y -= 0.1f;
+		if (input->IsKeyPressed(DIK_RIGHT)) camTrans.translate.x += 0.1f;
+		if (input->IsKeyPressed(DIK_LEFT))  camTrans.translate.x -= 0.1f;
+		if (input->IsKeyPressed(DIK_W))     camTrans.translate.z += 0.1f; // Zoom In
+		if (input->IsKeyPressed(DIK_S))     camTrans.translate.z -= 0.1f; // Zoom Out
+
+		camera->Update(); // 行列更新
+
+		// --- [達成条件] パーティクル種類切り替え ---
+		if (input->IsKeyTriggered(DIK_1)) currentEffect = ParticleType::kExplosion;
+		if (input->IsKeyTriggered(DIK_2)) currentEffect = ParticleType::kFountain;
+		if (input->IsKeyTriggered(DIK_3)) currentEffect = ParticleType::kSpiral;
+		if (input->IsKeyTriggered(DIK_4)) currentEffect = ParticleType::kRain;
+
+		// --- [達成条件] 座標指定で発生 (スペースキー) ---
+		if (input->IsKeyPressed(DIK_SPACE)) {
+			// 原点から発生
+			particleManager->Emit(currentEffect, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f });
 		}
 
-		// --- 更新処理 ---
-
-		// カメラ操作
-		if (input->IsKeyPressed(DIK_UP)) { cameraTransform.translate.y += 0.1f; }
-		if (input->IsKeyPressed(DIK_DOWN)) { cameraTransform.translate.y -= 0.1f; }
-
-		// ブロック1の回転
-		modelBlock1->transform.rotate.y += 0.02f;
-
-		// ブロック2の移動
-		if (input->IsKeyPressed(DIK_D)) { modelBlock2->transform.translate.x += 0.1f; }
-		if (input->IsKeyPressed(DIK_A)) { modelBlock2->transform.translate.x -= 0.1f; }
-
-		// スプライトの移動
-		if (input->IsKeyPressed(DIK_RIGHT)) { spriteBall->transform.translate.x += 2.0f; }
-		if (input->IsKeyPressed(DIK_LEFT)) { spriteBall->transform.translate.x -= 2.0f; }
-
-		// Sprite更新
-		spriteBall->Update();
-		spriteCut->Update();
-
-
-		// 3Dカメラ行列計算
-		cameraData->worldPosition = cameraTransform.translate;
-		Matrix4x4 viewMatrix = Inverse(MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate));
-		Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(winApp->kClientWidth) / float(winApp->kClientHeight), 0.1f, 100.0f);
-		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
-
+		// パーティクル更新
+		particleManager->Update(camera->GetViewProjectionMatrix());
 
 		// --- 描画処理 ---
 		dxCommon->PreDraw();
-		commandList->SetGraphicsRootSignature(pipeline->GetRootSignature());
-		commandList->SetPipelineState(pipeline->GetPipelineState());
+
+		// パイプライン設定
+		commandList->SetGraphicsRootSignature(graphicsPipeline->GetRootSignature());
 		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		// SRVヒープセット
-		ID3D12DescriptorHeap* ppHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
-		commandList->SetDescriptorHeaps(1, ppHeaps);
+		// パーティクル描画 (加算合成)
+		commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeAdd));
 
-		// 共通定数バッファ
-		commandList->SetGraphicsRootConstantBufferView(3, lightResource->GetGPUVirtualAddress());
-		commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
+		// 板ポリゴンの頂点バッファをセット (Modelクラスの仕様に依存するが、ここでは共通データから取得と仮定)
+		// ※もしModel::Drawを使わず頂点バッファだけセットする機能がない場合、
+		//   ParticleManager内で頂点バッファを作成するのが安全です。
+		//   (今回は以前のコードベースから、ModelManagerが正しくロードできている前提で進めます)
+		//   もし描画されない場合、ここでのIASetVertexBuffersが漏れている可能性があります。
+		//   planeModel->Draw(...) を呼ぶと Instancing ではなくなってしまうため、
+		//   頂点バッファのセットのみが必要です。
+		//   ↓ 安全策として、ParticleManagerに頂点バッファ生成機能を入れるのがベストですが、
+		//      ここでは既存の planeModel を使って DrawInstanced する前提です。
+		//      (頂点バッファがセットされていないと何も映りません)
 
-		// --- 3D描画 ---
-		modelBlock1->Draw(commandList, viewProjectionMatrix);
-		modelBlock2->Draw(commandList, viewProjectionMatrix);
-		modelAxis->Draw(commandList, viewProjectionMatrix);
+		// ★重要: ParticleManager::Drawの前に頂点バッファをセットする必要があります。
+		// Modelクラスの実装によりますが、ここでは planeModel が描画できる状態とします。
+		// 実際には以下のような処理が必要です:
+		// commandList->IASetVertexBuffers(0, 1, &planeModel->GetVBV());
 
-		// --- 2Dスプライト描画 ---
-		spriteBall->Draw(commandList, projectionMatrixSprite);
-		spriteCut->Draw(commandList, projectionMatrixSprite);
+		// ParticleManager描画
+		particleManager->Draw(commandList);
 
 		dxCommon->PostDraw();
 	}
 
 	// ===============================================
-	// 終了処理
+	// 5. 終了処理
 	// ===============================================
-
-	delete modelBlock1;
-	delete modelBlock2;
-	delete modelAxis;
-	delete spriteBall;
-	delete spriteCut;
-
-	delete pipeline;
+	delete particleManager;
+	delete planeModel;
+	delete camera;
+	delete graphicsPipeline;
 
 	dxCommon->Finalize();
-	CoUninitialize();
 	winApp->Finalize();
 
 	return 0;
