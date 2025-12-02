@@ -100,8 +100,6 @@
   <ItemGroup>
     <FxCompile Include="Resources\shaders\Object3d.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Object3d.PS.hlsl" />
-    <FxCompile Include="Particle.VS.hlsl" />
-    <FxCompile Include="Particle.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="externals\imgui\imconfig.h">
@@ -178,6 +176,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />
-    <None Include="Particle.hlsli" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="Particle.hlsli" />
+    <CustomBuild Include="Particle.PS.hlsl" />
+    <CustomBuild Include="Particle.VS.hlsl" />
   </ItemGroup>
 </Project>

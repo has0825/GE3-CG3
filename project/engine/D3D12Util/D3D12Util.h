@@ -2,8 +2,22 @@
 #include <d3d12.h>
 #include <wrl.h>
 #include <string>
+#include <vector>
+#include <iostream> // std::ostream用
 #include "externals/DirectXTex/DirectXTex.h"
 #include "externals/DirectXTex/d3dx12.h"
+
+// ==========================================
+// ★ヘルパー関数宣言 (文字列変換・ログ)
+// ==========================================
+std::wstring ConvertString(const std::string& str);
+std::string ConvertString(const std::wstring& str);
+void Log(const std::string& message);
+void Log(std::ostream& os, const std::string& message);
+
+// ==========================================
+// DirectX12 リソース作成ヘルパー
+// ==========================================
 
 // バッファリソース作成
 Microsoft::WRL::ComPtr<ID3D12Resource> CreateBufferResource(ID3D12Device* device, size_t sizeInBytes);

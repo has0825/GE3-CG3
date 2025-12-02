@@ -1,11 +1,6 @@
 #include "Particle.hlsli"
 
-struct ParticleForGPU
-{
-    float32_t4x4 WVP;
-    float32_t4x4 World;
-    float32_t4 color;
-};
+// 構造体定義は削除しました
 
 // Instancing用の構造化バッファ (register t1)
 StructuredBuffer<ParticleForGPU> gParticle : register(t1);
@@ -27,7 +22,7 @@ VertexShaderOutput main(VertexShaderInput input, uint instanceID : SV_InstanceID
 	// 座標変換
     output.position = mul(input.position, particle.WVP);
     output.texcoord = input.texcoord;
-    output.normal = normalize(mul(input.normal, (float32_t3x3) particle.World));
+    output.normal = normalize(mul(input.normal, (float3x3) particle.World));
 	
 	// 色情報をピクセルシェーダーへ渡す
     output.color = particle.color;
