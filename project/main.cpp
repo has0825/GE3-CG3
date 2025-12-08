@@ -254,6 +254,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		if (input->IsKeyPressed(DIK_A)) { modelBlock2->transform.translate.x -= 0.1f; }
 
 		// スプライトの移動
+	
 		if (input->IsKeyPressed(DIK_RIGHT)) { spriteBall->transform.translate.x += 2.0f; }
 		if (input->IsKeyPressed(DIK_LEFT)) { spriteBall->transform.translate.x -= 2.0f; }
 
