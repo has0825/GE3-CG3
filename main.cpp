@@ -54,24 +54,21 @@
 #undef max
 #endif
 
-// --- 関数定義の修正 ---
+// --- 関数定義 ---
 
-// ※ MakeRotateYMatrix と Normalize は MathUtil.obj に存在するため、ここには書きません。
-//    ヘッダー(MathUtil.h)から読み込まれます。
+// MathUtil.obj にある関数 (プロトタイプ宣言のみ)
+Matrix4x4 MakeRotateYMatrix(float radian);
+Vector3 Normalize(const Vector3& v);
 
-// 以下の関数は MathUtil に無いため、ここで定義します (LNK2001エラー対策)
-
-// ベクトル計算のヘルパー: 加算
+// MathUtil.obj に無い関数 (ここで定義)
 Vector3 Add(const Vector3& v1, const Vector3& v2) {
 	return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
 }
 
-// ベクトル計算のヘルパー: スケーリング
 Vector3 Scale(const Vector3& v, float s) {
 	return { v.x * s, v.y * s, v.z * s };
 }
 
-// ベクトルを回転（平行移動成分を無視して変換）
 Vector3 TransformNormal(const Vector3& v, const Matrix4x4& m) {
 	Vector3 result;
 	result.x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0];
@@ -96,6 +93,11 @@ struct ParticleForGPU {
 	Vector4 color;
 };
 
+struct AccelerationField {
+	Vector3 acceleration;
+	bool isActive;
+};
+
 enum ParticleType {
 	kTypeExplosion,
 	kTypeFountain,
@@ -105,8 +107,13 @@ enum ParticleType {
 
 Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& emitterPos) {
 	Particle particle;
+
+	// 形状は分かりやすく正方形に戻す
 	particle.transform.scale = { 1.0f, 1.0f, 1.0f };
-	particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+
+	// ★変更: わざとX軸に90度(PI/2)回転させて、ビルボードOFFの時に倒れて見えるようにする
+	particle.transform.rotate = { (float)M_PI_2, 0.0f, 0.0f };
+
 	particle.currentTime = 0.0f;
 
 	std::uniform_real_distribution<float> distPos(-1.0f, 1.0f);
@@ -159,7 +166,8 @@ Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& em
 		particle.velocity = { 0.0f, -3.0f, 0.0f };
 		particle.lifeTime = 3.0f;
 		particle.color = { 0.8f, 0.8f, 1.0f, 1.0f };
-		particle.transform.scale = { 0.2f, 1.0f, 0.2f };
+		// 雨も分かりやすく一旦正方形にする
+		particle.transform.scale = { 1.0f, 1.0f, 1.0f };
 		break;
 	}
 	return particle;
@@ -267,6 +275,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	int currentEffect = kTypeExplosion;
 	bool useGravity = false;
 	bool useAdditiveBlend = true;
+	bool useBillboard = true;
+	bool useUVChecker = false;
+
+	AccelerationField windField;
+	windField.isActive = false;
+	windField.acceleration = { -5.0f, 0.0f, 0.0f };
+
 	Vector3 emitterPos = { 0.0f, 0.0f, 0.0f };
 
 	std::vector<Particle> particles(kNumInstances);
@@ -287,13 +302,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	// 画像読み込み
-	DirectX::ScratchImage mipImages = LoadTexture("resources/circle.png");
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
+	// 1. Circle.png (丸)
+	DirectX::ScratchImage mipImages1 = LoadTexture("resources/circle.png");
+	const DirectX::TexMetadata& metadata = mipImages1.GetMetadata();
+	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource1 = CreateTextureResource(device, metadata);
+	Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource1 =
+		UploadTextureData(textureResource1.Get(), mipImages1, device, commandList);
 
-	Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
-		UploadTextureData(textureResource.Get(), mipImages, device, commandList);
+	// 2. uvChecker.png (四角)
+	DirectX::ScratchImage mipImages2 = LoadTexture("resources/uvChecker.png");
+	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
+	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource2 = CreateTextureResource(device, metadata2);
+	Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource2 =
+		UploadTextureData(textureResource2.Get(), mipImages2, device, commandList);
 
 	commandList->Close();
 	ID3D12CommandQueue* commandQueue = dxCommon->GetCommandQueue();
@@ -310,16 +331,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	}
 	CloseHandle(fenceEvent);
 
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Format = metadata.format;
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+	// SRV 1: circle.png -> Index 1
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1{};
+	srvDesc1.Format = metadata.format;
+	srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc1.Texture2D.MipLevels = UINT(metadata.mipLevels);
 
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
-	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
+	D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU1 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
+	D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU1 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
+	device->CreateShaderResourceView(textureResource1.Get(), &srvDesc1, srvHandleCPU1);
 
+	// SRV 2: Instancing Data -> Index 2
 	D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
 	instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
 	instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -329,11 +352,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	instancingSrvDesc.Buffer.NumElements = kNumInstances;
 	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-	const uint32_t kInstancingSrvIndex = 2;
-	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancingSrvIndex);
-	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancingSrvIndex);
-
+	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
+	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
 	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
+
+	// SRV 3: uvChecker.png -> Index 3
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{};
+	srvDesc2.Format = metadata2.format;
+	srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc2.Texture2D.MipLevels = UINT(metadata2.mipLevels);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
+	D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
+	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, srvHandleCPU2);
 
 	// カメラ設定
 	Transform cameraTransform{ { 1.0f, 1.0f, 1.0f }, { 0.2f, 0.0f, 0.0f }, { 0.0f, 0.0f, -15.0f } };
@@ -358,18 +390,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// ==========================================================================================
-		// ★ キーボード入力による設定切り替え
-		// ==========================================================================================
 		if (GetAsyncKeyState('1') & 0x8000) currentEffect = kTypeExplosion;
 		if (GetAsyncKeyState('2') & 0x8000) currentEffect = kTypeFountain;
 		if (GetAsyncKeyState('3') & 0x8000) currentEffect = kTypeSpiral;
 		if (GetAsyncKeyState('4') & 0x8000) currentEffect = kTypeRain;
-
-		// Gキーで重力トグル (最下位ビットで押した瞬間を検出)
-		if (GetAsyncKeyState('G') & 0x0001) {
-			useGravity = !useGravity;
-		}
+		if (GetAsyncKeyState('G') & 0x0001) useGravity = !useGravity;
+		if (GetAsyncKeyState('F') & 0x0001) windField.isActive = !windField.isActive;
+		if (GetAsyncKeyState('T') & 0x0001) useUVChecker = !useUVChecker;
 
 		ImGui::Begin("Particle Controller");
 		ImGui::Text("Effect Type (Keys: 1-4)");
@@ -377,10 +404,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		ImGui::RadioButton("Fountain", &currentEffect, kTypeFountain); ImGui::SameLine();
 		ImGui::RadioButton("Spiral", &currentEffect, kTypeSpiral); ImGui::SameLine();
 		ImGui::RadioButton("Rain", &currentEffect, kTypeRain);
+
 		ImGui::Separator();
-		ImGui::Text("Settings (Key: G)");
-		ImGui::Checkbox("Use Gravity", &useGravity);
-		ImGui::Checkbox("Glow (Additive Blend)", &useAdditiveBlend);
+		ImGui::Text("Settings");
+		ImGui::Checkbox("Use Gravity (G)", &useGravity);
+		ImGui::Checkbox("Wind Field (F)", &windField.isActive);
+		if (windField.isActive) ImGui::DragFloat3("Wind Acc", &windField.acceleration.x, 0.1f);
+
+		ImGui::Checkbox("Glow (Additive)", &useAdditiveBlend);
+		ImGui::Checkbox("Billboard", &useBillboard);
+		ImGui::Checkbox("Use UV Checker (T)", &useUVChecker);
+
 		ImGui::DragFloat3("Emitter Pos", &emitterPos.x, 0.1f);
 		ImGui::Separator();
 		ImGui::Text("Camera Controls:");
@@ -388,17 +422,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		ImGui::Text(" WASD: Move, Q/E: Up/Down");
 		ImGui::End();
 
-		// ==========================================================================================
-		// カメラ操作ロジック
-		// ==========================================================================================
+		// カメラ操作
 		ImGuiIO& io = ImGui::GetIO();
 
-		// マウスによる視点回転 (右ドラッグ時のみ)
 		if (ImGui::IsMouseDragging(1)) {
 			cameraTransform.rotate.y += io.MouseDelta.x * mouseSensitivity;
 			cameraTransform.rotate.x += io.MouseDelta.y * mouseSensitivity;
-
-			// カッコで囲んでマクロ衝突を回避
 			cameraTransform.rotate.x = (std::max)(-1.5f, (std::min)(1.5f, cameraTransform.rotate.x));
 		}
 
@@ -411,15 +440,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		if (GetAsyncKeyState('Q') & 0x8000) moveDir.y -= 1.0f;
 
 		if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
-			// MakeRotateYMatrix は MathUtil.obj のものを使用
 			Matrix4x4 cameraRotY = MakeRotateYMatrix(cameraTransform.rotate.y);
-			// TransformNormal は main.cpp で定義したものを使用
 			Vector3 rotatedMoveDir = TransformNormal(moveDir, cameraRotY);
-			// Normalize は MathUtil.obj のものを使用
 			rotatedMoveDir = Normalize(rotatedMoveDir);
-			// Scale は main.cpp で定義したものを使用
 			rotatedMoveDir = Scale(rotatedMoveDir, cameraSpeed * kDeltaTime);
-			// Add は main.cpp で定義したものを使用
 			cameraTransform.translate = Add(cameraTransform.translate, rotatedMoveDir);
 		}
 
@@ -437,6 +461,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 				particles[i].velocity.y -= 9.8f * kDeltaTime * 0.5f;
 			}
 
+			if (windField.isActive) {
+				Vector3 windForce = Scale(windField.acceleration, kDeltaTime);
+				particles[i].velocity = Add(particles[i].velocity, windForce);
+			}
+
 			particles[i].transform.translate.x += particles[i].velocity.x * kDeltaTime;
 			particles[i].transform.translate.y += particles[i].velocity.y * kDeltaTime;
 			particles[i].transform.translate.z += particles[i].velocity.z * kDeltaTime;
@@ -446,7 +475,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			float alpha = 1.0f - (particles[i].currentTime / particles[i].lifeTime);
 			particles[i].color.w = alpha;
 
-			Matrix4x4 worldMatrix = MakeAffineMatrix(particles[i].transform.scale, particles[i].transform.rotate, particles[i].transform.translate);
+			Vector3 rotation = useBillboard ? cameraTransform.rotate : particles[i].transform.rotate;
+			Matrix4x4 worldMatrix = MakeAffineMatrix(particles[i].transform.scale, rotation, particles[i].transform.translate);
 
 			instancingData[i].World = worldMatrix;
 			instancingData[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
@@ -463,10 +493,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		BlendMode blendMode = useAdditiveBlend ? kBlendModeAdd : kBlendModeNormal;
 		commandList->SetPipelineState(graphicsPipeline->GetPipelineState(blendMode));
 
+		// テクスチャ切り替え
+		D3D12_GPU_DESCRIPTOR_HANDLE currentTextureHandle = useUVChecker ? srvHandleGPU2 : srvHandleGPU1;
+
 		particleModel->Draw(
 			commandList,
 			kNumInstances,
-			textureSrvHandleGPU,
+			currentTextureHandle,
 			instancingSrvHandleGPU
 		);
 
