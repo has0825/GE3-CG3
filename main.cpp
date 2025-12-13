@@ -1,5 +1,5 @@
 // ★ここ重要: Windowsのマクロ(min/max)を無効化
-#define NOMINMAX 
+#define NOMINMAX
 
 #define _USE_MATH_DEFINES
 #include <cassert>
@@ -44,7 +44,7 @@
 #include "D3D12Util.h"
 #include "Model.h"
 #include "MathUtil.h"
-#include "DataTypes.h"
+#include "DataTypes.h" // ParticleForGPU の定義を含む
 
 // ★ここ重要: 確実にマクロを無効化する
 #ifdef min
@@ -55,11 +55,7 @@
 #endif
 
 // --- 関数定義の修正 ---
-
-// ※ MakeRotateYMatrix と Normalize は MathUtil.obj に存在するため、ここには書きません。
-//    ヘッダー(MathUtil.h)から読み込まれます。
-
-// 以下の関数は MathUtil に無いため、ここで定義します (LNK2001エラー対策)
+// ※ MathUtil.obj に存在しない関数
 
 // ベクトル計算のヘルパー: 加算
 Vector3 Add(const Vector3& v1, const Vector3& v2) {
@@ -88,13 +84,20 @@ struct Particle {
 	Vector4 color;
 	float lifeTime;
 	float currentTime;
+	// ★追加: テクスチャインデックス
+	uint32_t textureIndex;
 };
 
+// DataTypes.h に定義があるはずですが、ここでは便宜上再掲
+/*
 struct ParticleForGPU {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
 	Vector4 color;
+	uint32_t textureIndex;
+	Vector3 padding;
 };
+*/
 
 enum ParticleType {
 	kTypeExplosion,
@@ -108,6 +111,7 @@ Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& em
 	particle.transform.scale = { 1.0f, 1.0f, 1.0f };
 	particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
 	particle.currentTime = 0.0f;
+	particle.textureIndex = 0; // デフォルトは 0
 
 	std::uniform_real_distribution<float> distPos(-1.0f, 1.0f);
 	std::uniform_real_distribution<float> distVel(-1.0f, 1.0f);
@@ -125,6 +129,7 @@ Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& em
 		particle.velocity = { distVel(randomEngine), distVel(randomEngine), distVel(randomEngine) };
 		particle.lifeTime = distLife(randomEngine);
 		particle.color = { distColor(randomEngine), distColor(randomEngine), distColor(randomEngine), 1.0f };
+		particle.textureIndex = 0; // circle.png (標準テクスチャ)
 		break;
 	case kTypeFountain:
 		particle.transform.translate = {
@@ -135,6 +140,7 @@ Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& em
 		particle.velocity = { distVel(randomEngine) * 0.5f, 2.0f + std::abs(distVel(randomEngine)), distVel(randomEngine) * 0.5f };
 		particle.lifeTime = 2.0f;
 		particle.color = { 0.2f, 0.5f, 1.0f, 1.0f };
+		particle.textureIndex = 1; // spark.png (縦長テクスチャを想定)
 		break;
 	case kTypeSpiral:
 	{
@@ -148,6 +154,7 @@ Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& em
 		particle.velocity = { 0.0f, 1.0f, 0.0f };
 		particle.lifeTime = 3.0f;
 		particle.color = { distColor(randomEngine), distColor(randomEngine), distColor(randomEngine), 1.0f };
+		particle.textureIndex = 0;
 	}
 	break;
 	case kTypeRain:
@@ -160,10 +167,13 @@ Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& em
 		particle.lifeTime = 3.0f;
 		particle.color = { 0.8f, 0.8f, 1.0f, 1.0f };
 		particle.transform.scale = { 0.2f, 1.0f, 0.2f };
+		particle.textureIndex = 1; // spark.png
 		break;
 	}
 	return particle;
 }
+
+// ... (ExportDump, Log, ConvertString, D3DResourceLeakChecker の定義は省略) ...
 
 static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 {
@@ -221,6 +231,7 @@ struct D3DResourceLeakChecker {
 	}
 };
 
+
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
 	D3DResourceLeakChecker leakChecker;
@@ -255,6 +266,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	const UINT kNumInstances = 1000;
 
+	// ParticleForGPU のサイズが変更されている
 	Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource =
 		CreateBufferResource(device, sizeof(ParticleForGPU) * kNumInstances);
 
@@ -280,20 +292,50 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		instancingData[i].WVP = MakeIdentity4x4();
 		instancingData[i].World = MakeIdentity4x4();
 		instancingData[i].color = particles[i].color;
+		instancingData[i].textureIndex = particles[i].textureIndex;
+		instancingData[i].padding = { 0, 0, 0 };
 	}
 
+	// ----------------------------------------------------------------------
+	// ★複数テクスチャのロードとSRV作成
+	// ----------------------------------------------------------------------
+	const uint32_t kNumTextures = 2;
+	std::vector<std::string> texturePaths = {
+		"resources/circle.png",
+		"resources/spark.png" // 例として2つ目のテクスチャを用意
+	};
+
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
+		// デスクリプタヒープのサイズは余裕を持たせる
 		CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 
 	const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	// 画像読み込み
-	DirectX::ScratchImage mipImages = LoadTexture("resources/circle.png");
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
+	Microsoft::WRL::ComPtr<ID3D12Resource> textureResources[kNumTextures];
+	Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResources[kNumTextures];
 
-	Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
-		UploadTextureData(textureResource.Get(), mipImages, device, commandList);
+	for (uint32_t i = 0; i < kNumTextures; ++i) {
+		// 画像読み込み
+		DirectX::ScratchImage mipImages = LoadTexture(texturePaths[i]);
+		const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+		textureResources[i] = CreateTextureResource(device, metadata);
+
+		// アップロード
+		intermediateResources[i] =
+			UploadTextureData(textureResources[i].Get(), mipImages, device, commandList);
+
+		// SRVの作成
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = metadata.format;
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+
+		// テクスチャSRVのインデックス (Imgui: 0, Texture0: 1, Texture1: 2, Instancing: 3)
+		uint32_t textureSrvIndex = 1 + i;
+		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, textureSrvIndex);
+		device->CreateShaderResourceView(textureResources[i].Get(), &srvDesc, textureSrvHandleCPU);
+	}
 
 	commandList->Close();
 	ID3D12CommandQueue* commandQueue = dxCommon->GetCommandQueue();
@@ -309,16 +351,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		WaitForSingleObject(fenceEvent, INFINITE);
 	}
 	CloseHandle(fenceEvent);
-
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Format = metadata.format;
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
-
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
-	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
+	// ----------------------------------------------------------------------
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
 	instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
@@ -329,11 +362,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	instancingSrvDesc.Buffer.NumElements = kNumInstances;
 	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-	const uint32_t kInstancingSrvIndex = 2;
+	// インスタンシングSRVのインデックスは、テクスチャの後に配置
+	const uint32_t kInstancingSrvIndex = 1 + kNumTextures; // この例では 3
 	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancingSrvIndex);
 	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancingSrvIndex);
 
 	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
+
+	// ★テクスチャ配列の先頭GPUハンドル (インデックス 1 から始まる)
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvArrayStartHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
+
 
 	// カメラ設定
 	Transform cameraTransform{ { 1.0f, 1.0f, 1.0f }, { 0.2f, 0.0f, 0.0f }, { 0.0f, 0.0f, -15.0f } };
@@ -373,10 +411,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 		ImGui::Begin("Particle Controller");
 		ImGui::Text("Effect Type (Keys: 1-4)");
-		ImGui::RadioButton("Explosion", &currentEffect, kTypeExplosion); ImGui::SameLine();
-		ImGui::RadioButton("Fountain", &currentEffect, kTypeFountain); ImGui::SameLine();
-		ImGui::RadioButton("Spiral", &currentEffect, kTypeSpiral); ImGui::SameLine();
-		ImGui::RadioButton("Rain", &currentEffect, kTypeRain);
+		ImGui::RadioButton("Explosion (Tex 0)", &currentEffect, kTypeExplosion); ImGui::SameLine();
+		ImGui::RadioButton("Fountain (Tex 1)", &currentEffect, kTypeFountain); ImGui::SameLine();
+		ImGui::RadioButton("Spiral (Tex 0)", &currentEffect, kTypeSpiral); ImGui::SameLine();
+		ImGui::RadioButton("Rain (Tex 1)", &currentEffect, kTypeRain);
 		ImGui::Separator();
 		ImGui::Text("Settings (Key: G)");
 		ImGui::Checkbox("Use Gravity", &useGravity);
@@ -411,15 +449,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		if (GetAsyncKeyState('Q') & 0x8000) moveDir.y -= 1.0f;
 
 		if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
-			// MakeRotateYMatrix は MathUtil.obj のものを使用
 			Matrix4x4 cameraRotY = MakeRotateYMatrix(cameraTransform.rotate.y);
-			// TransformNormal は main.cpp で定義したものを使用
 			Vector3 rotatedMoveDir = TransformNormal(moveDir, cameraRotY);
-			// Normalize は MathUtil.obj のものを使用
 			rotatedMoveDir = Normalize(rotatedMoveDir);
-			// Scale は main.cpp で定義したものを使用
 			rotatedMoveDir = Scale(rotatedMoveDir, cameraSpeed * kDeltaTime);
-			// Add は main.cpp で定義したものを使用
 			cameraTransform.translate = Add(cameraTransform.translate, rotatedMoveDir);
 		}
 
@@ -430,6 +463,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 		for (uint32_t i = 0; i < kNumInstances; ++i) {
 			if (particles[i].currentTime >= particles[i].lifeTime) {
+				// リスポーン時に現在のエフェクトタイプで再生成
 				particles[i] = MakeNewParticle(randomEngine, currentEffect, emitterPos);
 			}
 
@@ -451,6 +485,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			instancingData[i].World = worldMatrix;
 			instancingData[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
 			instancingData[i].color = particles[i].color;
+			// ★変更: テクスチャインデックスを格納
+			instancingData[i].textureIndex = particles[i].textureIndex;
+			instancingData[i].padding = { 0.0f, 0.0f, 0.0f };
 		}
 
 		dxCommon->PreDraw();
@@ -466,7 +503,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		particleModel->Draw(
 			commandList,
 			kNumInstances,
-			textureSrvHandleGPU,
+			// ★変更: テクスチャ配列の先頭ハンドルを渡す
+			textureSrvArrayStartHandleGPU,
 			instancingSrvHandleGPU
 		);
 
