@@ -1,6 +1,7 @@
-﻿#define _USE_MATH_DEFINES
+﻿// ★ここ重要: Windowsのマクロ(min/max)を無効化
+#define NOMINMAX 
 
-// C++ 標準ライブラリ
+#define _USE_MATH_DEFINES
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -10,9 +11,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <wrl.h>
-
-// Windows / DirectX
+#include <random>
+#include <cmath>
+#include <algorithm> // min, max用
+#include <wrl/client.h>
 #include <Windows.h>
 #include <objbase.h>
 #include <d3d12.h>
@@ -21,296 +23,480 @@
 #include <dxgi1_6.h>
 #include <dxgidebug.h>
 #include <strsafe.h>
-#include <xaudio2.h>
 
-// 外部ライブラリ
 #include "externals/DirectXTex/DirectXTex.h"
 #include "externals/DirectXTex/d3dx12.h"
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
+// ImGui削除済み
+#include <xaudio2.h>
 
-// ライブラリのリンク
 #pragma comment(lib, "xaudio2.lib")
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dbghelp.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxcompiler.lib")
-#pragma comment(lib, "dinput8.lib")
 
-// プロジェクトヘッダー
 #include "WinApp.h"
 #include "DirectXCommon.h"
 #include "GraphicsPipeline.h"
 #include "D3D12Util.h"
 #include "Model.h"
 #include "MathUtil.h"
-#include "MathTypes.h"
 #include "DataTypes.h"
-#include "Input.h"
 
-// マネージャー・スプライト
-#include "TextureManager.h"
-#include "ModelManager.h"
-#include "Sprite.h"
+// ★ここ重要: 確実にマクロを無効化する
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 
-// ===============================================
-// デバッグ・便利関数群
-// ===============================================
+// --- 関数定義 ---
 
-static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
-	SYSTEMTIME time;
-	GetLocalTime(&time);
-	wchar_t filePath[MAX_PATH] = { 0 };
-	CreateDirectory(L"./Dumps", nullptr);
-	StringCchPrintfW(filePath, MAX_PATH, L"./Dumps/%04d-%02d%02d-%02d%02d.dmp",
-		time.wYear, time.wMonth, time.wDay, time.wHour,
-		time.wMinute);
-	HANDLE dumpFileHandle = CreateFile(filePath, GENERIC_READ | GENERIC_WRITE,
-		FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
-	DWORD processId = GetCurrentProcessId();
-	DWORD threadId = GetCurrentThreadId();
-	MINIDUMP_EXCEPTION_INFORMATION minidumpInformation{ 0 };
-	minidumpInformation.ThreadId = threadId;
-	minidumpInformation.ExceptionPointers = exception;
-	minidumpInformation.ClientPointers = TRUE;
-	MiniDumpWriteDump(GetCurrentProcess(), processId, dumpFileHandle,
-		MiniDumpNormal, &minidumpInformation, nullptr, nullptr);
-	return EXCEPTION_EXECUTE_HANDLER;
+// ベクトル計算のヘルパー: 加算
+Vector3 Add(const Vector3& v1, const Vector3& v2) {
+    return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
 }
 
-void Log(std::ostream& os, const std::string& message) {
-	os << message << std::endl;
-	OutputDebugStringA(message.c_str());
+// ベクトル計算のヘルパー: スケーリング
+Vector3 Scale(const Vector3& v, float s) {
+    return { v.x * s, v.y * s, v.z * s };
 }
 
-std::wstring ConvertString(const std::string& str) {
-	if (str.empty()) { return std::wstring(); }
-	auto sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), NULL, 0);
-	if (sizeNeeded == 0) { return std::wstring(); }
-	std::wstring result(sizeNeeded, 0);
-	MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), &result[0], sizeNeeded);
-	return result;
+// ベクトルを回転
+Vector3 TransformNormal(const Vector3& v, const Matrix4x4& m) {
+    Vector3 result;
+    result.x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0];
+    result.y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1];
+    result.z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2];
+    return result;
 }
 
-std::string ConvertString(const std::wstring& str) {
-	if (str.empty()) { return std::string(); }
-	auto sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), NULL, 0, NULL, NULL);
-	if (sizeNeeded == 0) { return std::string(); }
-	std::string result(sizeNeeded, 0);
-	WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), sizeNeeded, NULL, NULL);
-	return result;
-}
+// ---------------------------------------------
 
-struct D3DResourceLeakChecker {
-	~D3DResourceLeakChecker() {
-		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
-		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
-			debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
-			debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
-			debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
-		}
-	}
+struct Particle {
+    Transform transform;
+    Vector3 velocity;
+    Vector4 color;
+    float lifeTime;
+    float currentTime;
 };
 
-// ===============================================
-// Main 関数
-// ===============================================
+struct ParticleForGPU {
+    Matrix4x4 WVP;
+    Matrix4x4 World;
+    Vector4 color;
+};
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-	D3DResourceLeakChecker leakChecker;
+enum ParticleType {
+    kTypeExplosion,
+    kTypeFountain,
+    kTypeSpiral,
+    kTypeRain
+};
 
-	// 1. 基盤システムの初期化
-	WinApp* winApp = WinApp::GetInstance();
-	winApp->Initialize();
+Particle MakeNewParticle(std::mt19937& randomEngine, int type, const Vector3& emitterPos) {
+    Particle particle;
+    particle.transform.scale = { 1.0f, 1.0f, 1.0f };
+    particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+    particle.currentTime = 0.0f;
 
-	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
-	dxCommon->Initialize(winApp);
+    std::uniform_real_distribution<float> distPos(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> distVel(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+    std::uniform_real_distribution<float> distLife(1.0f, 3.0f);
 
-	// Inputはシングルトンとして取得
-	Input* input = Input::GetInstance();
-	input->Initialize(winApp);
+    switch (type) {
+    case kTypeExplosion:
+    default:
+        particle.transform.translate = {
+            emitterPos.x + distPos(randomEngine) * 0.5f,
+            emitterPos.y + distPos(randomEngine) * 0.5f,
+            emitterPos.z + distPos(randomEngine) * 0.5f
+        };
+        particle.velocity = { distVel(randomEngine), distVel(randomEngine), distVel(randomEngine) };
+        particle.lifeTime = distLife(randomEngine);
+        particle.color = { distColor(randomEngine), distColor(randomEngine), distColor(randomEngine), 1.0f };
+        break;
+    case kTypeFountain:
+        particle.transform.translate = {
+            emitterPos.x + distPos(randomEngine) * 0.2f,
+            emitterPos.y,
+            emitterPos.z + distPos(randomEngine) * 0.2f
+        };
+        particle.velocity = { distVel(randomEngine) * 0.5f, 2.0f + std::abs(distVel(randomEngine)), distVel(randomEngine) * 0.5f };
+        particle.lifeTime = 2.0f;
+        particle.color = { 0.2f, 0.5f, 1.0f, 1.0f };
+        break;
+    case kTypeSpiral:
+    {
+        float angle = distPos(randomEngine) * (float)M_PI;
+        float radius = 1.5f;
+        particle.transform.translate = {
+            emitterPos.x + std::cos(angle) * radius,
+            emitterPos.y,
+            emitterPos.z + std::sin(angle) * radius
+        };
+        particle.velocity = { 0.0f, 1.0f, 0.0f };
+        particle.lifeTime = 3.0f;
+        particle.color = { distColor(randomEngine), distColor(randomEngine), distColor(randomEngine), 1.0f };
+    }
+    break;
+    case kTypeRain:
+        particle.transform.translate = {
+            emitterPos.x + distPos(randomEngine) * 5.0f,
+            emitterPos.y + 5.0f,
+            emitterPos.z + distPos(randomEngine) * 5.0f
+        };
+        particle.velocity = { 0.0f, -3.0f, 0.0f };
+        particle.lifeTime = 3.0f;
+        particle.color = { 0.8f, 0.8f, 1.0f, 1.0f };
+        particle.transform.scale = { 0.2f, 1.0f, 0.2f };
+        break;
+    }
+    return particle;
+}
 
-	CoInitializeEx(0, COINIT_MULTITHREADED);
-	SetUnhandledExceptionFilter(ExportDump);
+static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
+{
+    SYSTEMTIME time;
+    GetLocalTime(&time);
+    wchar_t filePath[MAX_PATH] = { 0 };
+    CreateDirectory(L"./Dumps", nullptr);
+    StringCchPrintfW(filePath, MAX_PATH, L"./Dumps/%04d-%02d%02d-%02d%02d.dmp",
+        time.wYear, time.wMonth, time.wDay, time.wHour,
+        time.wMinute);
+    HANDLE dumpFileHandle = CreateFile(filePath, GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+    DWORD processId = GetCurrentProcessId();
+    DWORD threadId = GetCurrentThreadId();
+    MINIDUMP_EXCEPTION_INFORMATION minidumpInformation{ 0 };
+    minidumpInformation.ThreadId = threadId;
+    minidumpInformation.ExceptionPointers = exception;
+    minidumpInformation.ClientPointers = TRUE;
+    MiniDumpWriteDump(GetCurrentProcess(), processId, dumpFileHandle,
+        MiniDumpNormal, &minidumpInformation, nullptr, nullptr);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+void Log(std::ostream& os, const std::string& message)
+{
+    os << message << std::endl;
+    OutputDebugStringA(message.c_str());
+}
+std::wstring ConvertString(const std::string& str)
+{
+    if (str.empty()) { return std::wstring(); }
+    auto sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), NULL, 0);
+    if (sizeNeeded == 0) { return std::wstring(); }
+    std::wstring result(sizeNeeded, 0);
+    MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), &result[0], sizeNeeded);
+    return result;
+}
+std::string ConvertString(const std::wstring& str)
+{
+    if (str.empty()) { return std::string(); }
+    auto sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), NULL, 0, NULL, NULL);
+    if (sizeNeeded == 0) { return std::string(); }
+    std::string result(sizeNeeded, 0);
+    WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), sizeNeeded, NULL, NULL);
+    return result;
+}
+struct D3DResourceLeakChecker {
+    ~D3DResourceLeakChecker()
+    {
+        Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
+        if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
+            debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+            debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+            debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
+        }
+    }
+};
 
-	ID3D12Device* device = dxCommon->GetDevice();
-	ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+{
+    D3DResourceLeakChecker leakChecker;
 
-	// 2. パイプライン生成
-	GraphicsPipeline* pipeline = new GraphicsPipeline();
-	pipeline->Initialize(device);
+    Microsoft::WRL::ComPtr<ID3D12Debug1> debugController;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+        debugController->EnableDebugLayer();
+        debugController->SetEnableGPUBasedValidation(TRUE);
+    }
 
-	// -----------------------------------------------------------
-	// ★ 達成条件対応: マネージャーの初期化
-	// -----------------------------------------------------------
-	// TextureManager (Resourcesフォルダをルート)
-	TextureManager::GetInstance()->Initialize(device, "Resources/");
-	// ModelManager
-	ModelManager::GetInstance()->Initialize(device);
+    WinApp* winApp = WinApp::GetInstance();
+    winApp->Initialize();
 
+    DirectXCommon* dxCommon = DirectXCommon::GetInstance();
+    dxCommon->Initialize(winApp);
 
-	// -----------------------------------------------------------
-	// ★ 達成条件対応: リソースの一括ロード
-	// -----------------------------------------------------------
+    CoInitializeEx(0, COINIT_MULTITHREADED);
+    SetUnhandledExceptionFilter(ExportDump);
 
-	// 3Dモデル読み込み
-	ModelManager::GetInstance()->LoadModel("Resources/block", "block.obj");
-	ModelManager::GetInstance()->LoadModel("Resources", "axis.obj");
+    Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
+    IXAudio2MasteringVoice* masterVoice;
+    XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    xAudio2->CreateMasteringVoice(&masterVoice);
 
-	// テクスチャ読み込み (スプライト用およびモデル用)
-	// ※ファイルパスはResourcesフォルダからの相対パス
-	TextureManager::GetInstance()->LoadTexture("monsterBall.png"); 
-	TextureManager::GetInstance()->LoadTexture("block/block.png");
-	TextureManager::GetInstance()->LoadTexture("uvChecker.png"); // もしjpgが存在すれば
+    ID3D12Device* device = dxCommon->GetDevice();
+    GraphicsPipeline* graphicsPipeline = new GraphicsPipeline();
+    graphicsPipeline->Initialize(device);
 
+    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-	// -----------------------------------------------------------
-	// ★ 達成条件対応: オブジェクト生成 (Manager経由)
-	// -----------------------------------------------------------
+    // パーティクル用モデル作成
+    Model* particleModel = Model::CreateParticleModel(device);
 
-	// --- 3Dオブジェクト ---
+    // ==========================================
+    // 1. パーティクル(3D)用のリソース準備
+    // ==========================================
+    const UINT kNumInstances = 1000;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource =
+        CreateBufferResource(device, sizeof(ParticleForGPU) * kNumInstances);
 
-	// 1. ブロック (左側)
-	Model* modelBlock1 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
-	modelBlock1->transform.translate = { -2.0f, 0.0f, 0.0f };
-	// ★追加: 黒くなるのを防ぐため、明示的にテクスチャを指定
-	modelBlock1->SetTexture("block/block.png");
+    ParticleForGPU* instancingData = nullptr;
+    instancingResource->Map(0, nullptr, reinterpret_cast<void**>(&instancingData));
 
-	// 2. ブロック (右側) ★同一モデルデータの使い回し・座標指定
-	Model* modelBlock2 = ModelManager::GetInstance()->CreateModel("Resources/block", "block.obj");
-	modelBlock2->transform.translate = { 2.0f, 0.0f, 0.0f };
-	// ★追加: テクスチャ指定
-	modelBlock2->SetTexture("block/block.png");
+    // ==========================================
+    // 2. テキスト画像(2D)用のリソース準備
+    // ==========================================
+    const UINT kSpriteInstanceCount = 1;
+    Microsoft::WRL::ComPtr<ID3D12Resource> spriteInstancingResource =
+        CreateBufferResource(device, sizeof(ParticleForGPU) * kSpriteInstanceCount);
 
-	// 3. 軸モデル (中央) ★モデルの切り替え
-	Model* modelAxis = ModelManager::GetInstance()->CreateModel("Resources", "axis.obj");
-	modelAxis->transform.translate = { 0.0f, 0.0f, 0.0f };
-	// ★追加: テクスチャ指定
-	modelAxis->SetTexture("uvChecker.png");
+    ParticleForGPU* spriteInstancingData = nullptr;
+    spriteInstancingResource->Map(0, nullptr, reinterpret_cast<void**>(&spriteInstancingData));
 
+    // パーティクルの初期化
+    std::random_device seedGenerator;
+    std::mt19937 randomEngine(seedGenerator());
 
-	// --- 2Dスプライト ---
+    int currentEffect = kTypeExplosion;
+    bool useGravity = false;
+    bool useAdditiveBlend = true;
+    Vector3 emitterPos = { 0.0f, 0.0f, 0.0f };
 
-	// 1. モンスターボール (左上)
-	Sprite* spriteBall = Sprite::Create("monsterBall.png", { 50.0f, 50.0f });
-	// サイズ指定 (頂点は1x1なので、ここでピクセルサイズを指定する)
-	spriteBall->transform.scale = { 100.0f, 100.0f, 1.0f };
+    std::vector<Particle> particles(kNumInstances);
+    for (UINT i = 0; i < kNumInstances; ++i) {
+        particles[i] = MakeNewParticle(randomEngine, currentEffect, emitterPos);
+        std::uniform_real_distribution<float> distTime(0.0f, 3.0f);
+        particles[i].currentTime = distTime(randomEngine);
+    }
 
-	// 2. 切り取りテスト用 (右側)
-	Sprite* spriteCut = Sprite::Create("monsterBall.png", { 300.0f, 50.0f });
-	spriteCut->transform.scale = { 100.0f, 100.0f, 1.0f };
-	// 画像の左上から64x64ピクセル分を切り抜いて表示
-	spriteCut->SetTextureRect(0.0f, 0.0f, 64.0f, 64.0f);
+    for (UINT i = 0; i < kNumInstances; ++i) {
+        instancingData[i].WVP = MakeIdentity4x4();
+        instancingData[i].World = MakeIdentity4x4();
+        instancingData[i].color = particles[i].color;
+    }
 
+    // デスクリプタヒープの作成
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
+        CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 
-	// -----------------------------------------------------------
-	// 定数バッファ (ライト・カメラ)
-	// -----------------------------------------------------------
+    const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	// ライト
-	Microsoft::WRL::ComPtr<ID3D12Resource> lightResource = CreateBufferResource(device, sizeof(DirectionalLight));
-	DirectionalLight* lightData = nullptr;
-	lightResource->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
-	lightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	lightData->direction = { 0.0f, -1.0f, 1.0f };
-	lightData->intensity = 1.0f;
+    // ==========================================
+    // 画像読み込み (circle.png)
+    // ==========================================
+    DirectX::ScratchImage mipImages = LoadTexture("resources/circle.png");
+    const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+    Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
+    Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
+        UploadTextureData(textureResource.Get(), mipImages, device, commandList);
 
-	// 3Dカメラ
-	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource = CreateBufferResource(device, sizeof(CameraForGpu));
-	CameraForGpu* cameraData = nullptr;
-	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
+    // ==========================================
+    // 画像読み込み (text.png)
+    // ==========================================
+    DirectX::ScratchImage textMipImages = LoadTexture("resources/text1.png");
+    const DirectX::TexMetadata& textMetadata = textMipImages.GetMetadata();
+    Microsoft::WRL::ComPtr<ID3D12Resource> textTextureResource = CreateTextureResource(device, textMetadata);
+    Microsoft::WRL::ComPtr<ID3D12Resource> textIntermediateResource =
+        UploadTextureData(textTextureResource.Get(), textMipImages, device, commandList);
 
-	Transform cameraTransform = { {1.0f, 1.0f, 1.0f}, {0.3f, 0.0f, 0.0f}, {0.0f, 4.0f, -10.0f} };
+    commandList->Close();
+    ID3D12CommandQueue* commandQueue = dxCommon->GetCommandQueue();
+    ID3D12CommandList* ppCommandLists[] = { commandList };
+    commandQueue->ExecuteCommandLists(1, ppCommandLists);
 
-	// 2Dスプライト用カメラ (平行投影)
-	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
-		0.0f, 0.0f, (float)winApp->kClientWidth, (float)winApp->kClientHeight, 0.0f, 100.0f);
+    Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+    device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    commandQueue->Signal(fence.Get(), 1);
+    if (fence->GetCompletedValue() < 1) {
+        fence->SetEventOnCompletion(1, fenceEvent);
+        WaitForSingleObject(fenceEvent, INFINITE);
+    }
+    CloseHandle(fenceEvent);
 
+    // --- SRV作成 ---
 
-	// ===============================================
-	// メインループ
-	// ===============================================
-	while (!winApp->IsEndRequested()) {
-		winApp->ProcessMessage();
-		input->Update();
+    // 1. Circle Texture
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = metadata.format;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
 
-		if (input->IsKeyTriggered(DIK_ESCAPE)) {
-			break;
-		}
+    D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
+    D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
+    device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
 
-		// --- 更新処理 ---
+    // 2. Particle Instancing Data
+    D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
+    instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    instancingSrvDesc.Buffer.FirstElement = 0;
+    instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    instancingSrvDesc.Buffer.NumElements = kNumInstances;
+    instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-		// カメラ操作
-		if (input->IsKeyPressed(DIK_UP)) { cameraTransform.translate.y += 0.1f; }
-		if (input->IsKeyPressed(DIK_DOWN)) { cameraTransform.translate.y -= 0.1f; }
+    const uint32_t kInstancingSrvIndex = 2;
+    D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancingSrvIndex);
+    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancingSrvIndex);
+    device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
-		// ブロック1の回転
-		modelBlock1->transform.rotate.y += 0.02f;
+    // 3. Text Texture (text.png)
+    D3D12_SHADER_RESOURCE_VIEW_DESC textSrvDesc{};
+    textSrvDesc.Format = textMetadata.format;
+    textSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    textSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    textSrvDesc.Texture2D.MipLevels = UINT(textMetadata.mipLevels);
 
-		// ブロック2の移動
-		if (input->IsKeyPressed(DIK_D)) { modelBlock2->transform.translate.x += 0.1f; }
-		if (input->IsKeyPressed(DIK_A)) { modelBlock2->transform.translate.x -= 0.1f; }
+    const uint32_t kTextTextureSrvIndex = 3;
+    D3D12_CPU_DESCRIPTOR_HANDLE textSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kTextTextureSrvIndex);
+    D3D12_GPU_DESCRIPTOR_HANDLE textSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kTextTextureSrvIndex);
+    device->CreateShaderResourceView(textTextureResource.Get(), &textSrvDesc, textSrvHandleCPU);
 
-		// スプライトの移動
-	
-		if (input->IsKeyPressed(DIK_RIGHT)) { spriteBall->transform.translate.x += 2.0f; }
-		if (input->IsKeyPressed(DIK_LEFT)) { spriteBall->transform.translate.x -= 2.0f; }
+    // 4. Sprite (Text) Instancing Data
+    D3D12_SHADER_RESOURCE_VIEW_DESC spriteInstancingSrvDesc{};
+    spriteInstancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    spriteInstancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    spriteInstancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    spriteInstancingSrvDesc.Buffer.FirstElement = 0;
+    spriteInstancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    spriteInstancingSrvDesc.Buffer.NumElements = kSpriteInstanceCount;
+    spriteInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-		// Sprite更新
-		spriteBall->Update();
-		spriteCut->Update();
+    const uint32_t kSpriteInstancingSrvIndex = 4;
+    D3D12_CPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kSpriteInstancingSrvIndex);
+    D3D12_GPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kSpriteInstancingSrvIndex);
+    device->CreateShaderResourceView(spriteInstancingResource.Get(), &spriteInstancingSrvDesc, spriteInstancingSrvHandleCPU);
 
+    // カメラ設定
+    Transform cameraTransform{ { 1.0f, 1.0f, 1.0f }, { 0.2f, 0.0f, 0.0f }, { 0.0f, 0.0f, -15.0f } };
+    float cameraSpeed = 5.0f;
+    const float kDeltaTime = 1.0f / 60.0f;
 
-		// 3Dカメラ行列計算
-		cameraData->worldPosition = cameraTransform.translate;
-		Matrix4x4 viewMatrix = Inverse(MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate));
-		Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(winApp->kClientWidth) / float(winApp->kClientHeight), 0.1f, 100.0f);
-		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+    while (!winApp->IsEndRequested()) {
+        winApp->ProcessMessage();
 
+        // キーボード入力
+        if (GetAsyncKeyState('1') & 0x8000) currentEffect = kTypeExplosion;
+        if (GetAsyncKeyState('2') & 0x8000) currentEffect = kTypeFountain;
+        if (GetAsyncKeyState('3') & 0x8000) currentEffect = kTypeSpiral;
+        if (GetAsyncKeyState('4') & 0x8000) currentEffect = kTypeRain;
+        if (GetAsyncKeyState('G') & 0x0001) useGravity = !useGravity;
 
-		// --- 描画処理 ---
-		dxCommon->PreDraw();
-		commandList->SetGraphicsRootSignature(pipeline->GetRootSignature());
-		commandList->SetPipelineState(pipeline->GetPipelineState());
-		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        // カメラ操作
+        Vector3 moveDir = { 0.0f, 0.0f, 0.0f };
+        if (GetAsyncKeyState('W') & 0x8000) moveDir.z += 1.0f;
+        if (GetAsyncKeyState('S') & 0x8000) moveDir.z -= 1.0f;
+        if (GetAsyncKeyState('D') & 0x8000) moveDir.x += 1.0f;
+        if (GetAsyncKeyState('A') & 0x8000) moveDir.x -= 1.0f;
+        if (GetAsyncKeyState('E') & 0x8000) moveDir.y += 1.0f;
+        if (GetAsyncKeyState('Q') & 0x8000) moveDir.y -= 1.0f;
 
-		// SRVヒープセット
-		ID3D12DescriptorHeap* ppHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
-		commandList->SetDescriptorHeaps(1, ppHeaps);
+        if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
+            Matrix4x4 cameraRotY = MakeRotateYMatrix(cameraTransform.rotate.y);
+            Vector3 rotatedMoveDir = TransformNormal(moveDir, cameraRotY);
+            rotatedMoveDir = Normalize(rotatedMoveDir);
+            rotatedMoveDir = Scale(rotatedMoveDir, cameraSpeed * kDeltaTime);
+            cameraTransform.translate = Add(cameraTransform.translate, rotatedMoveDir);
+        }
 
-		// 共通定数バッファ
-		commandList->SetGraphicsRootConstantBufferView(3, lightResource->GetGPUVirtualAddress());
-		commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
+        Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
+        Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+        Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, (float)winApp->kClientWidth / (float)winApp->kClientHeight, 0.1f, 100.0f);
+        Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
 
-		// --- 3D描画 ---
-		modelBlock1->Draw(commandList, viewProjectionMatrix);
-		modelBlock2->Draw(commandList, viewProjectionMatrix);
-		modelAxis->Draw(commandList, viewProjectionMatrix);
+        // --- パーティクル更新 ---
+        for (uint32_t i = 0; i < kNumInstances; ++i) {
+            if (particles[i].currentTime >= particles[i].lifeTime) {
+                particles[i] = MakeNewParticle(randomEngine, currentEffect, emitterPos);
+            }
+            if (useGravity) {
+                particles[i].velocity.y -= 9.8f * kDeltaTime * 0.5f;
+            }
+            particles[i].transform.translate.x += particles[i].velocity.x * kDeltaTime;
+            particles[i].transform.translate.y += particles[i].velocity.y * kDeltaTime;
+            particles[i].transform.translate.z += particles[i].velocity.z * kDeltaTime;
+            particles[i].currentTime += kDeltaTime;
+            float alpha = 1.0f - (particles[i].currentTime / particles[i].lifeTime);
+            particles[i].color.w = alpha;
 
-		// --- 2Dスプライト描画 ---
-		spriteBall->Draw(commandList, projectionMatrixSprite);
-		spriteCut->Draw(commandList, projectionMatrixSprite);
+            Matrix4x4 worldMatrix = MakeAffineMatrix(particles[i].transform.scale, particles[i].transform.rotate, particles[i].transform.translate);
+            instancingData[i].World = worldMatrix;
+            instancingData[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
+            instancingData[i].color = particles[i].color;
+        }
 
-		dxCommon->PostDraw();
-	}
+        // --- テキスト画像(text.png)の更新処理 ---
+        {
+            // 画像の本来のサイズを取得
+            float imageWidth = (float)textMetadata.width;
+            float imageHeight = (float)textMetadata.height;
 
-	// ===============================================
-	// 終了処理
-	// ===============================================
+            Vector3 scale = { imageWidth, imageHeight, 1.0f };
+            Vector3 rotate = { 0.0f, 0.0f, 0.0f };
 
-	delete modelBlock1;
-	delete modelBlock2;
-	delete modelAxis;
-	delete spriteBall;
-	delete spriteCut;
+            float halfClientW = (float)winApp->kClientWidth / 2.0f;
+            float halfClientH = (float)winApp->kClientHeight / 2.0f;
 
-	delete pipeline;
+            // ★ここが位置変更箇所★
+            // 左下の位置基準から、右に100px, 上に150pxずらす
+            Vector3 translate = {
+                -halfClientW + (imageWidth / 2.0f) + 100.0f, // X座標: 左端から +100
+                -halfClientH + (imageHeight / 2.0f) + 150.0f, // Y座標: 下端から +150
+                0.0f
+            };
 
-	dxCommon->Finalize();
-	CoUninitialize();
-	winApp->Finalize();
+            Matrix4x4 worldSprite = MakeAffineMatrix(scale, rotate, translate);
 
-	return 0;
+            // 正射影行列 (MakeOrthographicMatrixはMathUtil.objのものを使用)
+            Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
+            Matrix4x4 viewSprite = MakeIdentity4x4();
+            Matrix4x4 viewProjSprite = Multiply(viewSprite, projectionSprite);
+
+            spriteInstancingData[0].World = worldSprite;
+            spriteInstancingData[0].WVP = Multiply(worldSprite, viewProjSprite);
+            spriteInstancingData[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        }
+
+        dxCommon->PreDraw();
+        commandList->SetGraphicsRootSignature(graphicsPipeline->GetRootSignature());
+        ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap.Get() };
+        commandList->SetDescriptorHeaps(1, descriptorHeaps);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        // 1. パーティクル描画 (3D)
+        BlendMode blendMode = useAdditiveBlend ? kBlendModeAdd : kBlendModeNormal;
+        commandList->SetPipelineState(graphicsPipeline->GetPipelineState(blendMode));
+        particleModel->Draw(commandList, kNumInstances, textureSrvHandleGPU, instancingSrvHandleGPU);
+
+        // 2. テキスト画像描画 (2D)
+        commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeNormal));
+        particleModel->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU, spriteInstancingSrvHandleGPU);
+
+        dxCommon->PostDraw();
+    }
+
+    delete particleModel;
+    delete graphicsPipeline;
+
+    dxCommon->Finalize();
+    CoUninitialize();
+    winApp->Finalize();
+
+    return 0;
 }
