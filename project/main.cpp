@@ -1,5 +1,4 @@
-﻿// ★ここ重要: Windowsのマクロ(min/max)を無効化
-#define NOMINMAX 
+﻿#define NOMINMAX 
 
 #define _USE_MATH_DEFINES
 #include <cassert>
@@ -26,7 +25,9 @@
 
 #include "externals/DirectXTex/DirectXTex.h"
 #include "externals/DirectXTex/d3dx12.h"
-#include <xaudio2.h>
+
+// ★修正: Audioクラスのインクルードを追加
+#include "Audio.h"
 
 #pragma comment(lib, "xaudio2.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -42,7 +43,7 @@
 #include "Model.h"
 #include "MathUtil.h"
 #include "DataTypes.h"
-#include "Camera.h" // ★追加: Cameraクラスのインクルード
+#include "Camera.h" 
 
 // ★重要: マクロ無効化
 #ifdef min
@@ -228,10 +229,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	CoInitializeEx(0, COINIT_MULTITHREADED);
 	SetUnhandledExceptionFilter(ExportDump);
 
-	Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
-	IXAudio2MasteringVoice* masterVoice;
-	XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-	xAudio2->CreateMasteringVoice(&masterVoice);
+	// ★修正: 生のXAudio2コードを削除し、Audioクラスの初期化に置き換え
+	Audio* audio = new Audio();
+	audio->Initialize();
 
 	ID3D12Device* device = dxCommon->GetDevice();
 	GraphicsPipeline* graphicsPipeline = new GraphicsPipeline();
@@ -239,7 +239,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-	// ★修正: Model.h/cppの修正により、CreateParticleModelが使用可能に
 	Model* particleModel = Model::CreateParticleModel(device);
 
 	// ==========================================
@@ -378,12 +377,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	D3D12_GPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kSpriteInstancingSrvIndex);
 	device->CreateShaderResourceView(spriteInstancingResource.Get(), &spriteInstancingSrvDesc, spriteInstancingSrvHandleCPU);
 
-	// ★追加: Cameraクラスの生成
 	Camera* camera = new Camera(WinApp::kClientWidth, WinApp::kClientHeight);
 	camera->SetTranslate({ 0.0f, 0.0f, -15.0f });
 
 	float cameraSpeed = 5.0f;
 	const float kDeltaTime = 1.0f / 60.0f;
+
+	// ★追加: 音声読み込みとBGM再生
+	// フォルダ名は提示コードに合わせて小文字の resources にしています
+	SoundData bgmData = audio->LoadAudio("resources/result.mp3");
+	SoundData jumpSE = audio->LoadAudio("resources/damage.mp3");
+
+	// BGM再生(ループON, 音量0.5)
+	audio->PlayWave(bgmData, true, 0.5f);
+
+	// スペースキーのトリガー検知用フラグ
+	bool isSpacePressed = false;
 
 	while (!winApp->IsEndRequested()) {
 		winApp->ProcessMessage();
@@ -395,7 +404,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		if (GetAsyncKeyState('4') & 0x8000) currentEffect = kTypeRain;
 		if (GetAsyncKeyState('G') & 0x0001) useGravity = !useGravity;
 
-		// ★修正: Cameraクラスを使用したカメラ操作
+		// ★追加: スペースキーでSE再生 (押しっぱなしで連打されないように制御)
+		if (GetAsyncKeyState(VK_SPACE) & 0x8000) {
+			if (!isSpacePressed) {
+				audio->PlayWave(jumpSE, false, 1.0f);
+				isSpacePressed = true;
+			}
+		} else {
+			isSpacePressed = false;
+		}
+
+		// Cameraクラスを使用したカメラ操作
 		Vector3 moveDir = { 0.0f, 0.0f, 0.0f };
 		if (GetAsyncKeyState('W') & 0x8000) moveDir.z += 1.0f;
 		if (GetAsyncKeyState('S') & 0x8000) moveDir.z -= 1.0f;
@@ -414,7 +433,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			camTrans.translate = Add(camTrans.translate, rotatedMoveDir);
 		}
 
-		// ★重要: カメラ行列の更新
+		// カメラ行列の更新
 		camera->Update();
 		// ViewProjection行列を取得
 		Matrix4x4 viewProjectionMatrix = camera->GetViewProjectionMatrix();
@@ -438,7 +457,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			Matrix4x4 worldMatrix = MakeAffineMatrix(particles[i].transform.scale, particles[i].transform.rotate, particles[i].transform.translate);
 			instancingData[i].World = worldMatrix;
 
-			// ★修正: Cameraクラスから取得した行列を使用
 			instancingData[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
 
 			instancingData[i].color = particles[i].color;
@@ -485,12 +503,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		BlendMode blendMode = useAdditiveBlend ? kBlendModeAdd : kBlendModeNormal;
 		commandList->SetPipelineState(graphicsPipeline->GetPipelineState(blendMode));
 
-		// ★修正: 引数4つのDraw関数を呼び出す
 		particleModel->Draw(commandList, kNumInstances, textureSrvHandleGPU, instancingSrvHandleGPU);
 
 		// 2. テキスト画像描画 (2D)
 		commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeNormal));
-		// ★修正: 引数4つのDraw関数を呼び出す
 		particleModel->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU, spriteInstancingSrvHandleGPU);
 
 		dxCommon->PostDraw();
@@ -498,7 +514,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	delete particleModel;
 	delete graphicsPipeline;
-	delete camera; // ★追加: 削除忘れずに
+	delete camera;
+
+	// ★追加: Audioクラスの解放
+	audio->Finalize();
+	delete audio;
 
 	dxCommon->Finalize();
 	CoUninitialize();

@@ -15,6 +15,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Audio.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="engine\D3D12Util\D3D12Util.cpp" />
     <ClCompile Include="engine\Basic functions\DirectXCommon.cpp" />
@@ -70,6 +71,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Audio.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="engine\D3D12Util\D3D12Util.h" />
     <ClInclude Include="DataTypes.h" />
