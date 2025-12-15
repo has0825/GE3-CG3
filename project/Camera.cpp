@@ -1,5 +1,4 @@
 #include "Camera.h"
-#include "MathUtil.h" // MakeAffineMatrix, Inverse, MakePerspectiveFovMatrix, Multiply 等が必要
 
 Camera::Camera(int windowWidth, int windowHeight) {
 	// デフォルト値の設定
@@ -18,7 +17,7 @@ Camera::Camera(int windowWidth, int windowHeight) {
 }
 
 void Camera::Update() {
-	// 1. カメラのワールド行列を作成 (ここでのscaleは通常 {1,1,1})
+	// 1. カメラのワールド行列を作成
 	Matrix4x4 worldMatrix = MakeAffineMatrix(transform_.scale, transform_.rotate, transform_.translate);
 
 	// 2. ビュー行列を作成 (カメラのワールド行列の逆行列)

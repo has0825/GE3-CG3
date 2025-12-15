@@ -1,22 +1,82 @@
 #include "Model.h"
-#include "ModelManager.h"
-#include "TextureManager.h"
+#include <cassert>
+#include <cstring> // memcpy用
 
+// ★パーティクル用の四角形モデル生成の実装
+Model* Model::CreateParticleModel(ID3D12Device* device) {
+	Model* model = new Model();
+	ModelData modelData;
+
+	// 四角形の頂点定義
+	modelData.vertices.push_back({ { -1.0f, 1.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+
+	modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f },  { 1.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+
+	modelData.material.textureFilePath = "resources/uvChecker.png";
+
+	// 単独初期化モードで呼ぶ
+	model->Initialize(modelData, device);
+	return model;
+}
+
+// ============================================================
+// パターン1: ModelManager経由の初期化 (エラーが出ていた箇所に対応)
+// ============================================================
 void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
-	// 共通データを保持
-	commonData_ = commonData;
+	assert(commonData);
+	this->commonData_ = commonData; // 共通データを保持
 
-	// トランスフォーム初期化
-	transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
-
-	// マテリアルリソース
+	// マテリアルバッファ作成 (インスタンスごとに固有)
 	materialResource_ = CreateBufferResource(device, sizeof(Material));
-	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
-	materialData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	materialData_->enableLighting = true; // ライト有効
-	materialData_->uvTransform = MakeIdentity4x4();
+	Material* materialMap = nullptr;
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
 
-	// WVPリソース
+	materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialMap->enableLighting = true;
+	materialMap->uvTransform = MakeIdentity4x4();
+	this->materialData = materialMap;
+
+	// WVPバッファ作成 (インスタンスごとに固有)
+	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
+	wvpData_->WVP = MakeIdentity4x4();
+	wvpData_->World = MakeIdentity4x4();
+}
+
+// ============================================================
+// パターン2: 単独初期化 (パーティクル等)
+// ============================================================
+void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
+	this->commonData_ = nullptr; // マネージャーは使わない
+
+	// 頂点データをコピーして自己管理
+	vertices_ = modelData.vertices;
+
+	// 頂点バッファ作成
+	vertexResource_ = CreateBufferResource(device, sizeof(VertexData) * vertices_.size());
+	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
+	vertexBufferView_.SizeInBytes = UINT(sizeof(VertexData) * vertices_.size());
+	vertexBufferView_.StrideInBytes = sizeof(VertexData);
+
+	VertexData* vertexData = nullptr;
+	vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+	std::memcpy(vertexData, vertices_.data(), sizeof(VertexData) * vertices_.size());
+
+	// マテリアルバッファ作成
+	materialResource_ = CreateBufferResource(device, sizeof(Material));
+	Material* materialMap = nullptr;
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
+
+	materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialMap->enableLighting = true;
+	materialMap->uvTransform = MakeIdentity4x4();
+	this->materialData = materialMap;
+
+	// WVPバッファ作成
 	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
 	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
 	wvpData_->WVP = MakeIdentity4x4();
@@ -24,47 +84,60 @@ void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
 }
 
 void Model::Update() {
+	// 更新処理が必要ならここに記述
+}
+
+void Model::Draw(ID3D12GraphicsCommandList* commandList) {
+	// Manager経由か、自己管理かで頂点バッファを切り替え
+	D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
+	UINT vertexCount = 0;
+
+	if (commonData_) {
+		vbView = &commonData_->vertexBufferView;
+		vertexCount = (UINT)commonData_->vertices.size();
+	} else {
+		vbView = &vertexBufferView_;
+		vertexCount = (UINT)vertices_.size();
+	}
+
+	commandList->IASetVertexBuffers(0, 1, vbView);
+	commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+	commandList->DrawInstanced(vertexCount, 1, 0, 0);
 }
 
 void Model::Draw(
 	ID3D12GraphicsCommandList* commandList,
-	const Matrix4x4& viewProjectionMatrix) {
+	UINT instanceCount,
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
+	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle) {
 
-	// 行列更新
-	Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-	wvpData_->WVP = Multiply(worldMatrix, viewProjectionMatrix);
-	wvpData_->World = worldMatrix;
+	// Manager経由か、自己管理かで頂点バッファを切り替え
+	D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
+	UINT vertexCount = 0;
 
-	// 頂点バッファ
-	commandList->IASetVertexBuffers(0, 1, &commonData_->vertexBufferView);
+	if (commonData_) {
+		vbView = &commonData_->vertexBufferView;
+		vertexCount = (UINT)commonData_->vertices.size();
+	} else {
+		vbView = &vertexBufferView_;
+		vertexCount = (UINT)vertices_.size();
+	}
 
-	// 定数バッファ
+	// 1. 頂点バッファ
+	commandList->IASetVertexBuffers(0, 1, vbView);
+
+	// 2. マテリアル (CBV)
 	commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
-	commandList->SetGraphicsRootConstantBufferView(1, wvpResource_->GetGPUVirtualAddress());
 
-	// ★修正: テクスチャの適用ロジック
-	TextureManager* texManager = TextureManager::GetInstance();
-	std::string textureToUse = "";
+	// 3. Instancingデータ (StructuredBuffer SRV)
+	commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandle);
 
-	// 1. SetTextureで指定されたものがあればそれを使う
-	if (!textureOverride_.empty()) {
-		textureToUse = textureOverride_;
-	}
-	// 2. なければ、モデルデータ(.mtl)に入っていたものを使う
-	else if (!commonData_->materialData.textureFilePath.empty()) {
-		textureToUse = commonData_->materialData.textureFilePath;
-	}
+	// 4. テクスチャ (Texture SRV)
+	commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
 
-	// テクスチャが特定できたら描画に反映
-	if (!textureToUse.empty()) {
-		// まだロードされてなければロードを試みる
-		texManager->LoadTexture(textureToUse);
+	// 5. Light (CBV) - Lightingが必要なら
+	commandList->SetGraphicsRootConstantBufferView(3, materialResource_->GetGPUVirtualAddress());
 
-		// ハンドル取得してセット
-		D3D12_GPU_DESCRIPTOR_HANDLE srvHandle = texManager->GetSrvHandleGPU(textureToUse);
-		commandList->SetGraphicsRootDescriptorTable(2, srvHandle);
-	}
-
-	// 描画
-	commandList->DrawInstanced(UINT(commonData_->vertices.size()), 1, 0, 0);
+	// 6. 描画
+	commandList->DrawInstanced(vertexCount, instanceCount, 0, 0);
 }

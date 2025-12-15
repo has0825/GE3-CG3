@@ -1,13 +1,13 @@
 #pragma once
-#include "MathTypes.h"
+#include "MathUtil.h"
 
 // カメラクラス
 class Camera {
 public:
-	// コンストラクタ
+	// コンストラクタ (画面サイズ指定)
 	Camera(int windowWidth, int windowHeight);
 
-	// 更新処理 (毎フレーム呼ぶ)
+	// 毎フレーム呼ぶ更新処理
 	void Update();
 
 	// --- セッター ---
@@ -22,7 +22,7 @@ public:
 	const Vector3& GetTranslate() const { return transform_.translate; }
 	const Vector3& GetRotate() const { return transform_.rotate; }
 
-	// 参照渡しで座標を直接いじれるようにする（ImGuiや入力処理用）
+	// 参照渡しで座標を直接操作可能にする
 	struct Transform {
 		Vector3 scale;
 		Vector3 rotate;

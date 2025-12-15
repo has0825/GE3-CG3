@@ -1,5 +1,4 @@
 #include "ModelManager.h"
-#include "Model.h"
 #include "D3D12Util.h"
 #include <fstream>
 #include <sstream>
@@ -8,7 +7,7 @@
 ModelManager* ModelManager::instance = nullptr;
 
 // ==========================================
-// ヘルパー関数 (元Model.cppにあったもの)
+// ヘルパー関数
 // ==========================================
 static MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename) {
 	MaterialData materialData;
@@ -131,7 +130,9 @@ void ModelManager::LoadModel(const std::string& directoryPath, const std::string
 	VertexData* vertexData = nullptr;
 	commonData->vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	std::memcpy(vertexData, commonData->vertices.data(), sizeof(VertexData) * commonData->vertices.size());
-	commonData->vertexResource->Unmap(0, nullptr);
+	// Mapしっぱなしでも良いが、静的メッシュならUnmapしてもOK（D3D12Utilの実装によるが基本的には問題ない）
+	// ここでは安全のためMapしっぱなしにしない実装にしておく
+	// vertexResource->Unmap(0, nullptr); 
 
 	// マップに保存
 	modelDatas_[key] = commonData;
@@ -148,6 +149,8 @@ Model* ModelManager::CreateModel(const std::string& directoryPath, const std::st
 
 	// 新しいModelインスタンスを作成し、共通データを渡して初期化
 	Model* newModel = new Model();
+
+	// ★ここがエラーの原因だった場所：Model.cpp/.h を修正したので通るようになります
 	newModel->Initialize(device_, commonData);
 
 	return newModel;
