@@ -1,6 +1,9 @@
 #include "WinApp.h"
 #include "externals/imgui/imgui_impl_win32.h"
 
+// ★追加: timeBeginPeriodを使用するために必要
+#pragma comment(lib, "winmm.lib")
+
 // ImGuiのウィンドウプロシージャハンドラの前方宣言
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -10,6 +13,9 @@ WinApp* WinApp::GetInstance() {
 }
 
 void WinApp::Initialize(const wchar_t* title) {
+    // ★追加: システムタイマーの分解能を上げる（FPS安定化のため）
+    timeBeginPeriod(1);
+
     title_ = title;
 
     // ウィンドウクラスの設定
@@ -49,6 +55,12 @@ void WinApp::Initialize(const wchar_t* title) {
 void WinApp::Finalize() {
     // ウィンドウを閉じる
     CloseWindow(hwnd_);
+
+    // ★追加: ウィンドウクラスの登録解除（行儀の良い終了処理）
+    UnregisterClassW(wc_.lpszClassName, wc_.hInstance);
+
+    // ★追加: システムタイマーの分解能を戻す
+    timeEndPeriod(1);
 }
 
 bool WinApp::ProcessMessage() {
@@ -68,7 +80,7 @@ bool WinApp::ProcessMessage() {
 }
 
 LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    // ImGuiにメッセージを渡す
+    // ImGuiにメッセージを渡す（ここが最重要：これがないとImGuiが操作できない）
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
         return true;
     }
