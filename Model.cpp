@@ -1,10 +1,12 @@
 #include "Model.h"
-#include "MathUtil.h"
+#include "MathUtil.h" // グローバル関数を使用
 #include "DataTypes.h"
 #include <cassert>
 #include <fstream>
 #include <sstream>
-#include <cstring> // memcpy用
+#include <cstring>
+#include <cmath>
+#include <vector>
 
 // ヘルパー関数のプロトタイプ宣言
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
@@ -17,104 +19,145 @@ Model* Model::Create(const std::string& directoryPath, const std::string& filena
     return model;
 }
 
-// パーティクル用の四角形モデル生成
 Model* Model::CreateParticleModel(ID3D12Device* device) {
     Model* model = new Model();
     ModelData modelData;
 
-    // 四角形の頂点定義 (三角形2つで構成)
-    // 左上、右上、左下
+    // 四角形 (左上, 右上, 左下, 右上, 右下, 左下)
     modelData.vertices.push_back({ { -1.0f, 1.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } });
-    modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } });
+    modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } });
     modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f } });
 
-    // 左下、右上、右下
+    modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } });
+    modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f } });
     modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f } });
-    modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } });
-    modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f },  { 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f } });
 
-    // 仮のテクスチャパス (main.cppで別途ロードするのでダミーでも可)
-    modelData.material.textureFilePath = "resources/uvChecker.png";
+    modelData.material.textureFilePath = "";
 
     model->Initialize(modelData, device);
     return model;
 }
 
-// 内部初期化用
+Model* Model::CreateSphereModel(ID3D12Device* device, uint32_t subdivision) {
+    Model* model = new Model();
+    ModelData modelData;
+
+    uint32_t latDiv = subdivision;
+    uint32_t lonDiv = subdivision;
+    const float kPi = 3.14159265359f;
+
+    // 1. 頂点生成
+    for (uint32_t lat = 0; lat <= latDiv; ++lat) {
+        float latAngle = kPi * lat / latDiv;
+        float y = std::cos(latAngle);
+        float r = std::sin(latAngle);
+
+        for (uint32_t lon = 0; lon <= lonDiv; ++lon) {
+            float lonAngle = 2.0f * kPi * lon / lonDiv;
+            float x = r * std::cos(lonAngle);
+            float z = r * std::sin(lonAngle);
+
+            float u = float(lon) / lonDiv;
+            float v = float(lat) / latDiv;
+
+            VertexData vertex;
+            vertex.position = { x, y, z, 1.0f };
+            vertex.texcoord = { 1.0f - u, v };
+            vertex.normal = { x, y, z };
+            modelData.vertices.push_back(vertex);
+        }
+    }
+
+    // 2. インデックス展開
+    std::vector<VertexData> expandedVertices;
+    for (uint32_t lat = 0; lat < latDiv; ++lat) {
+        for (uint32_t lon = 0; lon < lonDiv; ++lon) {
+            uint32_t current = lat * (lonDiv + 1) + lon;
+            uint32_t next = current + (lonDiv + 1);
+
+            const VertexData& p0 = modelData.vertices[current];
+            const VertexData& p1 = modelData.vertices[current + 1];
+            const VertexData& p2 = modelData.vertices[next];
+            const VertexData& p3 = modelData.vertices[next + 1];
+
+            // Triangle 1
+            expandedVertices.push_back(p0);
+            expandedVertices.push_back(p2);
+            expandedVertices.push_back(p1);
+            // Triangle 2
+            expandedVertices.push_back(p1);
+            expandedVertices.push_back(p2);
+            expandedVertices.push_back(p3);
+        }
+    }
+    modelData.vertices = expandedVertices;
+    modelData.material.textureFilePath = "";
+
+    model->Initialize(modelData, device);
+    return model;
+}
+
 void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
-    vertices_ = modelData.vertices;
+    modelData_ = modelData;
+    transform = { {1,1,1}, {0,0,0}, {0,0,0} };
 
     // 頂点バッファ作成
-    vertexResource_ = CreateBufferResource(device, sizeof(VertexData) * vertices_.size());
-    vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
-    vertexBufferView_.SizeInBytes = UINT(sizeof(VertexData) * vertices_.size());
-    vertexBufferView_.StrideInBytes = sizeof(VertexData);
+    size_t sizeInBytes = sizeof(VertexData) * modelData_.vertices.size();
+    vertexResource_ = CreateBufferResource(device, sizeInBytes);
 
     // データ転送
     VertexData* vertexData = nullptr;
     vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-    std::memcpy(vertexData, vertices_.data(), sizeof(VertexData) * vertices_.size());
+    std::memcpy(vertexData, modelData_.vertices.data(), sizeInBytes);
+    vertexResource_->Unmap(0, nullptr);
+
+    // ビュー作成
+    vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
+    vertexBufferView_.SizeInBytes = UINT(sizeInBytes);
+    vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
     // マテリアルバッファ作成
     materialResource_ = CreateBufferResource(device, sizeof(Material));
-    Material* materialMap = nullptr;
-    materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
+    Material* material = nullptr;
+    materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&material));
+    material->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    material->enableLighting = 1;
 
-    // デフォルト値設定
-    materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    materialMap->enableLighting = true;
-    materialMap->uvTransform = MakeIdentity4x4();
-    // メンバ変数へのポインタ保持はここでコピーしておく
-    // (ConstantBufferはMapしっぱなしで使う想定)
-    this->materialData = materialMap;
+    // グローバル関数を使用
+    material->uvTransform = MakeIdentity4x4();
 
-    // WVPバッファ作成 (Instance描画では使わないが、Initializeの共通処理として残す)
-    wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
-    wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
-    wvpData_->WVP = MakeIdentity4x4();
-    wvpData_->World = MakeIdentity4x4();
+    materialResource_->Unmap(0, nullptr);
 }
 
 void Model::Update() {
-    // 通常のWorldTransform更新処理があればここに記述
+    // 必要ならここで更新処理
 }
 
-// インスタンシング描画用のDraw関数
 void Model::Draw(
     ID3D12GraphicsCommandList* commandList,
     UINT instanceCount,
     D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
-    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle) {
-
-    // 1. 頂点バッファをセット
+    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle)
+{
     commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
-    // 2. RootParameter[0]: Material (CBV)
-    // マテリアルの設定 (色やUV変換)
+    // ルートパラメータ
+    // 0: Material
+    // 1: Light (mainで設定)
+    // 2: Camera (mainで設定)
+    // 3: Texture
+    // 4: Instancing
+
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandle);
+    commandList->SetGraphicsRootDescriptorTable(4, instancingSrvHandle);
 
-    // 3. RootParameter[1]: TransformationMatrix (StructuredBuffer SRV DescriptorTable)
-    // Instancing用の座標データ
-    commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandle);
-
-    // 4. RootParameter[2]: Texture (SRV DescriptorTable)
-    // テクスチャ
-    commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
-
-    // 5. RootParameter[3]: Light (CBV)
-    // Particle用シェーダーでLightが必要ならセット、不要ならダミーでもOK
-    // ここでは念のためMaterialのアドレスを入れているが、Lightingが無効なら影響しない
-    commandList->SetGraphicsRootConstantBufferView(3, materialResource_->GetGPUVirtualAddress());
-
-    // 6. インスタンシング描画実行
-    // 頂点数, インスタンス数, ...
-    commandList->DrawInstanced(UINT(vertices_.size()), instanceCount, 0, 0);
+    commandList->DrawInstanced(UINT(modelData_.vertices.size()), instanceCount, 0, 0);
 }
 
-// --- ヘルパー関数実装 ---
+// --- 以下ヘルパー関数 ---
 
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename)
-{
+MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename) {
     MaterialData materialData;
     std::string line;
     std::ifstream file(directoryPath + "/" + filename);
@@ -132,8 +175,7 @@ MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const st
     return materialData;
 }
 
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename)
-{
+ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename) {
     ModelData modelData;
     std::vector<Vector4> positions;
     std::vector<Vector3> normals;
@@ -148,13 +190,11 @@ ModelData LoadOjFile(const std::string& directoryPath, const std::string& filena
         if (identifier == "v") {
             Vector4 position;
             s >> position.x >> position.y >> position.z;
-            position.x *= -1.0f;
             position.w = 1.0f;
             positions.push_back(position);
         } else if (identifier == "vt") {
             Vector2 texcoord;
             s >> texcoord.x >> texcoord.y;
-            texcoord.y = 1.0f - texcoord.y;
             texcoords.push_back(texcoord);
         } else if (identifier == "vn") {
             Vector3 normal;

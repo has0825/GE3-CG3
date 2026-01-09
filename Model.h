@@ -15,13 +15,15 @@ public:
     // パーティクル用の四角形モデル生成
     static Model* CreateParticleModel(ID3D12Device* device);
 
-    // デストラクタ（リソース解放用など必要であれば記述、今回はComPtrなので自動解放）
+    // 球体モデル生成
+    static Model* CreateSphereModel(ID3D12Device* device, uint32_t subdivision);
+
+    // デストラクタ
     ~Model() = default;
 
     void Update();
 
     // インスタンシング描画用のDraw関数
-    // StructuredBuffer(SRV)とTexture(SRV)のGPUハンドルを受け取る
     void Draw(
         ID3D12GraphicsCommandList* commandList,
         UINT instanceCount,
@@ -39,13 +41,10 @@ private:
 private:
     // 頂点データ
     std::vector<VertexData> vertices_;
+    ModelData modelData_;
+
+    // リソース
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
     D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
-
-    // マテリアルデータ
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
-
-    // 通常描画用（今回のパーティクルでは使用しないが初期化のため保持）
-    Microsoft::WRL::ComPtr<ID3D12Resource> wvpResource_;
-    TransformationMatrix* wvpData_ = nullptr;
 };

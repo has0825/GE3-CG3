@@ -3,10 +3,10 @@
 #include <wrl.h>
 #include <vector>
 #include <list>
-#include "MathTypes.h" // Matrix4x4やVector3などの定義が含まれるヘッダー
 #include "MathTypes.h"
+#include "MathUtil.h"
 
-// 最大パーティクル数（スライドでは大きく確保する方針でした）
+// 最大パーティクル数
 const uint32_t kNumMaxInstance = 1024;
 
 class ParticleManager {
@@ -15,9 +15,10 @@ public:
     struct TransformationMatrix {
         Matrix4x4 WVP;
         Matrix4x4 World;
+        Vector4 color; // 色情報も送る場合
     };
 
-    // パーティクル1粒のデータ（CPUでの計算用）
+    // パーティクル1粒のデータ
     struct Particle {
         Vector3 position;
         Vector3 velocity;
@@ -25,29 +26,28 @@ public:
         Vector3 scale;
         float lifeTime;
         float currentTime;
-        // 必要に応じて色や速度などを追加
+        Vector4 color; // 色
     };
 
     void Initialize(ID3D12Device* device);
-    void Update(const Matrix4x4& viewProjectionMatrix); // カメラ行列を受け取る
+    void Update(const Matrix4x4& viewProjectionMatrix);
     void Draw(ID3D12GraphicsCommandList* commandList);
 
-    // パーティクル発生用関数（例）
     void Emit(const Vector3& position, const Vector3& velocity);
+
+    // ★追加: 外部（main.cpp）からSRVのGPUハンドルを取得するためのゲッター
+    D3D12_GPU_DESCRIPTOR_HANDLE GetSRVHandleGPU() {
+        return srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart();
+    }
 
 private:
     ID3D12Device* device_ = nullptr;
 
-    // --- Instancing用リソース ---
-    Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
-    TransformationMatrix* instancingData_ = nullptr; // 書き込み用ポインタ
-
-    // --- SRV用デスクリプタヒープ ---
+    // Instancing用リソース
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
+    TransformationMatrix* instancingData_ = nullptr;
 
-    // --- パーティクル管理 ---
-    std::list<Particle> particles_; // 発生・消滅があるのでlistが便利
-
-    // モデルデータ（板ポリゴンなど）のバッファ等は別途必要ですが、
-    // ここではInstancing関連に絞っています
+    // パーティクル管理用リスト
+    std::list<Particle> particles_;
 };

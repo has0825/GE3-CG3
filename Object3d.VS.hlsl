@@ -1,15 +1,11 @@
-#include "object3d.hlsli"
+#include "Object3d.hlsli"
 
-// 1�C���X�^���X������̃f�[�^�\��
-// C++����InstancingData�\���̂ƈ�v������
 struct InstancingData
 {
     float32_t4x4 WVP;
     float32_t4x4 World;
 };
 
-// �S�C���X�^���X�̃f�[�^��󂯎�邽�߂̍\�����o�b�t�@
-// t1���W�X�^�Ƀo�C���h����
 StructuredBuffer<InstancingData> gInstancingData : register(t1);
 
 struct VertexShaderInput
@@ -19,20 +15,23 @@ struct VertexShaderInput
     float32_t3 normal : NORMAL0;
 };
 
-
-// main�֐��̈����ɃC���X�^���XID��ǉ�
 VertexShaderOutput main(VertexShaderInput input, uint instanceID : SV_InstanceID)
 {
     VertexShaderOutput output;
 
-    // �C���X�^���XID��g���āA���̒��_�ɑΉ�����C���X�^���X�̃f�[�^��擾
-    InstancingData instancingData = gInstancingData[instanceID];
+    InstancingData data = gInstancingData[instanceID];
 
-    // �擾�����C���X�^���X�ŗL�̍s���g���č��W�ϊ�
-    output.position = mul(input.position, instancingData.WVP);
+    // 座標変換
+    output.position = mul(input.position, data.WVP);
+    
+    // ワールド座標の計算（ライティング用）
+    output.worldPosition = mul(input.position, data.World).xyz;
+
+    // 法線の変換 (非均一スケール対応のため正規化は必須)
+    // 本来はWorldInverseTransposeを使うのが正確ですが、簡易的にWorld行列で変換して正規化します
+    output.normal = normalize(mul(input.normal, (float32_t3x3) data.World));
+
     output.texcoord = input.texcoord;
-    output.normal = normalize(mul(input.normal, (float32_t3x3) instancingData.World));
-    output.worldPosition = mul(input.position, instancingData.World).xyz; // worldPosition��Y�ꂸ�Ɍv�Z
 
     return output;
 }
