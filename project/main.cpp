@@ -28,9 +28,12 @@
 
 #include "Audio.h"
 
+// ★変更点1: ImGuiのインクルードをデバッグ時のみにする
+#ifdef _DEBUG
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
+#endif
 
 #pragma comment(lib, "xaudio2.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -241,6 +244,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // ここで変数の生存期間を限定することで、dxCommon->Finalize()より前に
     // ComPtrが破棄されるようにします。
     {
+        // ★変更点2: ImGuiの初期化とディスクリプタヒープ定義をデバッグ時のみにする
+#ifdef _DEBUG
         // ImGui用デスクリプタヒープ
         D3D12_DESCRIPTOR_HEAP_DESC imguiHeapDesc = {};
         imguiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -262,6 +267,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             imguiDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
             imguiDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
         );
+#endif
 
         Model* particleModel = Model::CreateParticleModel(device);
 
@@ -401,6 +407,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 break;
             }
 
+            // ★変更点3: ImGuiのフレーム開始とUIロジックをデバッグ時のみにする
+#ifdef _DEBUG
             ImGui_ImplDX12_NewFrame();
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
@@ -416,6 +424,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             ImGui::Checkbox("Additive Blend", &useAdditiveBlend);
             ImGui::DragFloat3("Emitter Pos", &emitterPos.x, 0.1f);
             ImGui::End();
+#endif
 
             if (GetAsyncKeyState('1') & 0x8000) currentEffect = kTypeExplosion;
             if (GetAsyncKeyState('2') & 0x8000) currentEffect = kTypeFountain;
@@ -494,7 +503,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 spriteInstancingData[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
             }
 
+            // ★変更点4: ImGuiのレンダリング命令をデバッグ時のみにする
+#ifdef _DEBUG
             ImGui::Render();
+#endif
 
             dxCommon->PreDraw();
 
@@ -510,17 +522,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeNormal));
             particleModel->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU, spriteInstancingSrvHandleGPU);
 
+            // ★変更点5: ImGuiの描画コマンド発行をデバッグ時のみにする
+#ifdef _DEBUG
             ID3D12DescriptorHeap* imguiHeaps[] = { imguiDescriptorHeap.Get() };
             commandList->SetDescriptorHeaps(1, imguiHeaps);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+#endif
 
             dxCommon->PostDraw();
         }
 
         // クリーンアップ (スコープ内で実施)
+        // ★変更点6: ImGuiの終了処理をデバッグ時のみにする
+#ifdef _DEBUG
         ImGui_ImplDX12_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
+#endif
 
         delete particleModel;
         delete camera;
