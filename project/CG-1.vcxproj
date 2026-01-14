@@ -27,6 +27,8 @@
     <ClCompile Include="externals\imgui\imgui_tables.cpp" />
     <ClCompile Include="externals\imgui\imgui_widgets.cpp" />
     <ClCompile Include="engine\Pipeline state\GraphicsPipeline.cpp" />
+    <ClCompile Include="Framework.cpp" />
+    <ClCompile Include="Game.cpp" />
     <ClCompile Include="Input.cpp" />
     <ClCompile Include="main.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
@@ -89,6 +91,8 @@
     <ClInclude Include="engine\Math\MathUtil.h" />
     <ClInclude Include="engine\Model\Model.h" />
     <ClInclude Include="engine\window\WinApp.h" />
+    <ClInclude Include="Framework.h" />
+    <ClInclude Include="Game.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="ModelManager.h" />
     <ClInclude Include="ParticleManager.h" />
