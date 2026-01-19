@@ -2,6 +2,7 @@
 #include "SceneManager.h"
 #include "SceneFactory.h"
 #include "Input.h" // 忘れずに
+#include "D3D12Util.h"
 
 void Game::Initialize() {
     // 基底クラスの初期化

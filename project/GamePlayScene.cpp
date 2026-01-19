@@ -1,7 +1,7 @@
 #include "GamePlayScene.h"
 #include "WinApp.h"
 #include "SceneManager.h"
-#include "D3D12Util.h" // LoadTexture, CreateBufferResourceなどのため必要
+#include "D3D12Util.h"
 
 #ifdef _DEBUG
 #include "externals/imgui/imgui.h"
