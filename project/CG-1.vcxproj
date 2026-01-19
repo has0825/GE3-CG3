@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Audio.cpp" />
+    <ClCompile Include="BaseScene.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="engine\D3D12Util\D3D12Util.cpp" />
     <ClCompile Include="engine\Basic functions\DirectXCommon.cpp" />
@@ -29,6 +30,7 @@
     <ClCompile Include="engine\Pipeline state\GraphicsPipeline.cpp" />
     <ClCompile Include="Framework.cpp" />
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="GamePlayScene.cpp" />
     <ClCompile Include="Input.cpp" />
     <ClCompile Include="main.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
@@ -39,8 +41,11 @@
     <ClCompile Include="engine\window\WinApp.cpp" />
     <ClCompile Include="ModelManager.cpp" />
     <ClCompile Include="ParticleManager.cpp" />
+    <ClCompile Include="SceneFactory.cpp" />
+    <ClCompile Include="SceneManager.cpp" />
     <ClCompile Include="Sprite.cpp" />
     <ClCompile Include="TextureManager.cpp" />
+    <ClCompile Include="TitleScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Particle.PS.hlsl">
@@ -73,7 +78,9 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AbstractSceneFactory.h" />
     <ClInclude Include="Audio.h" />
+    <ClInclude Include="BaseScene.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="engine\D3D12Util\D3D12Util.h" />
     <ClInclude Include="DataTypes.h" />
@@ -93,11 +100,15 @@
     <ClInclude Include="engine\window\WinApp.h" />
     <ClInclude Include="Framework.h" />
     <ClInclude Include="Game.h" />
+    <ClInclude Include="GamePlayScene.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="ModelManager.h" />
     <ClInclude Include="ParticleManager.h" />
+    <ClInclude Include="SceneFactory.h" />
+    <ClInclude Include="SceneManager.h" />
     <ClInclude Include="Sprite.h" />
     <ClInclude Include="TextureManager.h" />
+    <ClInclude Include="TitleScene.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="externals\imgui\LICENSE.txt" />

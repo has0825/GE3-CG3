@@ -9,17 +9,16 @@
 #include "externals/imgui/imgui_impl_win32.h"
 #endif
 
-// ★修正点1: ライブラリリンクの追加 (ここが抜けているとLNK2001: __imp_DxcCreateInstanceが出ます)
+
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib, "dbghelp.lib")
-// 元のmain.cppにあった他のライブラリも念のため確保（重複しても問題ありません）
+
 #pragma comment(lib, "xaudio2.lib")
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 
-// --- ★修正点2: 不足していたヘルパー関数の実装を追加 ---
-// これらが無いと GraphicsPipeline.obj や D3D12Util.obj でリンクエラーになります
+
 
 void Log(std::ostream& os, const std::string& message) {
     os << message << std::endl;
