@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 #include "D3D12Util.h"
-#include "DataTypes.h"
+#include "DataTypes.h" // ★ここから構造体定義を使用
 #include "MathUtil.h"
 
 class Model {

@@ -1,11 +1,6 @@
 #include "Object3d.hlsli"
 
-struct InstancingData
-{
-    float32_t4x4 WVP;
-    float32_t4x4 World;
-};
-
+// インスタンシング用のデータを受け取るバッファ
 StructuredBuffer<InstancingData> gInstancingData : register(t1);
 
 struct VertexShaderInput
@@ -19,17 +14,19 @@ VertexShaderOutput main(VertexShaderInput input, uint instanceID : SV_InstanceID
 {
     VertexShaderOutput output;
 
+    // インスタンスIDを使って現在のモデルの行列を取得
     InstancingData data = gInstancingData[instanceID];
 
-    // 座標変換
+    // 座標変換 (モデル座標 -> クリップ座標)
     output.position = mul(input.position, data.WVP);
     
-    // ワールド座標の計算（ライティング用）
+    // ワールド座標の計算（ピクセルシェーダーでのライティング計算用）
     output.worldPosition = mul(input.position, data.World).xyz;
 
-    // 法線の変換 (非均一スケール対応のため正規化は必須)
-    // 本来はWorldInverseTransposeを使うのが正確ですが、簡易的にWorld行列で変換して正規化します
-    output.normal = normalize(mul(input.normal, (float32_t3x3) data.World));
+    // ★重要: 非均一スケール対応
+    // 法線は World行列そのものではなく、Worldの逆転置行列(InverseTranspose)で変換する
+    // これにより、モデルを引き伸ばしても法線が正しい方向を向く
+    output.normal = normalize(mul(input.normal, (float32_t3x3) data.WorldInverseTranspose));
 
     output.texcoord = input.texcoord;
 

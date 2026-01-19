@@ -1,5 +1,5 @@
 #include "Model.h"
-#include "MathUtil.h" // グローバル関数を使用
+#include "MathUtil.h" 
 #include "DataTypes.h"
 #include <cassert>
 #include <fstream>
@@ -7,19 +7,41 @@
 #include <cstring>
 #include <cmath>
 #include <vector>
+#include <Windows.h> 
 
 // ヘルパー関数のプロトタイプ宣言
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
 ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename);
 
 Model* Model::Create(const std::string& directoryPath, const std::string& filename, ID3D12Device* device) {
+    // デバイスチェック
+    if (!device) {
+        MessageBoxA(nullptr, "Model::Create failed: Device is nullptr.", "Error", MB_OK | MB_ICONERROR);
+        assert(false && "Device is nullptr");
+        return nullptr;
+    }
+
     Model* model = new Model();
     ModelData modelData = LoadOjFile(directoryPath, filename);
+
+    // ★修正: 読み込みデータが空の場合は失敗とみなす
+    if (modelData.vertices.empty()) {
+        std::string msg = "Model Data is empty! Check FilePath: " + directoryPath + "/" + filename;
+        MessageBoxA(nullptr, msg.c_str(), "File Load Error", MB_OK | MB_ICONERROR);
+        delete model;
+        return nullptr;
+    }
+
     model->Initialize(modelData, device);
     return model;
 }
 
 Model* Model::CreateParticleModel(ID3D12Device* device) {
+    if (!device) {
+        assert(false && "Device is nullptr in CreateParticleModel");
+        return nullptr;
+    }
+
     Model* model = new Model();
     ModelData modelData;
 
@@ -39,6 +61,11 @@ Model* Model::CreateParticleModel(ID3D12Device* device) {
 }
 
 Model* Model::CreateSphereModel(ID3D12Device* device, uint32_t subdivision) {
+    if (!device) {
+        assert(false && "Device is nullptr in CreateSphereModel");
+        return nullptr;
+    }
+
     Model* model = new Model();
     ModelData modelData;
 
@@ -98,32 +125,53 @@ Model* Model::CreateSphereModel(ID3D12Device* device, uint32_t subdivision) {
 }
 
 void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
+    assert(device && "Device passed to Initialize is null");
+
     modelData_ = modelData;
     transform = { {1,1,1}, {0,0,0}, {0,0,0} };
 
-    // 頂点バッファ作成
+    // 頂点が空なら処理を中断
+    if (modelData_.vertices.empty()) {
+        MessageBoxA(nullptr, "Vertices size is 0. Initialization skipped.", "Warning", MB_OK);
+        return;
+    }
+
     size_t sizeInBytes = sizeof(VertexData) * modelData_.vertices.size();
     vertexResource_ = CreateBufferResource(device, sizeInBytes);
 
-    // データ転送
+    if (!vertexResource_) {
+        MessageBoxA(nullptr, "Failed to create vertex buffer.", "Error", MB_OK | MB_ICONERROR);
+        assert(false);
+        return;
+    }
+
     VertexData* vertexData = nullptr;
-    vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+    HRESULT hr = vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+    if (FAILED(hr)) {
+        assert(false && "Failed to map vertex buffer");
+        return;
+    }
+
     std::memcpy(vertexData, modelData_.vertices.data(), sizeInBytes);
     vertexResource_->Unmap(0, nullptr);
 
-    // ビュー作成
     vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
     vertexBufferView_.SizeInBytes = UINT(sizeInBytes);
     vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
-    // マテリアルバッファ作成
     materialResource_ = CreateBufferResource(device, sizeof(Material));
+
+    if (!materialResource_) {
+        assert(false && "Failed to create material buffer");
+        return;
+    }
+
     Material* material = nullptr;
-    materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&material));
+    hr = materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&material));
+    assert(SUCCEEDED(hr));
+
     material->color = { 1.0f, 1.0f, 1.0f, 1.0f };
     material->enableLighting = 1;
-
-    // グローバル関数を使用
     material->uvTransform = MakeIdentity4x4();
 
     materialResource_->Unmap(0, nullptr);
@@ -139,14 +187,12 @@ void Model::Draw(
     D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle)
 {
-    commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
+    // リソースがなければ描画しない（安全策）
+    if (!vertexResource_ || !materialResource_) {
+        return;
+    }
 
-    // ルートパラメータ
-    // 0: Material
-    // 1: Light (mainで設定)
-    // 2: Camera (mainで設定)
-    // 3: Texture
-    // 4: Instancing
+    commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandle);
@@ -160,8 +206,15 @@ void Model::Draw(
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename) {
     MaterialData materialData;
     std::string line;
-    std::ifstream file(directoryPath + "/" + filename);
-    assert(file.is_open());
+    std::string filePath = directoryPath + "/" + filename;
+    std::ifstream file(filePath);
+
+    if (!file.is_open()) {
+        std::string msg = "Failed to open material file: " + filePath;
+        OutputDebugStringA(msg.c_str());
+        return materialData;
+    }
+
     while (std::getline(file, line)) {
         std::string identifier;
         std::istringstream s(line);
@@ -181,8 +234,18 @@ ModelData LoadOjFile(const std::string& directoryPath, const std::string& filena
     std::vector<Vector3> normals;
     std::vector<Vector2> texcoords;
     std::string line;
-    std::ifstream file(directoryPath + "/" + filename);
-    assert(file.is_open());
+
+    std::string filePath = directoryPath + "/" + filename;
+    std::ifstream file(filePath);
+
+    // ★修正: ファイルが開けない場合はエラーメッセージを出す
+    if (!file.is_open()) {
+        std::string msg = "Failed to open OBJ file: " + filePath;
+        MessageBoxA(nullptr, msg.c_str(), "Load Error", MB_OK | MB_ICONERROR);
+        assert(false && "OBJ File not found");
+        return modelData;
+    }
+
     while (std::getline(file, line)) {
         std::string identifier;
         std::istringstream s(line);
@@ -207,15 +270,18 @@ ModelData LoadOjFile(const std::string& directoryPath, const std::string& filena
                 std::string vertexDefinition;
                 s >> vertexDefinition;
                 std::istringstream v(vertexDefinition);
-                uint32_t elementIndices[3];
+                uint32_t elementIndices[3] = { 0, 0, 0 };
                 for (int32_t element = 0; element < 3; ++element) {
                     std::string index;
                     std::getline(v, index, '/');
-                    elementIndices[element] = std::stoi(index);
+                    if (!index.empty()) {
+                        elementIndices[element] = std::stoi(index);
+                    }
                 }
-                Vector4 position = positions[elementIndices[0] - 1];
-                Vector2 texcoord = texcoords[elementIndices[1] - 1];
-                Vector3 normal = normals[elementIndices[2] - 1];
+                Vector4 position = (elementIndices[0] > 0 && elementIndices[0] <= positions.size()) ? positions[elementIndices[0] - 1] : Vector4{ 0,0,0,1 };
+                Vector2 texcoord = (elementIndices[1] > 0 && elementIndices[1] <= texcoords.size()) ? texcoords[elementIndices[1] - 1] : Vector2{ 0,0 };
+                Vector3 normal = (elementIndices[2] > 0 && elementIndices[2] <= normals.size()) ? normals[elementIndices[2] - 1] : Vector3{ 0,0,0 };
+
                 triangle[faceVertex] = { position, texcoord, normal };
             }
             modelData.vertices.push_back(triangle[2]);
