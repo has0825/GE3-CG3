@@ -8,10 +8,11 @@
 #include "GraphicsPipeline.h"
 #include <vector>
 #include <random>
+#include <memory>
 #include <d3d12.h>
 #include <wrl.h>
 
-// Game.cpp にあった構造体定義
+// パーティクル構造体
 struct Particle {
     Camera::Transform transform;
     Vector3 velocity;
@@ -20,12 +21,14 @@ struct Particle {
     float currentTime;
 };
 
+// GPU送信用構造体
 struct ParticleForGPU {
     Matrix4x4 WVP;
     Matrix4x4 World;
     Vector4 color;
 };
 
+// パーティクルの種類
 enum ParticleType {
     kTypeExplosion,
     kTypeFountain,
@@ -44,55 +47,20 @@ private:
     Particle MakeNewParticle(int type, const Vector3& emitterPos);
 
 private:
-    // エンジン機能へのポインタ
     DirectXCommon* dxCommon_ = nullptr;
     Input* input_ = nullptr;
-
-    // シーン内で独自に管理する必要があるもの
     Audio* audio_ = nullptr;
-    GraphicsPipeline* graphicsPipeline_ = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
 
-    // Game.cpp から移植した変数
-    Model* particleModel_ = nullptr;
-    Camera* camera_ = nullptr;
+    std::unique_ptr<Model> particleModel_;
+    std::unique_ptr<Camera> camera_;
+
     std::mt19937 randomEngine_;
     std::vector<Particle> particles_;
 
-    // リソース
+    // リソース管理
     Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
     ParticleForGPU* instancingData_ = nullptr;
 
-    Microsoft::WRL::ComPtr<ID3D12Resource> spriteInstancingResource_;
-    ParticleForGPU* spriteInstancingData_ = nullptr;
-
-    // テクスチャリソース
-    Microsoft::WRL::ComPtr<ID3D12Resource> textureResource_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> textTextureResource_;
-
-    // アップロード用一時リソース
-    Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> textIntermediateResource_;
-
-    // ハンドル
-    D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE textSrvHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleGPU_;
-
-    // 定数
-    const uint32_t kNumInstances = 2000;
-    const uint32_t kSpriteInstanceCount = 1;
-    UINT descriptorSizeSRV_ = 0;
-
-    // ゲーム状態
-    int currentEffect_ = kTypeExplosion;
-    bool useGravity_ = false;
-    bool useAdditiveBlend_ = true;
-    Vector3 emitterPos_ = { 0, 0, 0 };
-    bool isSpacePressed_ = false;
-
-    // 音声データ
-    SoundData bgmData_;
-    SoundData jumpSE_;
+    // ★追加: インスタンシング用のSRVハンドル
+    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_{};
 };

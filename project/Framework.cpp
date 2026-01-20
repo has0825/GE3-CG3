@@ -107,7 +107,8 @@ void Framework::Initialize() {
     // COMの初期化（Audio用）
     CoInitializeEx(0, COINIT_MULTITHREADED);
 
-    audio_ = new Audio();
+    // 修正: シングルトンインスタンスを取得 (new Audio() から変更)
+    audio_ = Audio::GetInstance();
     audio_->Initialize();
 
     graphicsPipeline_ = new GraphicsPipeline();
@@ -144,8 +145,10 @@ void Framework::Finalize() {
 #endif
 
     delete graphicsPipeline_;
+    
+    // 修正: シングルトンなので delete はしない
     audio_->Finalize();
-    delete audio_;
+    // delete audio_; // 削除
 
     CoUninitialize();
 

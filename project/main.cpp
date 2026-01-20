@@ -1,6 +1,8 @@
-﻿#include "Game.h"
+﻿// main.cpp
+#include "Game.h"
 #include <Windows.h>
 #include <dxgidebug.h>
+#include <memory> // 追加
 
 struct D3DResourceLeakChecker {
     ~D3DResourceLeakChecker() {
@@ -14,14 +16,11 @@ struct D3DResourceLeakChecker {
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     D3DResourceLeakChecker leakChecker;
 
-    // ゲームクラスのインスタンス生成
-    Game* game = new Game();
+    // スマートポインタでGameインスタンスを生成（delete不要）
+    std::unique_ptr<Game> game = std::make_unique<Game>();
 
     // 実行
     game->Run();
-
-    // 解放
-    delete game;
 
     return 0;
 }

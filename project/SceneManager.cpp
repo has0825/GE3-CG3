@@ -2,40 +2,25 @@
 #include <cassert>
 
 SceneManager* SceneManager::GetInstance() {
+    // 静的ローカル変数によるスレッドセーフなシングルトン
     static SceneManager instance;
     return &instance;
 }
 
-SceneManager::~SceneManager() {
-    if (currentScene_) {
-        currentScene_->Finalize();
-        delete currentScene_;
-    }
-    // nextScene_ は予約だけで生成されていないはずだが、念のため
-    if (nextScene_) {
-        delete nextScene_;
-    }
-}
-
 void SceneManager::ChangeScene(const std::string& sceneName) {
-    assert(sceneFactory_); // ファクトリーがセットされていないとエラー
-    assert(nextScene_ == nullptr); // 同一フレームでの連続呼び出しは想定しない
+    assert(sceneFactory_);
+    assert(nextScene_ == nullptr);
 
-    // 次のシーンを生成して予約
+    // ファクトリーから所有権ごと受け取る
     nextScene_ = sceneFactory_->CreateScene(sceneName);
 }
 
 void SceneManager::Update() {
     // シーン切り替え処理
     if (nextScene_) {
-        // 現在のシーンがあれば終了処理
-        if (currentScene_) {
-            currentScene_->Finalize();
-            delete currentScene_;
-        }
-        // シーン入れ替え
-        currentScene_ = nextScene_;
-        nextScene_ = nullptr;
+        // nextScene_の所有権をcurrentScene_へ移動
+        // (古いcurrentScene_は自動的に破棄される)
+        currentScene_ = std::move(nextScene_);
 
         // 新しいシーンの初期化
         currentScene_->Initialize();

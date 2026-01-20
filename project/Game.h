@@ -1,6 +1,7 @@
 #pragma once
 #include "Framework.h"
-#include "SceneFactory.h" // ファクトリーを持つ
+#include "SceneFactory.h"
+#include <memory>
 
 class Game : public Framework {
 public:
@@ -10,6 +11,6 @@ public:
     void Draw() override;
 
 private:
-    // 工場の実体を持つ（SceneManagerにはポインタを渡す）
-    SceneFactory* sceneFactory_ = nullptr;
+    // 工場の実体を持つ（所有権あり）
+    std::unique_ptr<SceneFactory> sceneFactory_ = nullptr;
 };

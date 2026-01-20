@@ -2,26 +2,26 @@
 #include <string>
 #include <wrl.h>
 #include <d3d12.h>
+#include <memory>
 
-// 必要なヘッダーをインクルード
 #include "D3D12Util.h"
 #include "MathTypes.h"
-#include "DataTypes.h"      // ★これが抜けていたため VertexData などが見つからないエラーが出ていました
-#include "TextureManager.h" // TextureManagerを使うため
+#include "DataTypes.h"
+#include "TextureManager.h"
 
 class Sprite {
 public:
-    // テクスチャ名を指定してスプライト生成
-    static Sprite* Create(const std::string& textureName, Vector2 position);
+    // テクスチャ名を指定してスプライト生成 (unique_ptr)
+    static std::unique_ptr<Sprite> Create(const std::string& textureName, Vector2 position);
 
     void Initialize(const std::string& textureName, Vector2 position);
     void Update();
     void Draw(ID3D12GraphicsCommandList* commandList, const Matrix4x4& viewProjection);
 
-    // 範囲指定で切り取る (左上XY, 幅, 高さ)
+    // 範囲指定で切り取る
     void SetTextureRect(float left, float top, float width, float height);
 
-    Transform transform; // 座標、回転、スケール
+    Transform transform;
 
 private:
     std::string textureName_;
@@ -33,7 +33,5 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> wvpResource_;
     TransformationMatrix* wvpData_ = nullptr;
-
-    // テクスチャの元サイズ
     DirectX::TexMetadata metadata_;
 };
