@@ -4,14 +4,15 @@
 #include <cassert>
 #include <string>
 #include <vector>
+#include <format>
 
 #include "WinApp.h"
 #include "DirectXCommon.h"
 #include "D3D12Util.h"
-#include "Model.h"         // DataTypes.hが含まれるため構造体定義は不要
-#include "ParticleManager.h"
+#include "Model.h"
 #include "GraphicsPipeline.h"
-#include "MathUtil.h"      // ★MathUtilを使用
+#include "MathUtil.h"
+#include "DataTypes.h" 
 
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
@@ -20,7 +21,7 @@
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 
-// --- 文字列変換ヘルパー ---
+// 文字列変換
 std::wstring ConvertString(const std::string& str) {
     if (str.empty()) return std::wstring();
     int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
@@ -29,221 +30,237 @@ std::wstring ConvertString(const std::string& str) {
     return wstrTo;
 }
 
-std::string ConvertString(const std::wstring& str) {
-    if (str.empty()) return std::string();
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0, NULL, NULL);
-    std::string strTo(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, &str[0], (int)str.size(), &strTo[0], size_needed, NULL, NULL);
-    return strTo;
-}
-
-// --- Windowsアプリのエントリーポイント ---
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-
-    // 1. COMライブラリの初期化
-    HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
-    assert(SUCCEEDED(hr));
-
-    // WinApp初期化
     WinApp* winApp = WinApp::GetInstance();
-    winApp->Initialize(L"CG2 Class - Phong / Blinn-Phong & Non-Uniform Scale");
+    winApp->Initialize(L"CG2");
 
-    // DirectXCommon初期化
     DirectXCommon* dxCommon = DirectXCommon::GetInstance();
     dxCommon->Initialize(winApp);
+    ID3D12Device* device = dxCommon->GetDevice();
+    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-    // デスクリプタヒープの作成
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
-        CreateDescriptorHeap(dxCommon->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
-
-    // パイプライン初期化
+    // パイプライン
     GraphicsPipeline* graphicsPipeline = new GraphicsPipeline();
-    graphicsPipeline->Initialize(dxCommon->GetDevice());
+    graphicsPipeline->Initialize(device);
 
-    // パーティクルマネージャ初期化
-    ParticleManager* particleManager = new ParticleManager();
-    particleManager->Initialize(dxCommon->GetDevice());
+    // SRV Heap
+    const UINT kMaxSRVCount = 128;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
+        CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kMaxSRVCount, true);
 
-    // --- モデル作成 ---
-    // Resources/ball/ball.obj を想定
-    Model* sphereModel = Model::Create("Resources/ball", "ball.obj", dxCommon->GetDevice());
+    D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+    D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+    UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    // 安全装置: モデル読み込み失敗時は終了
-    if (!sphereModel) {
-        MessageBoxA(NULL, "Model Loading Failed! Check 'Resources/ball/ball.obj'", "Error", MB_OK | MB_ICONERROR);
-        return -1;
-    }
+    // ---------------------------------------------------------
+    // リソース読み込み
+    // ---------------------------------------------------------
 
-    Model* particleModel = Model::CreateParticleModel(dxCommon->GetDevice());
+    // A. Terrain Texture (Index 0)
+    std::string textureFileTerrain = "Resources/terrain/grass.png";
+    DirectX::ScratchImage imgTerrain = LoadTexture(textureFileTerrain);
+    const DirectX::TexMetadata& metaTerrain = imgTerrain.GetMetadata();
+    Microsoft::WRL::ComPtr<ID3D12Resource> texResTerrain = CreateTextureResource(device, metaTerrain);
+    Microsoft::WRL::ComPtr<ID3D12Resource> uploadResTerrain = UploadTextureData(texResTerrain.Get(), imgTerrain, device, commandList);
 
-    // --- テクスチャ読み込み ---
-    DirectX::ScratchImage monsterBallImage = LoadTexture("Resources/monsterBall.png");
-    const DirectX::TexMetadata& metadata = monsterBallImage.GetMetadata();
+    D3D12_CPU_DESCRIPTOR_HANDLE terrainSrvCPU = srvHandleCPU;
+    D3D12_GPU_DESCRIPTOR_HANDLE terrainSrvGPU = srvHandleGPU;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTerrain{};
+    srvDescTerrain.Format = metaTerrain.format;
+    srvDescTerrain.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDescTerrain.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDescTerrain.Texture2D.MipLevels = UINT(metaTerrain.mipLevels);
+    device->CreateShaderResourceView(texResTerrain.Get(), &srvDescTerrain, terrainSrvCPU);
 
-    if (metadata.width == 0) {
-        MessageBoxA(NULL, "Texture loading failed! Check 'Resources/monsterBall.png'", "Error", MB_OK | MB_ICONERROR);
-        return -1;
-    }
+    srvHandleCPU.ptr += descriptorSize;
+    srvHandleGPU.ptr += descriptorSize;
 
-    Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(dxCommon->GetDevice(), metadata);
-    Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource = UploadTextureData(textureResource.Get(), monsterBallImage, dxCommon->GetDevice(), dxCommon->GetCommandList());
+    // B. Ball Texture (Index 1)
+    std::string textureFileBall = "Resources/monsterBall.png";
+    DirectX::ScratchImage imgBall = LoadTexture(textureFileBall);
+    const DirectX::TexMetadata& metaBall = imgBall.GetMetadata();
+    Microsoft::WRL::ComPtr<ID3D12Resource> texResBall = CreateTextureResource(device, metaBall);
+    Microsoft::WRL::ComPtr<ID3D12Resource> uploadResBall = UploadTextureData(texResBall.Get(), imgBall, device, commandList);
 
-    // SRV作成
-    uint32_t descriptorSize = dxCommon->GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSize, 0);
-    D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSize, 0);
+    D3D12_CPU_DESCRIPTOR_HANDLE ballSrvCPU = srvHandleCPU;
+    D3D12_GPU_DESCRIPTOR_HANDLE ballSrvGPU = srvHandleGPU;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDescBall{};
+    srvDescBall.Format = metaBall.format;
+    srvDescBall.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDescBall.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDescBall.Texture2D.MipLevels = UINT(metaBall.mipLevels);
+    device->CreateShaderResourceView(texResBall.Get(), &srvDescBall, ballSrvCPU);
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-    srvDesc.Format = metadata.format;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
-    dxCommon->GetDevice()->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
+    srvHandleCPU.ptr += descriptorSize;
+    srvHandleGPU.ptr += descriptorSize;
 
-    // --- ImGui初期化 ---
+    // C. Model
+    Model* terrainModel = Model::Create("Resources/terrain", "terrain.obj", device);
+    Model* sphereModel = Model::CreateSphereModel(device, 16);
+
+    // D. Transform Buffers
+    // Terrain (Index 2)
+    Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
+    TransformationMatrix* terrainMapData = nullptr;
+    terrainTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&terrainMapData));
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTransform{};
+    srvDescTransform.Format = DXGI_FORMAT_UNKNOWN;
+    srvDescTransform.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDescTransform.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srvDescTransform.Buffer.FirstElement = 0;
+    srvDescTransform.Buffer.NumElements = 1;
+    srvDescTransform.Buffer.StructureByteStride = sizeof(TransformationMatrix);
+    srvDescTransform.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE terrainTransCPU = srvHandleCPU;
+    D3D12_GPU_DESCRIPTOR_HANDLE terrainTransGPU = srvHandleGPU;
+    device->CreateShaderResourceView(terrainTransformBuffer.Get(), &srvDescTransform, terrainTransCPU);
+
+    srvHandleCPU.ptr += descriptorSize;
+    srvHandleGPU.ptr += descriptorSize;
+
+    // Sphere (Index 3)
+    Microsoft::WRL::ComPtr<ID3D12Resource> sphereTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
+    TransformationMatrix* sphereMapData = nullptr;
+    sphereTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&sphereMapData));
+
+    D3D12_CPU_DESCRIPTOR_HANDLE sphereTransCPU = srvHandleCPU;
+    D3D12_GPU_DESCRIPTOR_HANDLE sphereTransGPU = srvHandleGPU;
+    device->CreateShaderResourceView(sphereTransformBuffer.Get(), &srvDescTransform, sphereTransCPU);
+
+    srvHandleCPU.ptr += descriptorSize;
+    srvHandleGPU.ptr += descriptorSize;
+
+    // E. Constant Buffers
+    Microsoft::WRL::ComPtr<ID3D12Resource> lightBuffer = CreateBufferResource(device, sizeof(DirectionalLight));
+    DirectionalLight* lightData = nullptr;
+    lightBuffer->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
+    lightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    lightData->direction = { 0.0f, -1.0f, 1.0f };
+    lightData->intensity = 1.0f;
+    float len = std::sqrt(lightData->direction.x * lightData->direction.x + lightData->direction.y * lightData->direction.y + lightData->direction.z * lightData->direction.z);
+    lightData->direction.x /= len; lightData->direction.y /= len; lightData->direction.z /= len;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(device, sizeof(CameraForGpu));
+    CameraForGpu* cameraData = nullptr;
+    cameraBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
+
+    // Material Buffer (b0 用にダミーを作る)
+    Microsoft::WRL::ComPtr<ID3D12Resource> materialBuffer = CreateBufferResource(device, sizeof(Material));
+    Material* materialData = nullptr;
+    materialBuffer->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+    materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    materialData->enableLighting = 1;
+    materialData->shininess = 50.0f;
+    materialData->uvTransform = MakeIdentity4x4();
+
+
+    // ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(winApp->GetHwnd());
-    ImGui_ImplDX12_Init(
-        dxCommon->GetDevice(),
-        dxCommon->GetBackBufferCount(),
+    ImGui_ImplDX12_Init(device, dxCommon->GetBackBufferCount(),
         dxCommon->GetRtvDesc().Format,
         srvDescriptorHeap.Get(),
-        GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSize, 1),
-        GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSize, 1)
-    );
+        srvHandleCPU,
+        srvHandleGPU);
 
-    // --- 各種バッファ初期値 ---
-    Material materialData;
-    materialData.color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    materialData.enableLighting = 2; // 初期値: Phong
-    materialData.uvTransform = MakeIdentity4x4();
-    materialData.shininess = 50.0f;  // 初期光沢度
+    // ループ
+    Vector3 cameraTranslate = { 0.0f, 5.0f, -15.0f };
+    Vector3 cameraRotate = { 0.2f, 0.0f, 0.0f };
 
-    DirectionalLight lightData;
-    lightData.color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    lightData.direction = { 0.0f, -1.0f, 0.0f };
-    lightData.intensity = 1.0f;
-
-    // カメラ用バッファ
-    Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(dxCommon->GetDevice(), sizeof(CameraForGpu));
-    CameraForGpu* cameraMap = nullptr;
-    cameraBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cameraMap));
-    cameraMap->worldPosition = { 0.0f, 0.0f, -10.0f };
-
-    // トランスフォーム初期値
-    Transform sphereTransform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
-    Vector3 cameraTranslate = { 0.0f, 0.0f, -10.0f };
-    Vector3 cameraRotate = { 0.0f, 0.0f, 0.0f };
-
-    // インスタンシング用バッファ（球体用）
-    Microsoft::WRL::ComPtr<ID3D12Resource> sphereInstBuffer = CreateBufferResource(dxCommon->GetDevice(), sizeof(TransformationMatrix));
-    TransformationMatrix* sphereMapBuffer = nullptr;
-    sphereInstBuffer->Map(0, nullptr, reinterpret_cast<void**>(&sphereMapBuffer));
-
-    // インスタンシング用SRV作成 (register(t1) に対応)
-    D3D12_CPU_DESCRIPTOR_HANDLE sphereSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSize, 2);
-    D3D12_GPU_DESCRIPTOR_HANDLE sphereSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSize, 2);
-    D3D12_SHADER_RESOURCE_VIEW_DESC instSrvDesc{};
-    instSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
-    instSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    instSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    instSrvDesc.Buffer.NumElements = 1;
-    instSrvDesc.Buffer.StructureByteStride = sizeof(TransformationMatrix);
-    dxCommon->GetDevice()->CreateShaderResourceView(sphereInstBuffer.Get(), &instSrvDesc, sphereSrvHandleCPU);
-
-    // --- メインループ ---
     while (true) {
         if (winApp->ProcessMessage()) break;
 
-        // ImGuiフレーム開始
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::Begin("Settings");
-        if (ImGui::CollapsingHeader("Sphere Transform")) {
-            ImGui::DragFloat3("Scale", &sphereTransform.scale.x, 0.01f);
-            ImGui::DragFloat3("Rotate", &sphereTransform.rotate.x, 0.01f);
-            ImGui::DragFloat3("Translate", &sphereTransform.translate.x, 0.01f);
+        // Update Camera
+        Matrix4x4 cameraWorld = MakeAffineMatrix({ 1.0f, 1.0f, 1.0f }, cameraRotate, cameraTranslate);
+        Matrix4x4 viewMatrix = Inverse(cameraWorld);
+        Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, (float)WinApp::kClientWidth / (float)WinApp::kClientHeight, 0.1f, 100.0f);
+        Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+        cameraData->worldPosition = cameraTranslate;
+
+        // Update Terrain
+        if (terrainModel) {
+            terrainModel->transform.scale = { 1.0f, 1.0f, 1.0f };
+            terrainModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
+            terrainModel->transform.translate = { 0.0f, -2.0f, 0.0f };
+
+            Matrix4x4 worldMatrix = MakeAffineMatrix(terrainModel->transform.scale, terrainModel->transform.rotate, terrainModel->transform.translate);
+            Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
+            Matrix4x4 worldInv = Inverse(worldMatrix);
+            Matrix4x4 worldInvT = Transpose(worldInv);
+
+            terrainMapData->World = worldMatrix;
+            terrainMapData->WVP = wvpMatrix;
+            terrainMapData->WorldInverseTranspose = worldInvT;
         }
-        if (ImGui::CollapsingHeader("Lighting")) {
-            const char* items[] = { "None", "Lambert", "Phong", "Blinn-Phong" };
-            ImGui::Combo("Model", &materialData.enableLighting, items, IM_ARRAYSIZE(items));
-            ImGui::DragFloat("Shininess", &materialData.shininess, 0.1f, 1.0f, 256.0f); // shininess
-            ImGui::ColorEdit3("Light Color", &lightData.color.x);
-            ImGui::DragFloat3("Light Dir", &lightData.direction.x, 0.01f);
-            lightData.direction = Normalize(lightData.direction);
+
+        // Update Sphere
+        if (sphereModel) {
+            sphereModel->transform.scale = { 1.0f, 1.0f, 1.0f };
+
+            sphereModel->transform.translate = { 0.0f, 1.0f, 0.0f };
+
+            Matrix4x4 worldMatrix = MakeAffineMatrix(sphereModel->transform.scale, sphereModel->transform.rotate, sphereModel->transform.translate);
+            Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
+            Matrix4x4 worldInv = Inverse(worldMatrix);
+            Matrix4x4 worldInvT = Transpose(worldInv);
+
+            sphereMapData->World = worldMatrix;
+            sphereMapData->WVP = wvpMatrix;
+            sphereMapData->WorldInverseTranspose = worldInvT;
         }
+
+        ImGui::Begin("Debug");
+        ImGui::DragFloat3("Camera Trans", &cameraTranslate.x, 0.1f);
+        ImGui::DragFloat3("Camera Rot", &cameraRotate.x, 0.01f);
         ImGui::End();
 
-        // 行列計算
-        Matrix4x4 cameraMatrix = MakeAffineMatrix({ 1,1,1 }, cameraRotate, cameraTranslate);
-        Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-        Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, (float)WinApp::kClientWidth / WinApp::kClientHeight, 0.1f, 100.0f);
-        Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
-
-        // カメラ座標更新 (Shaderの b2 レジスタ用)
-        cameraMap->worldPosition = { cameraMatrix.m[3][0], cameraMatrix.m[3][1], cameraMatrix.m[3][2] };
-
-        // 球体行列更新
-        if (sphereModel) {
-            sphereModel->transform = sphereTransform;
-            Matrix4x4 sphereWorldMatrix = MakeAffineMatrix(sphereTransform.scale, sphereTransform.rotate, sphereTransform.translate);
-
-            // ★非均一スケール対応: 法線用行列 (Worldの逆行列の転置行列)
-            Matrix4x4 worldInverse = Inverse(sphereWorldMatrix);
-            Matrix4x4 worldInverseTranspose = Transpose(worldInverse);
-
-            // バッファに書き込み
-            sphereMapBuffer->WVP = Multiply(sphereWorldMatrix, viewProjectionMatrix);
-            sphereMapBuffer->World = sphereWorldMatrix;
-            sphereMapBuffer->WorldInverseTranspose = worldInverseTranspose; // ★追加メンバへ代入
-
-            // マテリアル更新
-            if (sphereModel->materialData) {
-                sphereModel->materialData->color = materialData.color;
-                sphereModel->materialData->enableLighting = materialData.enableLighting;
-                sphereModel->materialData->shininess = materialData.shininess; // ★追加メンバへ代入
-                sphereModel->materialData->uvTransform = materialData.uvTransform;
-            }
-            sphereModel->Update();
-        }
-
-        // ライト更新
-        static Microsoft::WRL::ComPtr<ID3D12Resource> lightBuffer = CreateBufferResource(dxCommon->GetDevice(), sizeof(DirectionalLight));
-        DirectionalLight* lightMap = nullptr;
-        lightBuffer->Map(0, nullptr, reinterpret_cast<void**>(&lightMap));
-        *lightMap = lightData;
-        lightBuffer->Unmap(0, nullptr);
-
-        particleManager->Update(viewProjectionMatrix);
-
-        // 描画開始
+        // Draw
         dxCommon->PreDraw();
-        ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
         commandList->SetGraphicsRootSignature(graphicsPipeline->GetRootSignature());
-        ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap.Get() };
-        commandList->SetDescriptorHeaps(1, descriptorHeaps);
         commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeNormal));
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        // 定数バッファセット (b1: Light, b2: Camera)
+        ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap.Get() };
+        commandList->SetDescriptorHeaps(1, descriptorHeaps);
+
+        // GraphicsPipeline.cpp で設定した RootParameter の順番に対応
+        // 0: b0 (Material)
+        commandList->SetGraphicsRootConstantBufferView(0, materialBuffer->GetGPUVirtualAddress());
+        // 1: b1 (Light)
         commandList->SetGraphicsRootConstantBufferView(1, lightBuffer->GetGPUVirtualAddress());
+        // 2: b2 (Camera)
         commandList->SetGraphicsRootConstantBufferView(2, cameraBuffer->GetGPUVirtualAddress());
 
-        // 球体描画
-        // t0: Texture, t1: InstancingData (sphereSrvHandleGPU)
-        if (sphereModel) {
-            sphereModel->Draw(commandList, 1, textureSrvHandleGPU, sphereSrvHandleGPU);
+        // Terrain
+        if (terrainModel) {
+            // 3: t0 (Texture) -> terrainSrvGPU
+            commandList->SetGraphicsRootDescriptorTable(3, terrainSrvGPU);
+            // 4: t1 (Transform) -> terrainTransGPU
+            commandList->SetGraphicsRootDescriptorTable(4, terrainTransGPU);
+
+            // DrawCall (SRV引数は使わないが互換性のため残す)
+            terrainModel->Draw(commandList, 1, terrainSrvGPU, terrainTransGPU);
         }
 
-        // パーティクル描画
-        particleModel->Draw(commandList, kNumMaxInstance, textureSrvHandleGPU, particleManager->GetSRVHandleGPU());
+        // Sphere
+        if (sphereModel) {
+            // 3: t0 (Texture) -> ballSrvGPU
+            commandList->SetGraphicsRootDescriptorTable(3, ballSrvGPU);
+            // 4: t1 (Transform) -> sphereTransGPU
+            commandList->SetGraphicsRootDescriptorTable(4, sphereTransGPU);
 
-        // ImGui描画
+            sphereModel->Draw(commandList, 1, ballSrvGPU, sphereTransGPU);
+        }
+
         ImGui::Render();
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
@@ -254,16 +271,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 
-    // 解放
+    delete terrainModel;
     delete sphereModel;
-    delete particleModel;
-    delete particleManager;
     delete graphicsPipeline;
 
     dxCommon->Finalize();
     winApp->Finalize();
-
-    CoUninitialize();
 
     return 0;
 }
