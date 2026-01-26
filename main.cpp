@@ -6,6 +6,7 @@
 #include <vector>
 #include <format>
 #include <numbers> // PI用
+#include <cmath>   // cos, sin用
 
 #include "WinApp.h"
 #include "DirectXCommon.h"
@@ -24,346 +25,384 @@
 
 // 文字列変換
 std::wstring ConvertString(const std::string& str) {
-    if (str.empty()) return std::wstring();
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
-    std::wstring wstrTo(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
-    return wstrTo;
+	if (str.empty()) return std::wstring();
+	int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+	std::wstring wstrTo(size_needed, 0);
+	MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
+	return wstrTo;
+}
+
+// 度数法をCos値に変換するヘルパー関数
+float CalcCos(float degrees) {
+	return std::cos(degrees * (std::numbers::pi_v<float> / 180.0f));
 }
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    WinApp* winApp = WinApp::GetInstance();
-    winApp->Initialize(L"CG2");
+	WinApp* winApp = WinApp::GetInstance();
+	winApp->Initialize(L"CG2");
 
-    DirectXCommon* dxCommon = DirectXCommon::GetInstance();
-    dxCommon->Initialize(winApp);
-    ID3D12Device* device = dxCommon->GetDevice();
-    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
+	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
+	dxCommon->Initialize(winApp);
+	ID3D12Device* device = dxCommon->GetDevice();
+	ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-    // パイプライン
-    GraphicsPipeline* graphicsPipeline = new GraphicsPipeline();
-    graphicsPipeline->Initialize(device);
+	// パイプライン
+	GraphicsPipeline* graphicsPipeline = new GraphicsPipeline();
+	graphicsPipeline->Initialize(device);
 
-    // SRV Heap
-    const UINT kMaxSRVCount = 128;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
-        CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kMaxSRVCount, true);
+	// SRV Heap
+	const UINT kMaxSRVCount = 128;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap =
+		CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kMaxSRVCount, true);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-    D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
-    UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    // ---------------------------------------------------------
-    // リソース読み込み
-    // ---------------------------------------------------------
+	// ---------------------------------------------------------
+	// リソース読み込み
+	// ---------------------------------------------------------
 
-    // A. Terrain Texture (Index 0)
-    std::string textureFileTerrain = "Resources/terrain/grass.png";
-    DirectX::ScratchImage imgTerrain = LoadTexture(textureFileTerrain);
-    const DirectX::TexMetadata& metaTerrain = imgTerrain.GetMetadata();
-    Microsoft::WRL::ComPtr<ID3D12Resource> texResTerrain = CreateTextureResource(device, metaTerrain);
-    Microsoft::WRL::ComPtr<ID3D12Resource> uploadResTerrain = UploadTextureData(texResTerrain.Get(), imgTerrain, device, commandList);
+	// A. Terrain Texture (Index 0)
+	std::string textureFileTerrain = "Resources/terrain/grass.png";
+	DirectX::ScratchImage imgTerrain = LoadTexture(textureFileTerrain);
+	const DirectX::TexMetadata& metaTerrain = imgTerrain.GetMetadata();
+	Microsoft::WRL::ComPtr<ID3D12Resource> texResTerrain = CreateTextureResource(device, metaTerrain);
+	Microsoft::WRL::ComPtr<ID3D12Resource> uploadResTerrain = UploadTextureData(texResTerrain.Get(), imgTerrain, device, commandList);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE terrainSrvCPU = srvHandleCPU;
-    D3D12_GPU_DESCRIPTOR_HANDLE terrainSrvGPU = srvHandleGPU;
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTerrain{};
-    srvDescTerrain.Format = metaTerrain.format;
-    srvDescTerrain.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDescTerrain.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDescTerrain.Texture2D.MipLevels = UINT(metaTerrain.mipLevels);
-    device->CreateShaderResourceView(texResTerrain.Get(), &srvDescTerrain, terrainSrvCPU);
+	D3D12_CPU_DESCRIPTOR_HANDLE terrainSrvCPU = srvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE terrainSrvGPU = srvHandleGPU;
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTerrain{};
+	srvDescTerrain.Format = metaTerrain.format;
+	srvDescTerrain.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDescTerrain.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDescTerrain.Texture2D.MipLevels = UINT(metaTerrain.mipLevels);
+	device->CreateShaderResourceView(texResTerrain.Get(), &srvDescTerrain, terrainSrvCPU);
 
-    srvHandleCPU.ptr += descriptorSize;
-    srvHandleGPU.ptr += descriptorSize;
+	srvHandleCPU.ptr += descriptorSize;
+	srvHandleGPU.ptr += descriptorSize;
 
-    // B. Ball Texture (Index 1)
-    std::string textureFileBall = "Resources/monsterBall.png";
-    DirectX::ScratchImage imgBall = LoadTexture(textureFileBall);
-    const DirectX::TexMetadata& metaBall = imgBall.GetMetadata();
-    Microsoft::WRL::ComPtr<ID3D12Resource> texResBall = CreateTextureResource(device, metaBall);
-    Microsoft::WRL::ComPtr<ID3D12Resource> uploadResBall = UploadTextureData(texResBall.Get(), imgBall, device, commandList);
+	// B. Ball Texture (Index 1)
+	std::string textureFileBall = "Resources/monsterBall.png";
+	DirectX::ScratchImage imgBall = LoadTexture(textureFileBall);
+	const DirectX::TexMetadata& metaBall = imgBall.GetMetadata();
+	Microsoft::WRL::ComPtr<ID3D12Resource> texResBall = CreateTextureResource(device, metaBall);
+	Microsoft::WRL::ComPtr<ID3D12Resource> uploadResBall = UploadTextureData(texResBall.Get(), imgBall, device, commandList);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE ballSrvCPU = srvHandleCPU;
-    D3D12_GPU_DESCRIPTOR_HANDLE ballSrvGPU = srvHandleGPU;
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDescBall{};
-    srvDescBall.Format = metaBall.format;
-    srvDescBall.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDescBall.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDescBall.Texture2D.MipLevels = UINT(metaBall.mipLevels);
-    device->CreateShaderResourceView(texResBall.Get(), &srvDescBall, ballSrvCPU);
+	D3D12_CPU_DESCRIPTOR_HANDLE ballSrvCPU = srvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE ballSrvGPU = srvHandleGPU;
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDescBall{};
+	srvDescBall.Format = metaBall.format;
+	srvDescBall.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDescBall.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDescBall.Texture2D.MipLevels = UINT(metaBall.mipLevels);
+	device->CreateShaderResourceView(texResBall.Get(), &srvDescBall, ballSrvCPU);
 
-    srvHandleCPU.ptr += descriptorSize;
-    srvHandleGPU.ptr += descriptorSize;
+	srvHandleCPU.ptr += descriptorSize;
+	srvHandleGPU.ptr += descriptorSize;
 
-    // C. Model
-    Model* terrainModel = Model::Create("Resources/terrain", "terrain.obj", device);
-    Model* sphereModel = Model::CreateSphereModel(device, 16);
+	// C. Model
+	Model* terrainModel = Model::Create("Resources/terrain", "terrain.obj", device);
+	Model* sphereModel = Model::CreateSphereModel(device, 16);
 
-    // D. Transform Buffers
-    // Terrain (Index 2)
-    Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
-    TransformationMatrix* terrainMapData = nullptr;
-    terrainTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&terrainMapData));
+	// D. Transform Buffers
+	// Terrain (Index 2)
+	Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
+	TransformationMatrix* terrainMapData = nullptr;
+	terrainTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&terrainMapData));
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTransform{};
-    srvDescTransform.Format = DXGI_FORMAT_UNKNOWN;
-    srvDescTransform.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDescTransform.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    srvDescTransform.Buffer.FirstElement = 0;
-    srvDescTransform.Buffer.NumElements = 1;
-    srvDescTransform.Buffer.StructureByteStride = sizeof(TransformationMatrix);
-    srvDescTransform.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTransform{};
+	srvDescTransform.Format = DXGI_FORMAT_UNKNOWN;
+	srvDescTransform.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDescTransform.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	srvDescTransform.Buffer.FirstElement = 0;
+	srvDescTransform.Buffer.NumElements = 1;
+	srvDescTransform.Buffer.StructureByteStride = sizeof(TransformationMatrix);
+	srvDescTransform.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
-    D3D12_CPU_DESCRIPTOR_HANDLE terrainTransCPU = srvHandleCPU;
-    D3D12_GPU_DESCRIPTOR_HANDLE terrainTransGPU = srvHandleGPU;
-    device->CreateShaderResourceView(terrainTransformBuffer.Get(), &srvDescTransform, terrainTransCPU);
+	D3D12_CPU_DESCRIPTOR_HANDLE terrainTransCPU = srvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE terrainTransGPU = srvHandleGPU;
+	device->CreateShaderResourceView(terrainTransformBuffer.Get(), &srvDescTransform, terrainTransCPU);
 
-    srvHandleCPU.ptr += descriptorSize;
-    srvHandleGPU.ptr += descriptorSize;
+	srvHandleCPU.ptr += descriptorSize;
+	srvHandleGPU.ptr += descriptorSize;
 
-    // Sphere (Index 3)
-    Microsoft::WRL::ComPtr<ID3D12Resource> sphereTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
-    TransformationMatrix* sphereMapData = nullptr;
-    sphereTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&sphereMapData));
+	// Sphere (Index 3)
+	Microsoft::WRL::ComPtr<ID3D12Resource> sphereTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
+	TransformationMatrix* sphereMapData = nullptr;
+	sphereTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&sphereMapData));
 
-    D3D12_CPU_DESCRIPTOR_HANDLE sphereTransCPU = srvHandleCPU;
-    D3D12_GPU_DESCRIPTOR_HANDLE sphereTransGPU = srvHandleGPU;
-    device->CreateShaderResourceView(sphereTransformBuffer.Get(), &srvDescTransform, sphereTransCPU);
+	D3D12_CPU_DESCRIPTOR_HANDLE sphereTransCPU = srvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE sphereTransGPU = srvHandleGPU;
+	device->CreateShaderResourceView(sphereTransformBuffer.Get(), &srvDescTransform, sphereTransCPU);
 
-    srvHandleCPU.ptr += descriptorSize;
-    srvHandleGPU.ptr += descriptorSize;
+	srvHandleCPU.ptr += descriptorSize;
+	srvHandleGPU.ptr += descriptorSize;
 
-    // E. Light Buffer (DirectionalLight から LightGroup に変更)
-    // ---------------------------------------------------------
-    // シェーダー側で struct LightGroup を受け取るように変更したため、サイズを合わせる
-    Microsoft::WRL::ComPtr<ID3D12Resource> lightBuffer = CreateBufferResource(device, sizeof(LightGroup));
-    LightGroup* lightData = nullptr;
-    lightBuffer->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
+	// E. Light Buffer
+	// ---------------------------------------------------------
+	Microsoft::WRL::ComPtr<ID3D12Resource> lightBuffer = CreateBufferResource(device, sizeof(LightGroup));
+	LightGroup* lightData = nullptr;
+	lightBuffer->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
 
-    // ライト初期値設定
-    lightData->numDirectionalLights = 1;
-    lightData->directionalLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    lightData->directionalLights[0].direction = { 0.0f, -1.0f, 0.0f };
-    lightData->directionalLights[0].intensity = 1.0f;
-    lightData->numPointLights = 0;
-    lightData->numSpotLights = 0;
-    lightData->numAreaLights = 0;
+	// ★★★ ここに追加！メモリを一旦すべて0で埋める ★★★
+	memset(lightData, 0, sizeof(LightGroup));
 
-    // F. Camera Buffer
-    Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(device, sizeof(CameraForGpu));
-    CameraForGpu* cameraData = nullptr;
-    cameraBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
+	// 1. Directional Light (太陽光)
+	lightData->numDirectionalLights = 1;
+	lightData->directionalLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // 白
+	lightData->directionalLights[0].direction = { 0.0f, -1.0f, 0.0f }; // 真下
+	lightData->directionalLights[0].intensity = 0.5f; // 少し弱めに（他が見やすいように）
 
-    // G. Material Buffer (共通マテリアル設定)
-    Microsoft::WRL::ComPtr<ID3D12Resource> materialBuffer = CreateBufferResource(device, sizeof(Material));
-    Material* materialData = nullptr;
-    materialBuffer->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-    materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    materialData->enableLighting = 3; // Blinn-Phong
-    materialData->shininess = 50.0f;
-    materialData->uvTransform = MakeIdentity4x4();
+	// 2. Point Light (点光源)
+	lightData->numPointLights = 1;
+	lightData->pointLights[0].color = { 1.0f, 0.0f, 0.0f, 1.0f }; // 赤
+	lightData->pointLights[0].position = { -2.0f, 1.0f, 0.0f }; // 左側
+	lightData->pointLights[0].intensity = 1.0f;
+	lightData->pointLights[0].radius = 10.0f;
+	lightData->pointLights[0].decay = 1.0f;
 
-    // ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-    ImGui_ImplWin32_Init(winApp->GetHwnd());
-    ImGui_ImplDX12_Init(device, dxCommon->GetBackBufferCount(),
-        dxCommon->GetRtvDesc().Format,
-        srvDescriptorHeap.Get(),
-        srvHandleCPU,
-        srvHandleGPU);
+	// 右側 (X=2.0) から、原点方向 (X=-1.0) を照らすように設定
+	lightData->spotLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	lightData->spotLights[0].position = { 2.0f, 1.25f, 0.0f }; // 右上の位置
+	lightData->spotLights[0].distance = 7.0f;
+	lightData->spotLights[0].direction = Normalize({ -1.0f, -0.6f, 0.0f }); // 少し下向き左方向
+	lightData->spotLights[0].intensity = 4.0f;
+	lightData->spotLights[0].decay = 2.0f;
+	lightData->spotLights[0].cosAngle = std::cos(std::numbers::pi_v<float> / 3.0f);
+	for (int i = 1; i < kNumSpotLights; ++i) {
+		lightData->spotLights[i].intensity = 0.0f;
+	}
 
-    // ループ変数
-    Vector3 cameraTranslate = { 0.0f, 5.0f, -15.0f };
-    Vector3 cameraRotate = { 0.2f, 0.0f, 0.0f };
 
-    while (true) {
-        if (winApp->ProcessMessage()) break;
 
-        ImGui_ImplDX12_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
+	// F. Camera Buffer
+	Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(device, sizeof(CameraForGpu));
+	CameraForGpu* cameraData = nullptr;
+	cameraBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
 
-        // ---------------------------------------------------------
-        // ImGui: ライト操作UI
-        // ---------------------------------------------------------
-        ImGui::Begin("Lighting Debug");
+	// G. Material Buffer
+	Microsoft::WRL::ComPtr<ID3D12Resource> materialBuffer = CreateBufferResource(device, sizeof(Material));
+	Material* materialData = nullptr;
+	materialBuffer->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialData->enableLighting = 3; // Blinn-Phong
+	materialData->shininess = 50.0f;
+	materialData->uvTransform = MakeIdentity4x4();
 
-        // Directional Light
-        if (ImGui::CollapsingHeader("Directional Light")) {
-            ImGui::DragFloat3("Dir Direction", &lightData->directionalLights[0].direction.x, 0.01f, -1.0f, 1.0f);
-            lightData->directionalLights[0].direction = Normalize(lightData->directionalLights[0].direction);
-            ImGui::ColorEdit4("Dir Color", &lightData->directionalLights[0].color.x);
-            ImGui::DragFloat("Dir Intensity", &lightData->directionalLights[0].intensity, 0.01f, 0.0f, 5.0f);
-        }
+	// ImGui
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
+	ImGui_ImplWin32_Init(winApp->GetHwnd());
+	ImGui_ImplDX12_Init(device, dxCommon->GetBackBufferCount(),
+		dxCommon->GetRtvDesc().Format,
+		srvDescriptorHeap.Get(),
+		srvHandleCPU,
+		srvHandleGPU);
 
-        // Point Lights
-        if (ImGui::CollapsingHeader("Point Lights")) {
-            ImGui::SliderInt("Num Point Lights", &lightData->numPointLights, 0, kNumPointLights);
-            for (int i = 0; i < lightData->numPointLights; ++i) {
-                std::string label = "Point " + std::to_string(i);
-                ImGui::PushID(i);
-                ImGui::Text("%s", label.c_str());
-                ImGui::DragFloat3("Pos", &lightData->pointLights[i].position.x, 0.1f);
-                ImGui::ColorEdit4("Color", &lightData->pointLights[i].color.x);
-                ImGui::DragFloat("Radius", &lightData->pointLights[i].radius, 0.1f, 0.1f, 100.0f);
-                ImGui::DragFloat("Intensity", &lightData->pointLights[i].intensity, 0.01f, 0.0f, 10.0f);
+	// ループ変数
+	Vector3 cameraTranslate = { 0.0f, 5.0f, -15.0f };
+	Vector3 cameraRotate = { 0.2f, 0.0f, 0.0f };
 
-                if (lightData->pointLights[i].radius <= 0) lightData->pointLights[i].radius = 10.0f;
-                lightData->pointLights[i].decay = 1.0f;
-                ImGui::PopID();
-            }
-        }
+	// スポットライト角度制御用の一時変数 (度数法)
+	float spotOuterAngle = 30.0f;
+	float spotInnerAngle = 20.0f;
 
-        // Spot Lights
-        if (ImGui::CollapsingHeader("Spot Lights")) {
-            ImGui::SliderInt("Num Spot Lights", &lightData->numSpotLights, 0, kNumSpotLights);
-            for (int i = 0; i < lightData->numSpotLights; ++i) {
-                std::string label = "Spot " + std::to_string(i);
-                ImGui::PushID(i + 100);
-                ImGui::Text("%s", label.c_str());
-                ImGui::DragFloat3("Pos", &lightData->spotLights[i].position.x, 0.1f);
-                ImGui::DragFloat3("Dir", &lightData->spotLights[i].direction.x, 0.01f);
-                lightData->spotLights[i].direction = Normalize(lightData->spotLights[i].direction);
-                ImGui::ColorEdit4("Color", &lightData->spotLights[i].color.x);
-                ImGui::DragFloat("Distance", &lightData->spotLights[i].distance, 0.1f, 0.1f, 100.0f);
-                ImGui::DragFloat("CosAngle", &lightData->spotLights[i].cosAngle, 0.01f, -1.0f, 1.0f);
-                ImGui::DragFloat("FalloffStart", &lightData->spotLights[i].cosFalloffStart, 0.01f, -1.0f, 1.0f);
+	while (true) {
+		if (winApp->ProcessMessage()) break;
 
-                if (lightData->spotLights[i].distance <= 0) lightData->spotLights[i].distance = 20.0f;
-                lightData->spotLights[i].decay = 2.0f;
-                ImGui::PopID();
-            }
-        }
+		ImGui_ImplDX12_NewFrame();
+		ImGui_ImplWin32_NewFrame();
+		ImGui::NewFrame();
 
-        // Area Lights
-        if (ImGui::CollapsingHeader("Area Lights")) {
-            ImGui::SliderInt("Num Area Lights", &lightData->numAreaLights, 0, kNumAreaLights);
-            for (int i = 0; i < lightData->numAreaLights; ++i) {
-                std::string label = "Area " + std::to_string(i);
-                ImGui::PushID(i + 200);
-                ImGui::Text("%s", label.c_str());
-                ImGui::DragFloat3("Pos", &lightData->areaLights[i].position.x, 0.1f);
-                ImGui::DragFloat3("Dir", &lightData->areaLights[i].direction.x, 0.01f);
-                lightData->areaLights[i].direction = Normalize(lightData->areaLights[i].direction);
-                ImGui::ColorEdit4("Color", &lightData->areaLights[i].color.x);
-                ImGui::DragFloat("Width", &lightData->areaLights[i].width, 0.1f);
-                ImGui::DragFloat("Height", &lightData->areaLights[i].height, 0.1f);
-                lightData->areaLights[i].decay = 1.0f;
-                ImGui::PopID();
-            }
-        }
+		// ---------------------------------------------------------
+		// ImGui: ライト種類別タブ制御
+		// ---------------------------------------------------------
+		ImGui::Begin("Lighting Controller");
 
-        ImGui::Separator();
-        ImGui::Text("Camera Settings");
-        ImGui::DragFloat3("Camera Trans", &cameraTranslate.x, 0.1f);
-        ImGui::DragFloat3("Camera Rot", &cameraRotate.x, 0.01f);
-        ImGui::End();
+		if (ImGui::BeginTabBar("LightTabs")) {
 
-        // ---------------------------------------------------------
-        // 更新処理
-        // ---------------------------------------------------------
+			// --- Tab 1: Directional Light ---
+			if (ImGui::BeginTabItem("Directional (Sun)")) {
+				ImGui::Checkbox("Enable Directional", (bool*)&lightData->numDirectionalLights); // 0か1を切り替え
+				if (lightData->numDirectionalLights > 0) {
+					ImGui::Text("Global Light Direction");
+					ImGui::DragFloat3("Direction", &lightData->directionalLights[0].direction.x, 0.01f, -1.0f, 1.0f);
+					lightData->directionalLights[0].direction = Normalize(lightData->directionalLights[0].direction);
+					ImGui::ColorEdit3("Color", &lightData->directionalLights[0].color.x);
+					ImGui::DragFloat("Intensity", &lightData->directionalLights[0].intensity, 0.01f, 0.0f, 5.0f);
+				}
+				ImGui::EndTabItem();
+			}
 
-        // Update Camera
-        Matrix4x4 cameraWorld = MakeAffineMatrix({ 1.0f, 1.0f, 1.0f }, cameraRotate, cameraTranslate);
-        Matrix4x4 viewMatrix = Inverse(cameraWorld);
-        Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, (float)WinApp::kClientWidth / (float)WinApp::kClientHeight, 0.1f, 100.0f);
-        Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
-        cameraData->worldPosition = cameraTranslate;
+			// --- Tab 2: Point Light ---
+			if (ImGui::BeginTabItem("Point (Bulb)")) {
+				// 個数スライダー（0にすると消える）
+				ImGui::SliderInt("Num Lights", &lightData->numPointLights, 0, kNumPointLights);
 
-        // Update Terrain
-        if (terrainModel) {
-            terrainModel->transform.scale = { 1.0f, 1.0f, 1.0f };
-            terrainModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
-            terrainModel->transform.translate = { 0.0f, -2.0f, 0.0f };
+				for (int i = 0; i < lightData->numPointLights; ++i) {
+					ImGui::PushID(i);
+					ImGui::Separator();
+					ImGui::Text("Point Light %d", i);
+					ImGui::DragFloat3("Position", &lightData->pointLights[i].position.x, 0.1f);
+					ImGui::ColorEdit3("Color", &lightData->pointLights[i].color.x);
+					ImGui::DragFloat("Intensity", &lightData->pointLights[i].intensity, 0.01f, 0.0f, 10.0f);
+					ImGui::DragFloat("Radius", &lightData->pointLights[i].radius, 0.1f, 0.1f, 50.0f);
+					ImGui::PopID();
+				}
+				ImGui::EndTabItem();
+			}
 
-            Matrix4x4 worldMatrix = MakeAffineMatrix(terrainModel->transform.scale, terrainModel->transform.rotate, terrainModel->transform.translate);
-            Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
-            Matrix4x4 worldInv = Inverse(worldMatrix);
-            Matrix4x4 worldInvT = Transpose(worldInv);
+			// --- Tab 3: Spot Light ---
+			if (ImGui::BeginTabItem("Spot (Flashlight)")) {
+				ImGui::SliderInt("Num Lights", &lightData->numSpotLights, 0, kNumSpotLights);
 
-            terrainMapData->World = worldMatrix;
-            terrainMapData->WVP = wvpMatrix;
-            terrainMapData->WorldInverseTranspose = worldInvT;
-        }
+				for (int i = 0; i < lightData->numSpotLights; ++i) {
+					ImGui::PushID(i + 100);
+					ImGui::Separator();
+					ImGui::Text("Spot Light %d", i);
+					ImGui::DragFloat3("Position", &lightData->spotLights[i].position.x, 0.1f);
+					ImGui::DragFloat3("Direction", &lightData->spotLights[i].direction.x, 0.01f, -1.0f, 1.0f);
+					lightData->spotLights[i].direction = Normalize(lightData->spotLights[i].direction);
+					ImGui::ColorEdit3("Color", &lightData->spotLights[i].color.x);
+					ImGui::DragFloat("Intensity", &lightData->spotLights[i].intensity, 0.01f, 0.0f, 10.0f);
+					ImGui::DragFloat("Distance", &lightData->spotLights[i].distance, 0.1f, 1.0f, 100.0f);
 
-        // Update Sphere
-        if (sphereModel) {
-            sphereModel->transform.scale = { 1.0f, 1.0f, 1.0f };
-            // sphereModel->transform.rotate は固定またはUI制御など
-            sphereModel->transform.translate = { 0.0f, 1.0f, 0.0f };
+					// 角度調整 (度数法 -> Cos変換)
+					bool angleChanged = false;
+					// ※ここでは便宜上、0番目のライトの設定だけ変数と連動させる例にしています。
+					// 複数個を個別に角度調整したい場合は配列にする必要があります。
+					if (i == 0) {
+						angleChanged |= ImGui::SliderFloat("Outer Angle (Deg)", &spotOuterAngle, 0.0f, 90.0f);
+						angleChanged |= ImGui::SliderFloat("Inner Angle (Deg)", &spotInnerAngle, 0.0f, 90.0f);
+						if (spotInnerAngle > spotOuterAngle) spotInnerAngle = spotOuterAngle;
 
-            Matrix4x4 worldMatrix = MakeAffineMatrix(sphereModel->transform.scale, sphereModel->transform.rotate, sphereModel->transform.translate);
-            Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
-            Matrix4x4 worldInv = Inverse(worldMatrix);
-            Matrix4x4 worldInvT = Transpose(worldInv);
+						if (angleChanged) {
+							lightData->spotLights[i].cosAngle = CalcCos(spotOuterAngle);
 
-            sphereMapData->World = worldMatrix;
-            sphereMapData->WVP = wvpMatrix;
-            sphereMapData->WorldInverseTranspose = worldInvT;
-        }
+						}
+					} else {
+						// 2個目以降は直接Cos値をいじるか、別の変数を用意する
+						ImGui::Text("Use default angles for index > 0");
+					}
+					ImGui::PopID();
+				}
+				ImGui::EndTabItem();
+			}
 
-        // ---------------------------------------------------------
-        // 描画処理
-        // ---------------------------------------------------------
-        dxCommon->PreDraw();
+			ImGui::EndTabBar();
+		}
 
-        commandList->SetGraphicsRootSignature(graphicsPipeline->GetRootSignature());
-        commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeNormal));
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		ImGui::Separator();
+		ImGui::Text("Camera Settings");
+		ImGui::DragFloat3("Camera Trans", &cameraTranslate.x, 0.1f);
+		ImGui::DragFloat3("Camera Rot", &cameraRotate.x, 0.01f);
+		ImGui::End();
 
-        ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap.Get() };
-        commandList->SetDescriptorHeaps(1, descriptorHeaps);
+		// ---------------------------------------------------------
+		// 更新処理
+		// ---------------------------------------------------------
 
-        // GraphicsPipeline.cpp で設定した RootParameter の順番
-        // 0: b0 (Material)
-        commandList->SetGraphicsRootConstantBufferView(0, materialBuffer->GetGPUVirtualAddress());
+		// Update Camera
+		Matrix4x4 cameraWorld = MakeAffineMatrix({ 1.0f, 1.0f, 1.0f }, cameraRotate, cameraTranslate);
+		Matrix4x4 viewMatrix = Inverse(cameraWorld);
+		Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, (float)WinApp::kClientWidth / (float)WinApp::kClientHeight, 0.1f, 100.0f);
+		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+		cameraData->worldPosition = cameraTranslate;
 
-        // 1: b1 (LightGroup) - 修正箇所
-        commandList->SetGraphicsRootConstantBufferView(1, lightBuffer->GetGPUVirtualAddress());
+		// Update Terrain
+		if (terrainModel) {
+			terrainModel->transform.scale = { 1.0f, 1.0f, 1.0f };
+			terrainModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
+			terrainModel->transform.translate = { 0.0f, -2.0f, 0.0f };
 
-        // 2: b2 (Camera)
-        commandList->SetGraphicsRootConstantBufferView(2, cameraBuffer->GetGPUVirtualAddress());
+			Matrix4x4 worldMatrix = MakeAffineMatrix(terrainModel->transform.scale, terrainModel->transform.rotate, terrainModel->transform.translate);
+			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
+			Matrix4x4 worldInv = Inverse(worldMatrix);
+			Matrix4x4 worldInvT = Transpose(worldInv);
 
-        // Terrain Draw
-        if (terrainModel) {
-            // 3: t0 (Texture) -> terrainSrvGPU
-            commandList->SetGraphicsRootDescriptorTable(3, terrainSrvGPU);
-            // 4: t1 (Transform) -> terrainTransGPU
-            commandList->SetGraphicsRootDescriptorTable(4, terrainTransGPU);
+			terrainMapData->World = worldMatrix;
+			terrainMapData->WVP = wvpMatrix;
+			terrainMapData->WorldInverseTranspose = worldInvT;
+		}
 
-            // DrawCall
-            terrainModel->Draw(commandList, 1, terrainSrvGPU, terrainTransGPU);
-        }
+		// Update Sphere
+		if (sphereModel) {
+			sphereModel->transform.scale = { 1.0f, 1.0f, 1.0f };
+			// sphereModel->transform.rotate は固定またはUI制御など
+			sphereModel->transform.translate = { 0.0f, 1.0f, 0.0f };
 
-        // Sphere Draw
-        if (sphereModel) {
-            // 3: t0 (Texture) -> ballSrvGPU
-            commandList->SetGraphicsRootDescriptorTable(3, ballSrvGPU);
-            // 4: t1 (Transform) -> sphereTransGPU
-            commandList->SetGraphicsRootDescriptorTable(4, sphereTransGPU);
+			Matrix4x4 worldMatrix = MakeAffineMatrix(sphereModel->transform.scale, sphereModel->transform.rotate, sphereModel->transform.translate);
+			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
+			Matrix4x4 worldInv = Inverse(worldMatrix);
+			Matrix4x4 worldInvT = Transpose(worldInv);
 
-            // DrawCall
-            sphereModel->Draw(commandList, 1, ballSrvGPU, sphereTransGPU);
-        }
+			sphereMapData->World = worldMatrix;
+			sphereMapData->WVP = wvpMatrix;
+			sphereMapData->WorldInverseTranspose = worldInvT;
+		}
 
-        ImGui::Render();
-        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+		// ---------------------------------------------------------
+		// 描画処理
+		// ---------------------------------------------------------
+		dxCommon->PreDraw();
 
-        dxCommon->PostDraw();
-    }
+		commandList->SetGraphicsRootSignature(graphicsPipeline->GetRootSignature());
+		commandList->SetPipelineState(graphicsPipeline->GetPipelineState(kBlendModeNormal));
+		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    ImGui_ImplDX12_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+		ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap.Get() };
+		commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
-    delete terrainModel;
-    delete sphereModel;
-    delete graphicsPipeline;
+		// GraphicsPipeline.cpp で設定した RootParameter の順番
+		// 0: b0 (Material)
+		commandList->SetGraphicsRootConstantBufferView(0, materialBuffer->GetGPUVirtualAddress());
 
-    dxCommon->Finalize();
-    winApp->Finalize();
+		// 1: b1 (LightGroup)
+		commandList->SetGraphicsRootConstantBufferView(1, lightBuffer->GetGPUVirtualAddress());
 
-    return 0;
+		// 2: b2 (Camera)
+		commandList->SetGraphicsRootConstantBufferView(2, cameraBuffer->GetGPUVirtualAddress());
+
+		// Terrain Draw
+		if (terrainModel) {
+			// 3: t0 (Texture) -> terrainSrvGPU
+			commandList->SetGraphicsRootDescriptorTable(3, terrainSrvGPU);
+			// 4: t1 (Transform) -> terrainTransGPU
+			commandList->SetGraphicsRootDescriptorTable(4, terrainTransGPU);
+
+			// DrawCall
+			terrainModel->Draw(commandList, 1, terrainSrvGPU, terrainTransGPU);
+		}
+
+		// Sphere Draw
+		if (sphereModel) {
+			// 3: t0 (Texture) -> ballSrvGPU
+			commandList->SetGraphicsRootDescriptorTable(3, ballSrvGPU);
+			// 4: t1 (Transform) -> sphereTransGPU
+			commandList->SetGraphicsRootDescriptorTable(4, sphereTransGPU);
+
+			// DrawCall
+			sphereModel->Draw(commandList, 1, ballSrvGPU, sphereTransGPU);
+		}
+
+		ImGui::Render();
+		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+
+		dxCommon->PostDraw();
+	}
+
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+
+	delete terrainModel;
+	delete sphereModel;
+	delete graphicsPipeline;
+
+	dxCommon->Finalize();
+	winApp->Finalize();
+
+	return 0;
 }

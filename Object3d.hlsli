@@ -1,6 +1,6 @@
 // Object3d.hlsli
 
-// 最大ライト数の定義（C++側と合わせる）
+// 最大ライト数の定義
 #define NUM_DIR_LIGHTS 1
 #define NUM_POINT_LIGHTS 3
 #define NUM_SPOT_LIGHTS 3
@@ -52,17 +52,22 @@ struct PointLight
 
 struct SpotLight
 {
-    float32_t4 color;
-    float32_t3 position;
-    float intensity;
-    float32_t3 direction;
-    float distance;
-    float decay;
-    float cosAngle;
-    float cosFalloffStart;
-    float padding[2];
-};
 
+    float32_t4 color;
+
+    float32_t3 position;
+
+    float32_t intensity;
+
+    float32_t3 direction;
+
+    float32_t distance;
+
+    float32_t decay;
+
+    float32_t cosAngle;
+
+};
 struct AreaLight
 {
     float32_t4 color;
@@ -84,12 +89,14 @@ struct LightGroup
     SpotLight spotLights[NUM_SPOT_LIGHTS];
     AreaLight areaLights[NUM_AREA_LIGHTS];
 
+    // C++側にある変数に合わせて復元
     int numDirectionalLights;
     int numPointLights;
     int numSpotLights;
     int numAreaLights;
 };
 
+// カメラ構造体
 struct Camera
 {
     float32_t3 worldPosition;
