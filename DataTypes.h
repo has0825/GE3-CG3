@@ -6,26 +6,22 @@
 // 定数定義
 const int kNumDirectionalLights = 1;
 const int kNumPointLights = 3;
-const int kNumSpotLights = 3;
-const int kNumAreaLights = 1;
+const int kNumSpotLights = 1;
 
-// 頂点データ
 struct VertexData {
     Vector4 position;
     Vector2 texcoord;
     Vector3 normal;
 };
 
-// マテリアルデータ
 struct Material {
     Vector4 color;
     int32_t enableLighting;
-    float shininess;      // 光沢度
-    float padding[2];     // パディング
+    float shininess;
+    float padding[2];
     Matrix4x4 uvTransform;
 };
 
-// 座標変換行列データ
 struct TransformationMatrix {
     Matrix4x4 WVP;
     Matrix4x4 World;
@@ -34,20 +30,21 @@ struct TransformationMatrix {
 
 // --- ライト構造体 ---
 
-// 構造体定義 (GPUのメモリレイアウト(16バイト境界)に合わせるためパディングを追加)
+// 32バイト (16の倍数なのでOK)
 struct DirectionalLight {
-    Vector4 color;
-    Vector3 direction;
-    float intensity;
+    Vector4 color;      // 16
+    Vector3 direction;  // 12
+    float intensity;    // 4
 };
 
+// 40バイト + 8バイトパディング = 48バイト (16の倍数に合わせる)
 struct PointLight {
-    Vector4 color;
-    Vector3 position;
-    float intensity;
-    float radius;
-    float decay;
-    float padding[2]; // ★追加: 16バイトアライメント用
+    Vector4 color;      // 16
+    Vector3 position;   // 12
+    float intensity;    // 4
+    float radius;       // 4
+    float decay;        // 4
+    float padding[2];   // 8 (合計48バイト)
 };
 
 struct SpotLight {
@@ -58,46 +55,29 @@ struct SpotLight {
     float distance;
     float decay;
     float cosAngle;
-    float padding[2]; // ★追加: これがないと次のライトデータが壊れる
+    float cosFalloffStart; // Falloff開始角度を追加
+    float padding;         // 16バイト境界合わせ
 };
 
-
-// 矩形ライト（AreaLight）
-struct AreaLight {
-    Vector4 color;     // ライト色
-    Vector3 position;  // 中心位置
-    float intensity;   // 強度
-    Vector3 up;        // ライトの「上」方向ベクトル
-    float height;      // 高さ
-    Vector3 right;     // ライトの「右」方向ベクトル
-    float width;       // 幅
-    Vector3 direction; // 発光方向
-    float decay;       // 減衰
-};
-
-// ライト統合データ（定数バッファ用）
 struct LightGroup {
     DirectionalLight directionalLights[kNumDirectionalLights];
     PointLight pointLights[kNumPointLights];
-    SpotLight spotLights[kNumSpotLights];
+    SpotLight spotLights[kNumSpotLights]; // スポットライト追加
     int32_t numDirectionalLights;
     int32_t numPointLights;
-    int32_t numSpotLights;
-    int32_t padding; // 調整用
+    int32_t numSpotLights;                // 数を保持
+    float padding;
 };
 
-// カメラ情報 (元々あった構造体を復元)
 struct CameraForGpu {
     Vector3 worldPosition;
     float padding;
 };
 
-// モデル読み込み用マテリアルデータ (元々あった構造体を復元)
 struct MaterialData {
     std::string textureFilePath;
 };
 
-// モデルデータ (元々あった構造体を復元)
 struct ModelData {
     std::vector<VertexData> vertices;
     MaterialData material;

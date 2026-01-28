@@ -145,36 +145,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	LightGroup* lightData = nullptr;
 	lightBuffer->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
 
-	// ★★★ ここに追加！メモリを一旦すべて0で埋める ★★★
+	// メモリを0クリア
 	memset(lightData, 0, sizeof(LightGroup));
 
 	// 1. Directional Light (太陽光)
 	lightData->numDirectionalLights = 1;
 	lightData->directionalLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // 白
 	lightData->directionalLights[0].direction = { 0.0f, -1.0f, 0.0f }; // 真下
-	lightData->directionalLights[0].intensity = 0.5f; // 少し弱めに（他が見やすいように）
+	lightData->directionalLights[0].intensity = 0.5f;
 
 	// 2. Point Light (点光源)
 	lightData->numPointLights = 1;
-	lightData->pointLights[0].color = { 1.0f, 0.0f, 0.0f, 1.0f }; // 赤
-	lightData->pointLights[0].position = { -2.0f, 1.0f, 0.0f }; // 左側
+	lightData->pointLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	lightData->pointLights[0].position = { -2.0f, 1.0f, 0.0f };
 	lightData->pointLights[0].intensity = 1.0f;
 	lightData->pointLights[0].radius = 10.0f;
 	lightData->pointLights[0].decay = 1.0f;
 
-	// 右側 (X=2.0) から、原点方向 (X=-1.0) を照らすように設定
+	// 3. Spot Light 初期化
+	lightData->numSpotLights = 1;
 	lightData->spotLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	lightData->spotLights[0].position = { 2.0f, 1.25f, 0.0f }; // 右上の位置
+	lightData->spotLights[0].position = { -2.0f, 1.0f, 0.0f };
 	lightData->spotLights[0].distance = 7.0f;
-	lightData->spotLights[0].direction = Normalize({ -1.0f, -0.6f, 0.0f }); // 少し下向き左方向
+	lightData->spotLights[0].direction = Normalize({ -1.0f, -1.0f, 0.0f });
 	lightData->spotLights[0].intensity = 4.0f;
 	lightData->spotLights[0].decay = 2.0f;
 	lightData->spotLights[0].cosAngle = std::cos(std::numbers::pi_v<float> / 3.0f);
-	for (int i = 1; i < kNumSpotLights; ++i) {
-		lightData->spotLights[i].intensity = 0.0f;
-	}
-
-
+	lightData->spotLights[0].cosFalloffStart = std::cos(std::numbers::pi_v<float> / 6.0f); 
 
 	// F. Camera Buffer
 	Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(device, sizeof(CameraForGpu));
@@ -205,9 +202,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 cameraTranslate = { 0.0f, 5.0f, -15.0f };
 	Vector3 cameraRotate = { 0.2f, 0.0f, 0.0f };
 
-	// スポットライト角度制御用の一時変数 (度数法)
-	float spotOuterAngle = 30.0f;
-	float spotInnerAngle = 20.0f;
+	// spotAnglesDeg変数は削除しました
 
 	while (true) {
 		if (winApp->ProcessMessage()) break;
@@ -225,12 +220,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 			// --- Tab 1: Directional Light ---
 			if (ImGui::BeginTabItem("Directional (Sun)")) {
-				ImGui::Checkbox("Enable Directional", (bool*)&lightData->numDirectionalLights); // 0か1を切り替え
+				ImGui::Checkbox("Enable Directional", (bool*)&lightData->numDirectionalLights);
 				if (lightData->numDirectionalLights > 0) {
 					ImGui::Text("Global Light Direction");
 					ImGui::DragFloat3("Direction", &lightData->directionalLights[0].direction.x, 0.01f, -1.0f, 1.0f);
 					lightData->directionalLights[0].direction = Normalize(lightData->directionalLights[0].direction);
-					ImGui::ColorEdit3("Color", &lightData->directionalLights[0].color.x);
+
+					ImGui::ColorEdit4("Color", &lightData->directionalLights[0].color.x);
 					ImGui::DragFloat("Intensity", &lightData->directionalLights[0].intensity, 0.01f, 0.0f, 5.0f);
 				}
 				ImGui::EndTabItem();
@@ -238,7 +234,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 			// --- Tab 2: Point Light ---
 			if (ImGui::BeginTabItem("Point (Bulb)")) {
-				// 個数スライダー（0にすると消える）
 				ImGui::SliderInt("Num Lights", &lightData->numPointLights, 0, kNumPointLights);
 
 				for (int i = 0; i < lightData->numPointLights; ++i) {
@@ -246,50 +241,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 					ImGui::Separator();
 					ImGui::Text("Point Light %d", i);
 					ImGui::DragFloat3("Position", &lightData->pointLights[i].position.x, 0.1f);
-					ImGui::ColorEdit3("Color", &lightData->pointLights[i].color.x);
+
+					ImGui::ColorEdit4("Color", &lightData->pointLights[i].color.x);
 					ImGui::DragFloat("Intensity", &lightData->pointLights[i].intensity, 0.01f, 0.0f, 10.0f);
 					ImGui::DragFloat("Radius", &lightData->pointLights[i].radius, 0.1f, 0.1f, 50.0f);
+					ImGui::DragFloat("Decay", &lightData->pointLights[i].decay, 0.01f, 0.0f, 5.0f);
 					ImGui::PopID();
 				}
 				ImGui::EndTabItem();
 			}
 
-			// --- Tab 3: Spot Light ---
-			if (ImGui::BeginTabItem("Spot (Flashlight)")) {
-				ImGui::SliderInt("Num Lights", &lightData->numSpotLights, 0, kNumSpotLights);
-
-				for (int i = 0; i < lightData->numSpotLights; ++i) {
-					ImGui::PushID(i + 100);
-					ImGui::Separator();
-					ImGui::Text("Spot Light %d", i);
-					ImGui::DragFloat3("Position", &lightData->spotLights[i].position.x, 0.1f);
-					ImGui::DragFloat3("Direction", &lightData->spotLights[i].direction.x, 0.01f, -1.0f, 1.0f);
-					lightData->spotLights[i].direction = Normalize(lightData->spotLights[i].direction);
-					ImGui::ColorEdit3("Color", &lightData->spotLights[i].color.x);
-					ImGui::DragFloat("Intensity", &lightData->spotLights[i].intensity, 0.01f, 0.0f, 10.0f);
-					ImGui::DragFloat("Distance", &lightData->spotLights[i].distance, 0.1f, 1.0f, 100.0f);
-
-					// 角度調整 (度数法 -> Cos変換)
-					bool angleChanged = false;
-					// ※ここでは便宜上、0番目のライトの設定だけ変数と連動させる例にしています。
-					// 複数個を個別に角度調整したい場合は配列にする必要があります。
-					if (i == 0) {
-						angleChanged |= ImGui::SliderFloat("Outer Angle (Deg)", &spotOuterAngle, 0.0f, 90.0f);
-						angleChanged |= ImGui::SliderFloat("Inner Angle (Deg)", &spotInnerAngle, 0.0f, 90.0f);
-						if (spotInnerAngle > spotOuterAngle) spotInnerAngle = spotOuterAngle;
-
-						if (angleChanged) {
-							lightData->spotLights[i].cosAngle = CalcCos(spotOuterAngle);
-
-						}
-					} else {
-						// 2個目以降は直接Cos値をいじるか、別の変数を用意する
-						ImGui::Text("Use default angles for index > 0");
-					}
-					ImGui::PopID();
-				}
-				ImGui::EndTabItem();
-			}
 
 			ImGui::EndTabBar();
 		}
@@ -367,23 +328,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 		// Terrain Draw
 		if (terrainModel) {
-			// 3: t0 (Texture) -> terrainSrvGPU
 			commandList->SetGraphicsRootDescriptorTable(3, terrainSrvGPU);
-			// 4: t1 (Transform) -> terrainTransGPU
 			commandList->SetGraphicsRootDescriptorTable(4, terrainTransGPU);
-
-			// DrawCall
 			terrainModel->Draw(commandList, 1, terrainSrvGPU, terrainTransGPU);
 		}
 
 		// Sphere Draw
 		if (sphereModel) {
-			// 3: t0 (Texture) -> ballSrvGPU
 			commandList->SetGraphicsRootDescriptorTable(3, ballSrvGPU);
-			// 4: t1 (Transform) -> sphereTransGPU
 			commandList->SetGraphicsRootDescriptorTable(4, sphereTransGPU);
-
-			// DrawCall
 			sphereModel->Draw(commandList, 1, ballSrvGPU, sphereTransGPU);
 		}
 

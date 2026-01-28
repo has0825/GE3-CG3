@@ -1,10 +1,8 @@
 // Object3d.hlsli
 
-// 最大ライト数の定義
 #define NUM_DIR_LIGHTS 1
 #define NUM_POINT_LIGHTS 3
-#define NUM_SPOT_LIGHTS 3
-#define NUM_AREA_LIGHTS 1
+#define NUM_SPOT_LIGHTS 1 // 追加
 
 struct VertexShaderOutput
 {
@@ -17,10 +15,9 @@ struct VertexShaderOutput
 struct Material
 {
     float32_t4 color;
-    int32_t enableLighting; // 0:なし, 1:Lambert, 2:Phong, 3:BlinnPhong
-    float32_t shininess; // 光沢度
-    float32_t environment; // 環境光係数 (padding)
-    float32_t padding;
+    int32_t enableLighting;
+    float32_t shininess;
+    float32_t padding[2];
     float32_t4x4 uvTransform;
 };
 
@@ -47,56 +44,32 @@ struct PointLight
     float intensity;
     float radius;
     float decay;
-    float padding[2];
+    float32_t padding[2]; // C++と合わせる
 };
 
 struct SpotLight
 {
-
     float32_t4 color;
-
     float32_t3 position;
-
     float32_t intensity;
-
     float32_t3 direction;
-
     float32_t distance;
-
     float32_t decay;
-
     float32_t cosAngle;
-
-};
-struct AreaLight
-{
-    float32_t4 color;
-    float32_t3 position;
-    float intensity;
-    float32_t3 up;
-    float height;
-    float32_t3 right;
-    float width;
-    float32_t3 direction;
-    float decay;
+    float32_t cosFalloffStart; // 追加
 };
 
-// 定数バッファ構造体
 struct LightGroup
 {
     DirectionalLight directionalLights[NUM_DIR_LIGHTS];
     PointLight pointLights[NUM_POINT_LIGHTS];
-    SpotLight spotLights[NUM_SPOT_LIGHTS];
-    AreaLight areaLights[NUM_AREA_LIGHTS];
-
-    // C++側にある変数に合わせて復元
+    SpotLight spotLights[NUM_SPOT_LIGHTS]; // 追加
     int numDirectionalLights;
     int numPointLights;
-    int numSpotLights;
-    int numAreaLights;
+    int numSpotLights; // 追加
+    float padding;
 };
 
-// カメラ構造体
 struct Camera
 {
     float32_t3 worldPosition;
