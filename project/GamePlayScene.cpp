@@ -52,7 +52,7 @@ void GamePlayScene::Initialize() {
     randomEngine_.seed(seedGenerator());
 
     // モデル生成
-    particleModel_ = Model::CreateParticleModel(device);
+    particleModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
 
     // インスタンシングバッファ作成 (Particles)
     instancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kNumInstances);
@@ -161,7 +161,7 @@ void GamePlayScene::Initialize() {
     commandList->Reset(dxCommon_->GetCommandAllocator(), nullptr);
 
     // カメラ初期化
-    camera_ = new Camera(WinApp::kClientWidth, WinApp::kClientHeight);
+    camera_ = std::make_unique<Camera>(WinApp::kClientWidth, WinApp::kClientHeight);
     camera_->SetTranslate({ 0.0f, 0.0f, -15.0f });
 
     // 音声ロード
@@ -171,8 +171,7 @@ void GamePlayScene::Initialize() {
 }
 
 void GamePlayScene::Finalize() {
-    delete particleModel_;
-    delete camera_;
+
     delete graphicsPipeline_;
 
     // Audioはここで生成したのでここで解放

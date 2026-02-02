@@ -107,11 +107,10 @@ void Framework::Initialize() {
     // COMの初期化（Audio用）
     CoInitializeEx(0, COINIT_MULTITHREADED);
 
-    audio_ = new Audio();
+    audio_ = std::make_unique<Audio>();
     audio_->Initialize();
 
-    graphicsPipeline_ = new GraphicsPipeline();
-    graphicsPipeline_->Initialize(dxCommon_->GetDevice());
+    graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
 
     // SRVヒープ作成
     srvDescriptorHeap_ = CreateDescriptorHeap(dxCommon_->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
@@ -143,9 +142,7 @@ void Framework::Finalize() {
     ImGui::DestroyContext();
 #endif
 
-    delete graphicsPipeline_;
     audio_->Finalize();
-    delete audio_;
 
     CoUninitialize();
 

@@ -11,5 +11,5 @@ public:
 
 private:
     // 工場の実体を持つ（SceneManagerにはポインタを渡す）
-    SceneFactory* sceneFactory_ = nullptr;
+    std::unique_ptr<SceneFactory> sceneFactory_;
 };

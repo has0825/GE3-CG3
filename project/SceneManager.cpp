@@ -9,11 +9,9 @@ SceneManager* SceneManager::GetInstance() {
 SceneManager::~SceneManager() {
     if (currentScene_) {
         currentScene_->Finalize();
-        delete currentScene_;
     }
     // nextScene_ は予約だけで生成されていないはずだが、念のため
     if (nextScene_) {
-        delete nextScene_;
     }
 }
 
@@ -22,7 +20,7 @@ void SceneManager::ChangeScene(const std::string& sceneName) {
     assert(nextScene_ == nullptr); // 同一フレームでの連続呼び出しは想定しない
 
     // 次のシーンを生成して予約
-    nextScene_ = sceneFactory_->CreateScene(sceneName);
+    nextScene_ = std::unique_ptr<BaseScene>(sceneFactory_->CreateScene(sceneName));
 }
 
 void SceneManager::Update() {
@@ -31,11 +29,10 @@ void SceneManager::Update() {
         // 現在のシーンがあれば終了処理
         if (currentScene_) {
             currentScene_->Finalize();
-            delete currentScene_;
         }
         // シーン入れ替え
-        currentScene_ = nextScene_;
-        nextScene_ = nullptr;
+        currentScene_ = std::move(nextScene_);
+        // nextScene_ は nullptr になる
 
         // 新しいシーンの初期化
         currentScene_->Initialize();
