@@ -32,6 +32,7 @@ public:
     ID3D12DescriptorHeap* GetRtvDescriptorHeap() const { return rtvDescriptorHeap_.Get(); }
     D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc() const { return rtvDesc_; }
     UINT GetBackBufferCount() const { return kBackBufferCount_; }
+    ID3D12CommandAllocator* GetCommandAllocator() const { return commandAllocator_.Get(); }
 
 
 private:

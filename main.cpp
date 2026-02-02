@@ -295,24 +295,28 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    // ==========================================
-    // 画像読み込み (circle.png)
-    // ==========================================
+    // =========================================================================
+    // 画像アップロード処理
+    // ★重要: 初期化直後のコマンドリストは「開いた状態」なのでそのまま使います。
+    // 手動のリセットや手動のバリアは記述しません (D3D12Util内で処理されます)。
+    // =========================================================================
+
+    // 1. Circle Texture
     DirectX::ScratchImage mipImages = LoadTexture("resources/circle.png");
     const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
     Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
     Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
         UploadTextureData(textureResource.Get(), mipImages, device, commandList);
 
-    // ==========================================
-    // 画像読み込み (text.png)
-    // ==========================================
+    // 2. Text Texture
     DirectX::ScratchImage textMipImages = LoadTexture("resources/text1.png");
     const DirectX::TexMetadata& textMetadata = textMipImages.GetMetadata();
     Microsoft::WRL::ComPtr<ID3D12Resource> textTextureResource = CreateTextureResource(device, textMetadata);
     Microsoft::WRL::ComPtr<ID3D12Resource> textIntermediateResource =
         UploadTextureData(textTextureResource.Get(), textMipImages, device, commandList);
 
+    // 初期化フェーズのコマンドリストを閉じて実行
+    // ここでCloseすることで、メインループのPreDraw(Reset)が正常に動作します
     commandList->Close();
     ID3D12CommandQueue* commandQueue = dxCommon->GetCommandQueue();
     ID3D12CommandList* ppCommandLists[] = { commandList };
@@ -391,6 +395,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     while (!winApp->IsEndRequested()) {
         winApp->ProcessMessage();
 
+        // ★修正: ループ内での手動Resetは削除（dxCommon->PreDrawがやってくれます）
+        // allocator->Reset();         // 削除
+        // commandList->Reset(...);    // 削除
+
         // キーボード入力
         if (GetAsyncKeyState('1') & 0x8000) currentEffect = kTypeExplosion;
         if (GetAsyncKeyState('2') & 0x8000) currentEffect = kTypeFountain;
@@ -443,27 +451,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         // --- テキスト画像(text.png)の更新処理 ---
         {
-            // 画像の本来のサイズを取得
             float imageWidth = (float)textMetadata.width;
             float imageHeight = (float)textMetadata.height;
-
             Vector3 scale = { imageWidth, imageHeight, 1.0f };
             Vector3 rotate = { 0.0f, 0.0f, 0.0f };
-
             float halfClientW = (float)winApp->kClientWidth / 2.0f;
             float halfClientH = (float)winApp->kClientHeight / 2.0f;
-
-            // ★ここが位置変更箇所★
-            // 左下の位置基準から、右に100px, 上に150pxずらす
             Vector3 translate = {
-                -halfClientW + (imageWidth / 2.0f) + 100.0f, // X座標: 左端から +100
-                -halfClientH + (imageHeight / 2.0f) + 150.0f, // Y座標: 下端から +150
+                -halfClientW + (imageWidth / 2.0f) + 100.0f,
+                -halfClientH + (imageHeight / 2.0f) + 150.0f,
                 0.0f
             };
 
             Matrix4x4 worldSprite = MakeAffineMatrix(scale, rotate, translate);
-
-            // 正射影行列 (MakeOrthographicMatrixはMathUtil.objのものを使用)
             Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
             Matrix4x4 viewSprite = MakeIdentity4x4();
             Matrix4x4 viewProjSprite = Multiply(viewSprite, projectionSprite);
