@@ -9,12 +9,25 @@
 #include <vector>
 #include <Windows.h> 
 
-// ヘルパー関数のプロトタイプ宣言
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename);
+// Assimp
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <assimp/pbrmaterial.h> // glTFのPBRマテリアル用
+
+// Debug/Release構成に合わせてライブラリ名を自動切り替え
+#ifdef _DEBUG
+#pragma comment(lib, "assimp-vc143-mtd.lib")
+#else
+#pragma comment(lib, "assimp-vc143-mt.lib")
+#endif
+
+// プロトタイプ宣言
+Node ReadNode(aiNode* node);
+// LoadObjFile -> LoadModelFile に変更し、Node情報も返すように引数を調整
+ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename, Node* outRootNode);
 
 Model* Model::Create(const std::string& directoryPath, const std::string& filename, ID3D12Device* device) {
-    // デバイスチェック
     if (!device) {
         MessageBoxA(nullptr, "Model::Create failed: Device is nullptr.", "Error", MB_OK | MB_ICONERROR);
         assert(false && "Device is nullptr");
@@ -22,9 +35,11 @@ Model* Model::Create(const std::string& directoryPath, const std::string& filena
     }
 
     Model* model = new Model();
-    ModelData modelData = LoadOjFile(directoryPath, filename);
 
-    // ★修正: 読み込みデータが空の場合は失敗とみなす
+    // Nodeを受け取る変数を渡して読み込み
+    ModelData modelData = LoadModelFile(directoryPath, filename, &model->rootNode);
+
+    // データが空の場合は失敗とみなす
     if (modelData.vertices.empty()) {
         std::string msg = "Model Data is empty! Check FilePath: " + directoryPath + "/" + filename;
         MessageBoxA(nullptr, msg.c_str(), "File Load Error", MB_OK | MB_ICONERROR);
@@ -44,6 +59,9 @@ Model* Model::CreateParticleModel(ID3D12Device* device) {
 
     Model* model = new Model();
     ModelData modelData;
+
+    // 単位行列で初期化
+    model->rootNode.localMatrix = MakeIdentity4x4();
 
     // 四角形 (左上, 右上, 左下, 右上, 右下, 左下)
     modelData.vertices.push_back({ { -1.0f, 1.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } });
@@ -69,11 +87,13 @@ Model* Model::CreateSphereModel(ID3D12Device* device, uint32_t subdivision) {
     Model* model = new Model();
     ModelData modelData;
 
+    // 単位行列で初期化
+    model->rootNode.localMatrix = MakeIdentity4x4();
+
     uint32_t latDiv = subdivision;
     uint32_t lonDiv = subdivision;
     const float kPi = 3.14159265359f;
 
-    // 1. 頂点生成
     for (uint32_t lat = 0; lat <= latDiv; ++lat) {
         float latAngle = kPi * lat / latDiv;
         float y = std::cos(latAngle);
@@ -95,7 +115,6 @@ Model* Model::CreateSphereModel(ID3D12Device* device, uint32_t subdivision) {
         }
     }
 
-    // 2. インデックス展開
     std::vector<VertexData> expandedVertices;
     for (uint32_t lat = 0; lat < latDiv; ++lat) {
         for (uint32_t lon = 0; lon < lonDiv; ++lon) {
@@ -107,11 +126,9 @@ Model* Model::CreateSphereModel(ID3D12Device* device, uint32_t subdivision) {
             const VertexData& p2 = modelData.vertices[next];
             const VertexData& p3 = modelData.vertices[next + 1];
 
-            // Triangle 1
             expandedVertices.push_back(p0);
             expandedVertices.push_back(p2);
             expandedVertices.push_back(p1);
-            // Triangle 2
             expandedVertices.push_back(p1);
             expandedVertices.push_back(p2);
             expandedVertices.push_back(p3);
@@ -130,7 +147,6 @@ void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
     modelData_ = modelData;
     transform = { {1,1,1}, {0,0,0}, {0,0,0} };
 
-    // 頂点が空なら処理を中断
     if (modelData_.vertices.empty()) {
         MessageBoxA(nullptr, "Vertices size is 0. Initialization skipped.", "Warning", MB_OK);
         return;
@@ -187,7 +203,6 @@ void Model::Draw(
     D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle)
 {
-    // リソースがなければ描画しない（安全策）
     if (!vertexResource_ || !materialResource_) {
         return;
     }
@@ -203,95 +218,113 @@ void Model::Draw(
 
 // --- 以下ヘルパー関数 ---
 
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename) {
-    MaterialData materialData;
-    std::string line;
-    std::string filePath = directoryPath + "/" + filename;
-    std::ifstream file(filePath);
+// AssimpのNodeから独自のNodeへ変換
+Node ReadNode(aiNode* node) {
+    Node result;
 
-    if (!file.is_open()) {
-        std::string msg = "Failed to open material file: " + filePath;
-        OutputDebugStringA(msg.c_str());
-        return materialData;
-    }
+    // nodeのTransformationを取得
+    aiMatrix4x4 aiLocalMatrix = node->mTransformation;
 
-    while (std::getline(file, line)) {
-        std::string identifier;
-        std::istringstream s(line);
-        s >> identifier;
-        if (identifier == "map_Kd") {
-            std::string textureFilename;
-            s >> textureFilename;
-            materialData.textureFilePath = directoryPath + "/" + textureFilename;
+    // 列ベクトル形式を行ベクトル形式に転置
+    aiLocalMatrix.Transpose();
+
+    // Assimpの行列(4x4)をコピー
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            result.localMatrix.m[i][j] = aiLocalMatrix[i][j];
         }
     }
-    return materialData;
+
+    result.name = node->mName.C_Str(); // Node名を格納
+    result.children.resize(node->mNumChildren); // 子供の数だけ確保
+
+    for (uint32_t childIndex = 0; childIndex < node->mNumChildren; ++childIndex) {
+        // 再帰的に読んで階層構造を作っていく
+        result.children[childIndex] = ReadNode(node->mChildren[childIndex]);
+    }
+
+    return result;
 }
 
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename) {
+// LoadObjFile -> LoadModelFile (glTF対応, Node対応)
+ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename, Node* outRootNode) {
     ModelData modelData;
-    std::vector<Vector4> positions;
-    std::vector<Vector3> normals;
-    std::vector<Vector2> texcoords;
-    std::string line;
-
+    Assimp::Importer importer;
     std::string filePath = directoryPath + "/" + filename;
-    std::ifstream file(filePath);
 
-    // ★修正: ファイルが開けない場合はエラーメッセージを出す
-    if (!file.is_open()) {
-        std::string msg = "Failed to open OBJ file: " + filePath;
-        MessageBoxA(nullptr, msg.c_str(), "Load Error", MB_OK | MB_ICONERROR);
-        assert(false && "OBJ File not found");
+    // ファイル読み込み
+    const aiScene* scene = importer.ReadFile(filePath.c_str(),
+        aiProcess_FlipWindingOrder | aiProcess_FlipUVs | aiProcess_Triangulate);
+
+    // 読み込み失敗チェック
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode || !scene->HasMeshes()) {
+        std::string msg = "Assimp failed to load file: " + filePath;
+        if (scene) {
+            msg += "\nError: " + std::string(importer.GetErrorString());
+        }
+        MessageBoxA(nullptr, msg.c_str(), "LoadModelFile Error", MB_OK | MB_ICONERROR);
+        assert(false && "Assimp Load Failed");
         return modelData;
     }
 
-    while (std::getline(file, line)) {
-        std::string identifier;
-        std::istringstream s(line);
-        s >> identifier;
-        if (identifier == "v") {
-            Vector4 position;
-            s >> position.x >> position.y >> position.z;
-            position.w = 1.0f;
-            positions.push_back(position);
-        } else if (identifier == "vt") {
-            Vector2 texcoord;
-            s >> texcoord.x >> texcoord.y;
-            texcoords.push_back(texcoord);
-        } else if (identifier == "vn") {
-            Vector3 normal;
-            s >> normal.x >> normal.y >> normal.z;
-            normal.x *= -1.0f;
-            normals.push_back(normal);
-        } else if (identifier == "f") {
-            VertexData triangle[3];
-            for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-                std::string vertexDefinition;
-                s >> vertexDefinition;
-                std::istringstream v(vertexDefinition);
-                uint32_t elementIndices[3] = { 0, 0, 0 };
-                for (int32_t element = 0; element < 3; ++element) {
-                    std::string index;
-                    std::getline(v, index, '/');
-                    if (!index.empty()) {
-                        elementIndices[element] = std::stoi(index);
-                    }
-                }
-                Vector4 position = (elementIndices[0] > 0 && elementIndices[0] <= positions.size()) ? positions[elementIndices[0] - 1] : Vector4{ 0,0,0,1 };
-                Vector2 texcoord = (elementIndices[1] > 0 && elementIndices[1] <= texcoords.size()) ? texcoords[elementIndices[1] - 1] : Vector2{ 0,0 };
-                Vector3 normal = (elementIndices[2] > 0 && elementIndices[2] <= normals.size()) ? normals[elementIndices[2] - 1] : Vector3{ 0,0,0 };
+    // SceneのRootNodeを読んで階層構造を作り上げる
+    if (outRootNode) {
+        *outRootNode = ReadNode(scene->mRootNode);
+    }
 
-                triangle[faceVertex] = { position, texcoord, normal };
+    // meshを解析する
+    for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex) {
+        aiMesh* mesh = scene->mMeshes[meshIndex];
+
+        // 法線がない、TexcoordがないMeshは今回は非対応
+        if (!mesh->HasNormals() || !mesh->HasTextureCoords(0)) continue;
+
+        // faceを解析する
+        for (uint32_t faceIndex = 0; faceIndex < mesh->mNumFaces; ++faceIndex) {
+            aiFace& face = mesh->mFaces[faceIndex];
+
+            // 三角形のみサポート
+            if (face.mNumIndices != 3) continue;
+
+            // vertexを解析する
+            for (uint32_t element = 0; element < face.mNumIndices; ++element) {
+                uint32_t vertexIndex = face.mIndices[element];
+
+                aiVector3D& position = mesh->mVertices[vertexIndex];
+                aiVector3D& normal = mesh->mNormals[vertexIndex];
+                aiVector3D& texcoord = mesh->mTextureCoords[0][vertexIndex];
+
+                VertexData vertex;
+                vertex.position = { position.x, position.y, position.z, 1.0f };
+                vertex.normal = { normal.x, normal.y, normal.z };
+                vertex.texcoord = { texcoord.x, texcoord.y };
+
+                // 座標系変換 (右手系 -> 左手系)
+                vertex.position.x *= -1.0f;
+                vertex.normal.x *= -1.0f;
+
+                modelData.vertices.push_back(vertex);
             }
-            modelData.vertices.push_back(triangle[2]);
-            modelData.vertices.push_back(triangle[1]);
-            modelData.vertices.push_back(triangle[0]);
-        } else if (identifier == "mtllib") {
-            std::string materialFilename;
-            s >> materialFilename;
-            modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
         }
     }
+
+    // materialを解析する
+    for (uint32_t materialIndex = 0; materialIndex < scene->mNumMaterials; ++materialIndex) {
+        aiMaterial* material = scene->mMaterials[materialIndex];
+
+        // ★修正点: 変数宣言をifの外に出してスコープ問題を解決
+        aiString textureFilePath;
+
+        // Diffuseテクスチャ (OBJ)
+        if (material->GetTextureCount(aiTextureType_DIFFUSE) != 0) {
+            material->GetTexture(aiTextureType_DIFFUSE, 0, &textureFilePath);
+            modelData.material.textureFilePath = directoryPath + "/" + textureFilePath.C_Str();
+        }
+        // BaseColorテクスチャ (glTF)
+        else if (material->GetTexture(aiTextureType_BASE_COLOR, 0, &textureFilePath) == AI_SUCCESS) {
+            modelData.material.textureFilePath = directoryPath + "/" + textureFilePath.C_Str();
+        }
+    }
+
     return modelData;
 }

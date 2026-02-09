@@ -4,12 +4,19 @@
 #include <string>
 #include <vector>
 #include "D3D12Util.h"
-#include "DataTypes.h" // ★ここから構造体定義を使用
+#include "DataTypes.h" 
 #include "MathUtil.h"
+
+// ★追加: Node構造体 (資料より)
+struct Node {
+    Matrix4x4 localMatrix;
+    std::string name;
+    std::vector<Node> children;
+};
 
 class Model {
 public:
-    // OBJファイルからモデル生成
+    // ファイルからモデル生成 (OBJ / glTF対応)
     static Model* Create(const std::string& directoryPath, const std::string& filename, ID3D12Device* device);
 
     // パーティクル用の四角形モデル生成
@@ -33,6 +40,9 @@ public:
 public:
     Transform transform;
     Material* materialData = nullptr;
+
+    // ★追加: ルートノード (階層構造の起点)
+    Node rootNode;
 
 private:
     // 内部初期化用
