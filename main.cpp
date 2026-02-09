@@ -63,7 +63,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// リソース読み込み
 	// ---------------------------------------------------------
 
-	// A. Terrain Texture (Index 0)
+	// 1. Terrain Texture (Index 0)
 	std::string textureFileTerrain = "Resources/terrain/grass.png";
 	DirectX::ScratchImage imgTerrain = LoadTexture(textureFileTerrain);
 	const DirectX::TexMetadata& metaTerrain = imgTerrain.GetMetadata();
@@ -82,7 +82,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	srvHandleCPU.ptr += descriptorSize;
 	srvHandleGPU.ptr += descriptorSize;
 
-	// B. Ball Texture (Index 1)
+	// 2. Ball Texture (Index 1)
 	std::string textureFileBall = "Resources/monsterBall.png";
 	DirectX::ScratchImage imgBall = LoadTexture(textureFileBall);
 	const DirectX::TexMetadata& metaBall = imgBall.GetMetadata();
@@ -101,21 +101,43 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	srvHandleCPU.ptr += descriptorSize;
 	srvHandleGPU.ptr += descriptorSize;
 
-	// C. Model
-	// ★修正: LoadObjFile相当の呼び出しを、glTFも読める新しいCreate関数に任せる
+	// 3. ★追加: UV Checker Texture (Index 2)
+	std::string textureFileChecker = "Resources/uvChecker.png";
+	DirectX::ScratchImage imgChecker = LoadTexture(textureFileChecker);
+	const DirectX::TexMetadata& metaChecker = imgChecker.GetMetadata();
+	Microsoft::WRL::ComPtr<ID3D12Resource> texResChecker = CreateTextureResource(device, metaChecker);
+	Microsoft::WRL::ComPtr<ID3D12Resource> uploadResChecker = UploadTextureData(texResChecker.Get(), imgChecker, device, commandList);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE checkerSrvCPU = srvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE checkerSrvGPU = srvHandleGPU;
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDescChecker{};
+	srvDescChecker.Format = metaChecker.format;
+	srvDescChecker.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDescChecker.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDescChecker.Texture2D.MipLevels = UINT(metaChecker.mipLevels);
+	device->CreateShaderResourceView(texResChecker.Get(), &srvDescChecker, checkerSrvCPU);
+
+	srvHandleCPU.ptr += descriptorSize;
+	srvHandleGPU.ptr += descriptorSize;
+
+	// ---------------------------------------------------------
+	// モデル生成
+	// ---------------------------------------------------------
+
+	// A. Terrain (OBJ)
 	Model* terrainModel = Model::Create("Resources/terrain", "terrain.obj", device);
 
-
-	// Model* gltfModel = Model::Create("Resources/plane", "plane.gltf", device);
-
+	// B. Sphere (Generated)
 	Model* sphereModel = Model::CreateSphereModel(device, 16);
 
+	// C. ★追加: Plane (glTF)
+	// glTFファイルを読む
+	Model* planeModel = Model::Create("Resources", "plane.gltf", device);
 
-	// D. Transform Buffers
-	// Terrain (Index 2)
-	Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
-	TransformationMatrix* terrainMapData = nullptr;
-	terrainTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&terrainMapData));
+
+	// ---------------------------------------------------------
+	// Transform Buffers
+	// ---------------------------------------------------------
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDescTransform{};
 	srvDescTransform.Format = DXGI_FORMAT_UNKNOWN;
@@ -126,6 +148,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	srvDescTransform.Buffer.StructureByteStride = sizeof(TransformationMatrix);
 	srvDescTransform.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
+	// Terrain Transform (Index 3)
+	Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
+	TransformationMatrix* terrainMapData = nullptr;
+	terrainTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&terrainMapData));
+
 	D3D12_CPU_DESCRIPTOR_HANDLE terrainTransCPU = srvHandleCPU;
 	D3D12_GPU_DESCRIPTOR_HANDLE terrainTransGPU = srvHandleGPU;
 	device->CreateShaderResourceView(terrainTransformBuffer.Get(), &srvDescTransform, terrainTransCPU);
@@ -133,7 +160,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	srvHandleCPU.ptr += descriptorSize;
 	srvHandleGPU.ptr += descriptorSize;
 
-	// Sphere (Index 3)
+	// Sphere Transform (Index 4)
 	Microsoft::WRL::ComPtr<ID3D12Resource> sphereTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
 	TransformationMatrix* sphereMapData = nullptr;
 	sphereTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&sphereMapData));
@@ -145,7 +172,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	srvHandleCPU.ptr += descriptorSize;
 	srvHandleGPU.ptr += descriptorSize;
 
-	// E. Light Buffer
+	// ★追加: Plane Transform (Index 5)
+	Microsoft::WRL::ComPtr<ID3D12Resource> planeTransformBuffer = CreateBufferResource(device, sizeof(TransformationMatrix));
+	TransformationMatrix* planeMapData = nullptr;
+	planeTransformBuffer->Map(0, nullptr, reinterpret_cast<void**>(&planeMapData));
+
+	D3D12_CPU_DESCRIPTOR_HANDLE planeTransCPU = srvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE planeTransGPU = srvHandleGPU;
+	device->CreateShaderResourceView(planeTransformBuffer.Get(), &srvDescTransform, planeTransCPU);
+
+	srvHandleCPU.ptr += descriptorSize;
+	srvHandleGPU.ptr += descriptorSize;
+
+	// ---------------------------------------------------------
+	// Light Buffer
 	// ---------------------------------------------------------
 	Microsoft::WRL::ComPtr<ID3D12Resource> lightBuffer = CreateBufferResource(device, sizeof(LightGroup));
 	LightGroup* lightData = nullptr;
@@ -168,30 +208,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	lightData->pointLights[0].radius = 10.0f;
 	lightData->pointLights[0].decay = 1.0f;
 
-	// 3. Spot Light 初期化 (懐中電灯スタイル)
+	// 3. Spot Light 初期化
 	lightData->numSpotLights = 1;
 	lightData->spotLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	// 位置: X=-3.0 (左), Y=-1.0 (ボールと同じ高さ)
 	lightData->spotLights[0].position = { 90.0f, 90.0f, 90.0f };
-	// 方向: 真右へ
-	lightData->spotLights[0].direction = Normalize({ 1.0f, 0.0f, 0.0f });
+	lightData->spotLights[0].direction = Normalize({ 0.0f, -1.0f, 0.0f }); // 真下
 	lightData->spotLights[0].distance = 0.1f;
 	lightData->spotLights[0].intensity = 4.0f;
-	lightData->spotLights[0].decay = 2.5f;
+	lightData->spotLights[0].decay = 3.5f;
 	lightData->spotLights[0].cosAngle = std::cos(ToRadians(45.0f));
 	lightData->spotLights[0].cosFalloffStart = std::cos(ToRadians(30.0f));
 
-	// スポットライト操作用の角度変数 (ImGui制御用)
-	// [0]=Pitch(上下), [1]=Yaw(左右)
-	// 初期値: Yaw=90度 (真右)
-	float spotAngleControl[2] = { 0.0f, 90.0f };
+	float spotAngleControl[2] = { -90.0f, 0.0f }; // 真下
 
-	// F. Camera Buffer
+	// Camera Buffer
 	Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(device, sizeof(CameraForGpu));
 	CameraForGpu* cameraData = nullptr;
 	cameraBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
 
-	// G. Material Buffer
+	// Material Buffer
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialBuffer = CreateBufferResource(device, sizeof(Material));
 	Material* materialData = nullptr;
 	materialBuffer->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
@@ -223,7 +258,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::NewFrame();
 
 		// ---------------------------------------------------------
-		// ImGui: ライト種類別タブ制御
+		// ImGui Controls
 		// ---------------------------------------------------------
 		ImGui::Begin("Lighting Controller");
 
@@ -336,6 +371,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::Text("Camera Settings");
 		ImGui::DragFloat3("Camera Trans", &cameraTranslate.x, 0.1f);
 		ImGui::DragFloat3("Camera Rot", &cameraRotate.x, 0.01f);
+
+		// Planeの操作用
+		if (planeModel) {
+			ImGui::Separator();
+			ImGui::Text("Plane glTF Settings");
+			ImGui::DragFloat3("Plane Trans", &planeModel->transform.translate.x, 0.1f);
+			ImGui::DragFloat3("Plane Rotate", &planeModel->transform.rotate.x, 0.01f);
+			ImGui::DragFloat3("Plane Scale", &planeModel->transform.scale.x, 0.01f);
+		}
+
 		ImGui::End();
 
 		// ---------------------------------------------------------
@@ -349,22 +394,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
 		cameraData->worldPosition = cameraTranslate;
 
-		// Update Terrain
+		// 1. Update Terrain
 		if (terrainModel) {
 			terrainModel->transform.scale = { 1.0f, 1.0f, 1.0f };
 			terrainModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
 			terrainModel->transform.translate = { 0.0f, -2.0f, 0.0f };
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(terrainModel->transform.scale, terrainModel->transform.rotate, terrainModel->transform.translate);
-
-			// ★追加: RootNodeのMatrixを適用する (資料の指示)
-			// WorldMatrix = RootNode.localMatrix * WorldMatrix
-			// WVP = RootNode.localMatrix * WorldMatrix * ViewProjection
-
-			// 順番: Local -> World -> View -> Proj
-			// ノードのローカル変換をWorld行列に組み込む
-			Matrix4x4 nodeLocal = terrainModel->rootNode.localMatrix;
-			worldMatrix = Multiply(nodeLocal, worldMatrix);
+			// ノードのローカル変換適用
+			worldMatrix = Multiply(terrainModel->rootNode.localMatrix, worldMatrix);
 
 			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
 			Matrix4x4 worldInv = Inverse(worldMatrix);
@@ -375,18 +413,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			terrainMapData->WorldInverseTranspose = worldInvT;
 		}
 
-		// Update Sphere
+		// 2. Update Sphere
 		if (sphereModel) {
 			sphereModel->transform.scale = { 1.0f, 1.0f, 1.0f };
 			sphereModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
-			// 位置を下に変更 (0, -1, 0)
 			sphereModel->transform.translate = { 0.0f, -1.0f, 0.0f };
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(sphereModel->transform.scale, sphereModel->transform.rotate, sphereModel->transform.translate);
-
-			// ★追加: Sphereも同様にNode行列を適用 (CreateSphereModelで単位行列が入っている)
-			Matrix4x4 nodeLocal = sphereModel->rootNode.localMatrix;
-			worldMatrix = Multiply(nodeLocal, worldMatrix);
+			// ノードのローカル変換適用
+			worldMatrix = Multiply(sphereModel->rootNode.localMatrix, worldMatrix);
 
 			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
 			Matrix4x4 worldInv = Inverse(worldMatrix);
@@ -395,6 +430,28 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			sphereMapData->World = worldMatrix;
 			sphereMapData->WVP = wvpMatrix;
 			sphereMapData->WorldInverseTranspose = worldInvT;
+		}
+
+		// 3. ★追加: Update Plane
+		if (planeModel) {
+			// 初期位置 (ImGuiで動かせるように初期化は最初だけにするか、ImGui変数を反映するか)
+			// ここではtransformメンバ変数がImGuiで直接書き換わるので、
+			// 毎フレーム固定値を代入しないように注意する（初期化時のみセットするのが理想だが、簡易的に0チェック等）
+			if (planeModel->transform.scale.x == 1.0f && planeModel->transform.translate.y == 0.0f) {
+				planeModel->transform.translate = { 0.0f, 2.0f, 0.0f }; // 少し浮かす
+			}
+
+			Matrix4x4 worldMatrix = MakeAffineMatrix(planeModel->transform.scale, planeModel->transform.rotate, planeModel->transform.translate);
+			// ノードのローカル変換適用 (glTFのノード階層)
+			worldMatrix = Multiply(planeModel->rootNode.localMatrix, worldMatrix);
+
+			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
+			Matrix4x4 worldInv = Inverse(worldMatrix);
+			Matrix4x4 worldInvT = Transpose(worldInv);
+
+			planeMapData->World = worldMatrix;
+			planeMapData->WVP = wvpMatrix;
+			planeMapData->WorldInverseTranspose = worldInvT;
 		}
 
 		// ---------------------------------------------------------
@@ -409,28 +466,31 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap.Get() };
 		commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
-		// GraphicsPipeline.cpp で設定した RootParameter の順番
-		// 0: b0 (Material)
+		// 共通バッファ
 		commandList->SetGraphicsRootConstantBufferView(0, materialBuffer->GetGPUVirtualAddress());
-
-		// 1: b1 (LightGroup)
 		commandList->SetGraphicsRootConstantBufferView(1, lightBuffer->GetGPUVirtualAddress());
-
-		// 2: b2 (Camera)
 		commandList->SetGraphicsRootConstantBufferView(2, cameraBuffer->GetGPUVirtualAddress());
 
-		// Terrain Draw
+		// 1. Terrain Draw (Grass Texture)
 		if (terrainModel) {
-			commandList->SetGraphicsRootDescriptorTable(3, terrainSrvGPU);
-			commandList->SetGraphicsRootDescriptorTable(4, terrainTransGPU);
+			commandList->SetGraphicsRootDescriptorTable(3, terrainSrvGPU);   // Texture
+			commandList->SetGraphicsRootDescriptorTable(4, terrainTransGPU); // Transform
 			terrainModel->Draw(commandList, 1, terrainSrvGPU, terrainTransGPU);
 		}
 
-		// Sphere Draw
+		// 2. Sphere Draw (Ball Texture)
 		if (sphereModel) {
-			commandList->SetGraphicsRootDescriptorTable(3, ballSrvGPU);
-			commandList->SetGraphicsRootDescriptorTable(4, sphereTransGPU);
+			commandList->SetGraphicsRootDescriptorTable(3, ballSrvGPU);      // Texture
+			commandList->SetGraphicsRootDescriptorTable(4, sphereTransGPU);  // Transform
 			sphereModel->Draw(commandList, 1, ballSrvGPU, sphereTransGPU);
+		}
+
+		// 3. ★追加: Plane Draw (Checker Texture)
+		if (planeModel) {
+			// テクスチャにCheckerを指定
+			commandList->SetGraphicsRootDescriptorTable(3, checkerSrvGPU);   // Texture
+			commandList->SetGraphicsRootDescriptorTable(4, planeTransGPU);   // Transform
+			planeModel->Draw(commandList, 1, checkerSrvGPU, planeTransGPU);
 		}
 
 		ImGui::Render();
@@ -445,6 +505,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	delete terrainModel;
 	delete sphereModel;
+	delete planeModel; // ★忘れず削除
 	delete graphicsPipeline;
 
 	dxCommon->Finalize();
