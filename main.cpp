@@ -102,8 +102,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	srvHandleGPU.ptr += descriptorSize;
 
 	// C. Model
+	// ★修正: LoadObjFile相当の呼び出しを、glTFも読める新しいCreate関数に任せる
 	Model* terrainModel = Model::Create("Resources/terrain", "terrain.obj", device);
+
+
+	// Model* gltfModel = Model::Create("Resources/plane", "plane.gltf", device);
+
 	Model* sphereModel = Model::CreateSphereModel(device, 16);
+
 
 	// D. Transform Buffers
 	// Terrain (Index 2)
@@ -278,13 +284,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 					if (angleChanged) {
 						// 角度からベクトルを計算
-						// Pitch=0, Yaw=0 -> (0,0,1) 奥
-						// Pitch=0, Yaw=90 -> (1,0,0) 右
 						float radPitch = ToRadians(spotAngleControl[0]);
 						float radYaw = ToRadians(spotAngleControl[1]);
 
-						// Y成分 = sin(pitch)
-						// XZ平面の投影長 = cos(pitch)
 						Vector3 dir;
 						dir.y = std::sin(radPitch);
 						float xzLen = std::cos(radPitch);
@@ -294,12 +296,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 						lightData->spotLights[i].direction = Normalize(dir);
 					}
 
-					// 現在のベクトルを表示（確認用、編集不可）
 					ImGui::Text("Result Direction: (%.2f, %.2f, %.2f)",
 						lightData->spotLights[i].direction.x,
 						lightData->spotLights[i].direction.y,
 						lightData->spotLights[i].direction.z);
-
 
 					// 3. 色と強さ
 					ImGui::ColorEdit4("Color", &lightData->spotLights[i].color.x);
@@ -356,6 +356,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			terrainModel->transform.translate = { 0.0f, -2.0f, 0.0f };
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(terrainModel->transform.scale, terrainModel->transform.rotate, terrainModel->transform.translate);
+
+			// ★追加: RootNodeのMatrixを適用する (資料の指示)
+			// WorldMatrix = RootNode.localMatrix * WorldMatrix
+			// WVP = RootNode.localMatrix * WorldMatrix * ViewProjection
+
+			// 順番: Local -> World -> View -> Proj
+			// ノードのローカル変換をWorld行列に組み込む
+			Matrix4x4 nodeLocal = terrainModel->rootNode.localMatrix;
+			worldMatrix = Multiply(nodeLocal, worldMatrix);
+
 			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
 			Matrix4x4 worldInv = Inverse(worldMatrix);
 			Matrix4x4 worldInvT = Transpose(worldInv);
@@ -373,6 +383,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			sphereModel->transform.translate = { 0.0f, -1.0f, 0.0f };
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(sphereModel->transform.scale, sphereModel->transform.rotate, sphereModel->transform.translate);
+
+			// ★追加: Sphereも同様にNode行列を適用 (CreateSphereModelで単位行列が入っている)
+			Matrix4x4 nodeLocal = sphereModel->rootNode.localMatrix;
+			worldMatrix = Multiply(nodeLocal, worldMatrix);
+
 			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
 			Matrix4x4 worldInv = Inverse(worldMatrix);
 			Matrix4x4 worldInvT = Transpose(worldInv);
