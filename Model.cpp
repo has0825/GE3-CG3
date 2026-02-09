@@ -175,6 +175,7 @@ void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
     vertexBufferView_.SizeInBytes = UINT(sizeInBytes);
     vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
+    // マテリアルバッファ作成
     materialResource_ = CreateBufferResource(device, sizeof(Material));
 
     if (!materialResource_) {
@@ -182,15 +183,20 @@ void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
         return;
     }
 
-    Material* material = nullptr;
-    hr = materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&material));
+    // ★修正: Mapしたポインタをメンバ変数に保持し、Unmapしない
+    // これにより main.cpp 側から materialData->shininess 等を変更できるようになる
+    hr = materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
     assert(SUCCEEDED(hr));
 
-    material->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    material->enableLighting = 1;
-    material->uvTransform = MakeIdentity4x4();
+    // ★修正: 鏡面反射を有効化
+    materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    // 1:Lambert -> 3:Blinn-Phong (鏡面反射あり) に変更
+    materialData->enableLighting = 3;
+    // Shininessを設定 (値が大きいほどハイライトが鋭くなる)
+    materialData->shininess = 50.0f;
+    materialData->uvTransform = MakeIdentity4x4();
 
-    materialResource_->Unmap(0, nullptr);
+    // ※ここではUnmapしない
 }
 
 void Model::Update() {
@@ -209,7 +215,10 @@ void Model::Draw(
 
     commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
+    // Modelが持つMaterialバッファを使用する
+    // (ここでInitializeで設定した鏡面反射設定が適用される)
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+
     commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandle);
     commandList->SetGraphicsRootDescriptorTable(4, instancingSrvHandle);
 
@@ -257,11 +266,10 @@ ModelData LoadModelFile(const std::string& directoryPath, const std::string& fil
         aiProcess_FlipWindingOrder | aiProcess_FlipUVs | aiProcess_Triangulate);
 
     // 読み込み失敗チェック
+    // ★修正: エラー時に詳細メッセージを表示するように変更
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode || !scene->HasMeshes()) {
         std::string msg = "Assimp failed to load file: " + filePath;
-        if (scene) {
-            msg += "\nError: " + std::string(importer.GetErrorString());
-        }
+        msg += "\nError: " + std::string(importer.GetErrorString());
         MessageBoxA(nullptr, msg.c_str(), "LoadModelFile Error", MB_OK | MB_ICONERROR);
         assert(false && "Assimp Load Failed");
         return modelData;
@@ -312,7 +320,7 @@ ModelData LoadModelFile(const std::string& directoryPath, const std::string& fil
     for (uint32_t materialIndex = 0; materialIndex < scene->mNumMaterials; ++materialIndex) {
         aiMaterial* material = scene->mMaterials[materialIndex];
 
-        // ★修正点: 変数宣言をifの外に出してスコープ問題を解決
+        // 変数宣言をifの外に出してスコープ問題を解決
         aiString textureFilePath;
 
         // Diffuseテクスチャ (OBJ)
