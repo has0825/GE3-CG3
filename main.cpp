@@ -32,9 +32,9 @@ std::wstring ConvertString(const std::string& str) {
 	return wstrTo;
 }
 
-// 度数法をCos値に変換するヘルパー関数
-float CalcCos(float degrees) {
-	return std::cos(degrees * (std::numbers::pi_v<float> / 180.0f));
+// 度数法をラジアンに変換
+float ToRadians(float degrees) {
+	return degrees * (std::numbers::pi_v<float> / 180.0f);
 }
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -162,16 +162,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	lightData->pointLights[0].radius = 10.0f;
 	lightData->pointLights[0].decay = 1.0f;
 
-	// 3. Spot Light 初期化
+	// 3. Spot Light 初期化 (懐中電灯スタイル)
 	lightData->numSpotLights = 1;
 	lightData->spotLights[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	lightData->spotLights[0].position = { -2.0f, 1.0f, 0.0f };
-	lightData->spotLights[0].distance = 7.0f;
-	lightData->spotLights[0].direction = Normalize({ -1.0f, -1.0f, 0.0f });
+	// 位置: X=-3.0 (左), Y=-1.0 (ボールと同じ高さ)
+	lightData->spotLights[0].position = { 90.0f, 90.0f, 90.0f };
+	// 方向: 真右へ
+	lightData->spotLights[0].direction = Normalize({ 1.0f, 0.0f, 0.0f });
+	lightData->spotLights[0].distance = 0.1f;
 	lightData->spotLights[0].intensity = 4.0f;
-	lightData->spotLights[0].decay = 2.0f;
-	lightData->spotLights[0].cosAngle = std::cos(std::numbers::pi_v<float> / 3.0f);
-	lightData->spotLights[0].cosFalloffStart = std::cos(std::numbers::pi_v<float> / 6.0f); 
+	lightData->spotLights[0].decay = 2.5f;
+	lightData->spotLights[0].cosAngle = std::cos(ToRadians(45.0f));
+	lightData->spotLights[0].cosFalloffStart = std::cos(ToRadians(30.0f));
+
+	// スポットライト操作用の角度変数 (ImGui制御用)
+	// [0]=Pitch(上下), [1]=Yaw(左右)
+	// 初期値: Yaw=90度 (真右)
+	float spotAngleControl[2] = { 0.0f, 90.0f };
 
 	// F. Camera Buffer
 	Microsoft::WRL::ComPtr<ID3D12Resource> cameraBuffer = CreateBufferResource(device, sizeof(CameraForGpu));
@@ -201,8 +208,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// ループ変数
 	Vector3 cameraTranslate = { 0.0f, 5.0f, -15.0f };
 	Vector3 cameraRotate = { 0.2f, 0.0f, 0.0f };
-
-	// spotAnglesDeg変数は削除しました
 
 	while (true) {
 		if (winApp->ProcessMessage()) break;
@@ -251,6 +256,78 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 				ImGui::EndTabItem();
 			}
 
+			// --- Tab 3: Spot Light (Flashlight) ---
+			if (ImGui::BeginTabItem("Spot (Flashlight)")) {
+				ImGui::Checkbox("Enable Spot", (bool*)&lightData->numSpotLights);
+
+				for (int i = 0; i < lightData->numSpotLights; ++i) {
+					ImGui::PushID(i);
+					ImGui::Separator();
+					ImGui::Text("Spot Light %d", i);
+
+					// 1. 位置
+					ImGui::DragFloat3("Position", &lightData->spotLights[i].position.x, 0.1f);
+
+					// 2. 向き (角度で操作)
+					ImGui::Text("Direction Angle Control");
+					bool angleChanged = false;
+					// Pitch: 上下 (-90度 〜 90度)
+					if (ImGui::SliderFloat("Pitch (Up/Down)", &spotAngleControl[0], -89.0f, 89.0f)) angleChanged = true;
+					// Yaw: 左右 (0度 〜 360度)
+					if (ImGui::SliderFloat("Yaw (Left/Right)", &spotAngleControl[1], 0.0f, 360.0f)) angleChanged = true;
+
+					if (angleChanged) {
+						// 角度からベクトルを計算
+						// Pitch=0, Yaw=0 -> (0,0,1) 奥
+						// Pitch=0, Yaw=90 -> (1,0,0) 右
+						float radPitch = ToRadians(spotAngleControl[0]);
+						float radYaw = ToRadians(spotAngleControl[1]);
+
+						// Y成分 = sin(pitch)
+						// XZ平面の投影長 = cos(pitch)
+						Vector3 dir;
+						dir.y = std::sin(radPitch);
+						float xzLen = std::cos(radPitch);
+						dir.x = xzLen * std::sin(radYaw);
+						dir.z = xzLen * std::cos(radYaw);
+
+						lightData->spotLights[i].direction = Normalize(dir);
+					}
+
+					// 現在のベクトルを表示（確認用、編集不可）
+					ImGui::Text("Result Direction: (%.2f, %.2f, %.2f)",
+						lightData->spotLights[i].direction.x,
+						lightData->spotLights[i].direction.y,
+						lightData->spotLights[i].direction.z);
+
+
+					// 3. 色と強さ
+					ImGui::ColorEdit4("Color", &lightData->spotLights[i].color.x);
+					ImGui::DragFloat("Intensity", &lightData->spotLights[i].intensity, 0.1f, 0.0f, 100.0f);
+
+					// 4. 距離パラメータ
+					ImGui::DragFloat("Distance", &lightData->spotLights[i].distance, 0.1f, 0.1f, 100.0f);
+					ImGui::DragFloat("Decay", &lightData->spotLights[i].decay, 0.01f, 0.0f, 5.0f);
+
+					// 5. 照射範囲 (円錐の角度)
+					float outerAngleDeg = std::acos(lightData->spotLights[i].cosAngle) * 180.0f / std::numbers::pi_v<float>;
+					float innerAngleDeg = std::acos(lightData->spotLights[i].cosFalloffStart) * 180.0f / std::numbers::pi_v<float>;
+
+					bool coneChanged = false;
+					ImGui::Text("Cone Angles");
+					if (ImGui::DragFloat("Outer (Limit)", &outerAngleDeg, 0.5f, 0.1f, 89.0f)) coneChanged = true;
+					if (ImGui::DragFloat("Inner (Full)", &innerAngleDeg, 0.5f, 0.0f, outerAngleDeg)) coneChanged = true;
+
+					if (coneChanged) {
+						if (innerAngleDeg > outerAngleDeg) innerAngleDeg = outerAngleDeg;
+						lightData->spotLights[i].cosAngle = std::cos(ToRadians(outerAngleDeg));
+						lightData->spotLights[i].cosFalloffStart = std::cos(ToRadians(innerAngleDeg));
+					}
+
+					ImGui::PopID();
+				}
+				ImGui::EndTabItem();
+			}
 
 			ImGui::EndTabBar();
 		}
@@ -291,8 +368,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// Update Sphere
 		if (sphereModel) {
 			sphereModel->transform.scale = { 1.0f, 1.0f, 1.0f };
-			// sphereModel->transform.rotate は固定またはUI制御など
-			sphereModel->transform.translate = { 0.0f, 1.0f, 0.0f };
+			sphereModel->transform.rotate = { 0.0f, 0.0f, 0.0f };
+			// 位置を下に変更 (0, -1, 0)
+			sphereModel->transform.translate = { 0.0f, -1.0f, 0.0f };
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(sphereModel->transform.scale, sphereModel->transform.rotate, sphereModel->transform.translate);
 			Matrix4x4 wvpMatrix = Multiply(worldMatrix, viewProjectionMatrix);
