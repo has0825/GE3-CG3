@@ -30,11 +30,11 @@ private:
     SceneManager& operator=(const SceneManager&) = delete;
 
 private:
-    // 現在のシーン
-    BaseScene* currentScene_ = nullptr;
-    // 次のシーン (予約用)
-    BaseScene* nextScene_ = nullptr;
+private:
+    // 修正: unique_ptr に変更
+    std::unique_ptr<BaseScene> currentScene_;
+    std::unique_ptr<BaseScene> nextScene_;
 
-    // シーン生成工場 (依存性注入)
+    // ファクトリーは所有権を持たないので生ポインタ(or weak_ptr)でOK
     AbstractSceneFactory* sceneFactory_ = nullptr;
 };

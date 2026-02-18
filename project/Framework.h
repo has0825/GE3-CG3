@@ -30,10 +30,11 @@ public:
     virtual bool IsEndRequest();
 
 protected:
+
     WinApp* winApp_ = nullptr;
     DirectXCommon* dxCommon_ = nullptr;
-    Audio* audio_ = nullptr;
-    GraphicsPipeline* graphicsPipeline_ = nullptr;
+    std::unique_ptr<Audio> audio_;
+    std::unique_ptr<GraphicsPipeline> graphicsPipeline_;
 
     // SRVヒープ（汎用的に使うためここに保持）
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;

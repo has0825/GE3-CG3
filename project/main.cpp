@@ -1,7 +1,9 @@
 ﻿#include "Game.h"
 #include <Windows.h>
 #include <dxgidebug.h>
+#include <memory> // std::unique_ptr 用に追加
 
+// D3D12のリソースリークをチェックするための構造体
 struct D3DResourceLeakChecker {
     ~D3DResourceLeakChecker() {
         Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
@@ -14,14 +16,12 @@ struct D3DResourceLeakChecker {
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     D3DResourceLeakChecker leakChecker;
 
-    // ゲームクラスのインスタンス生成
-    Game* game = new Game();
+    std::unique_ptr<Game> game = std::make_unique<Game>();
 
     // 実行
     game->Run();
 
-    // 解放
-    delete game;
+
 
     return 0;
 }

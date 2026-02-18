@@ -54,8 +54,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
 
     // Game.cpp から移植した変数
-    Model* particleModel_ = nullptr;
-    Camera* camera_ = nullptr;
+    std::unique_ptr<Camera> camera_;
+    std::unique_ptr<Model> particleModel_;
     std::mt19937 randomEngine_;
     std::vector<Particle> particles_;
 

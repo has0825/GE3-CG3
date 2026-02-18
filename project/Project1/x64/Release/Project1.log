@@ -1,1 +1,8 @@
-﻿  Project1.vcxproj -> C:\Users\k024g\Desktop\GE3&CG3\project\x64\Release\imgui.lib
+﻿  imgui.cpp
+  imgui_demo.cpp
+  imgui_draw.cpp
+  imgui_impl_dx12.cpp
+  imgui_impl_win32.cpp
+  imgui_tables.cpp
+  imgui_widgets.cpp
+  Project1.vcxproj -> C:\Users\k024g\Desktop\GE3&CG3\project\x64\Release\imgui.lib

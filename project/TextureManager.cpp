@@ -4,13 +4,10 @@
 #include <cassert>
 #include <vector>
 
-TextureManager* TextureManager::instance = nullptr;
 
 TextureManager* TextureManager::GetInstance() {
-    if (instance == nullptr) {
-        instance = new TextureManager();
-    }
-    return instance;
+    static TextureManager instance; 
+    return &instance;
 }
 
 void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath) {

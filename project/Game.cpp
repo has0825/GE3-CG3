@@ -5,22 +5,19 @@
 
 
 void Game::Initialize() {
-    // 基底クラスの初期化
     Framework::Initialize();
-
-    // Inputシステムの初期化
     Input::GetInstance()->Initialize(winApp_);
 
-    // シーンファクトリーを生成し、マネージャーにセット
-    sceneFactory_ = new SceneFactory();
-    SceneManager::GetInstance()->SetFactory(sceneFactory_);
+    // 修正: new ではなく std::make_unique を使う
+    sceneFactory_ = std::make_unique<SceneFactory>();
 
-    // ★ここを変更: スタート地点をタイトルシーンに戻す
+    // get() で生ポインタを渡す（所有権は移さない）
+    SceneManager::GetInstance()->SetFactory(sceneFactory_.get());
     SceneManager::GetInstance()->ChangeScene("TITLE");
 }
 
 void Game::Finalize() {
-    delete sceneFactory_;
+    // 修正: delete sceneFactory_; は不要になる（自動解放）
     Framework::Finalize();
 }
 
