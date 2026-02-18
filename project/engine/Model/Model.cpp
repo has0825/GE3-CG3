@@ -1,25 +1,62 @@
 #include "Model.h"
 #include <cassert>
-#include <fstream>
-#include <sstream>
+#include <cstring> // memcpy用
 
-// (LoadMaterialTemplateFile と LoadOjFile の実装は変更なし)
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename);
-
-Model* Model::Create(
-	const std::string& directoryPath, const std::string& filename, ID3D12Device* device) {
+// ★パーティクル用の四角形モデル生成の実装
+Model* Model::CreateParticleModel(ID3D12Device* device) {
 	Model* model = new Model();
-	model->Initialize(directoryPath, filename, device);
+	ModelData modelData;
+
+	// 四角形の頂点定義
+	modelData.vertices.push_back({ { -1.0f, 1.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+
+	modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f },  { 1.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+
+	modelData.material.textureFilePath = "resources/uvChecker.png";
+
+	// 単独初期化モードで呼ぶ
+	model->Initialize(modelData, device);
 	return model;
 }
 
-void Model::Initialize(
-	const std::string& directoryPath, const std::string& filename, ID3D12Device* device) {
+// ============================================================
+// パターン1: ModelManager経由の初期化 (エラーが出ていた箇所に対応)
+// ============================================================
+void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
+	assert(commonData);
+	this->commonData_ = commonData; // 共通データを保持
 
-	ModelData modelData = LoadOjFile(directoryPath, filename);
+	// マテリアルバッファ作成 (インスタンスごとに固有)
+	materialResource_ = CreateBufferResource(device, sizeof(Material));
+	Material* materialMap = nullptr;
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
+
+	materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialMap->enableLighting = true;
+	materialMap->uvTransform = MakeIdentity4x4();
+	this->materialData = materialMap;
+
+	// WVPバッファ作成 (インスタンスごとに固有)
+	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
+	wvpData_->WVP = MakeIdentity4x4();
+	wvpData_->World = MakeIdentity4x4();
+}
+
+// ============================================================
+// パターン2: 単独初期化 (パーティクル等)
+// ============================================================
+void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
+	this->commonData_ = nullptr; // マネージャーは使わない
+
+	// 頂点データをコピーして自己管理
 	vertices_ = modelData.vertices;
 
+	// 頂点バッファ作成
 	vertexResource_ = CreateBufferResource(device, sizeof(VertexData) * vertices_.size());
 	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
 	vertexBufferView_.SizeInBytes = UINT(sizeof(VertexData) * vertices_.size());
@@ -29,12 +66,17 @@ void Model::Initialize(
 	vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	std::memcpy(vertexData, vertices_.data(), sizeof(VertexData) * vertices_.size());
 
+	// マテリアルバッファ作成
 	materialResource_ = CreateBufferResource(device, sizeof(Material));
-	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	materialData->enableLighting = true;
-	materialData->uvTransform = MakeIdentity4x4();
+	Material* materialMap = nullptr;
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
 
+	materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialMap->enableLighting = true;
+	materialMap->uvTransform = MakeIdentity4x4();
+	this->materialData = materialMap;
+
+	// WVPバッファ作成
 	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
 	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
 	wvpData_->WVP = MakeIdentity4x4();
@@ -42,102 +84,60 @@ void Model::Initialize(
 }
 
 void Model::Update() {
-	// 何もしない
+	// 更新処理が必要ならここに記述
+}
+
+void Model::Draw(ID3D12GraphicsCommandList* commandList) {
+	// Manager経由か、自己管理かで頂点バッファを切り替え
+	D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
+	UINT vertexCount = 0;
+
+	if (commonData_) {
+		vbView = &commonData_->vertexBufferView;
+		vertexCount = (UINT)commonData_->vertices.size();
+	} else {
+		vbView = &vertexBufferView_;
+		vertexCount = (UINT)vertices_.size();
+	}
+
+	commandList->IASetVertexBuffers(0, 1, vbView);
+	commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+	commandList->DrawInstanced(vertexCount, 1, 0, 0);
 }
 
 void Model::Draw(
 	ID3D12GraphicsCommandList* commandList,
-	const Matrix4x4& viewProjectionMatrix,
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle) {
+	UINT instanceCount,
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
+	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle) {
 
-	Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-	wvpData_->WVP = Multiply(worldMatrix, viewProjectionMatrix);
-	wvpData_->World = worldMatrix;
+	// Manager経由か、自己管理かで頂点バッファを切り替え
+	D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
+	UINT vertexCount = 0;
 
-	commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
+	if (commonData_) {
+		vbView = &commonData_->vertexBufferView;
+		vertexCount = (UINT)commonData_->vertices.size();
+	} else {
+		vbView = &vertexBufferView_;
+		vertexCount = (UINT)vertices_.size();
+	}
+
+	// 1. 頂点バッファ
+	commandList->IASetVertexBuffers(0, 1, vbView);
+
+	// 2. マテリアル (CBV)
 	commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
-	commandList->SetGraphicsRootConstantBufferView(1, wvpResource_->GetGPUVirtualAddress());
+
+	// 3. Instancingデータ (StructuredBuffer SRV)
+	commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandle);
+
+	// 4. テクスチャ (Texture SRV)
 	commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
 
-	// 修正: ライト設定処理をここから削除
+	// 5. Light (CBV) - Lightingが必要なら
+	commandList->SetGraphicsRootConstantBufferView(3, materialResource_->GetGPUVirtualAddress());
 
-	commandList->DrawInstanced(UINT(vertices_.size()), 1, 0, 0);
-}
-
-
-// === このファイル内でのみ使用するヘルパー関数 ===
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename)
-{
-	MaterialData materialData;
-	std::string line;
-	std::ifstream file(directoryPath + "/" + filename);
-	assert(file.is_open());
-	while (std::getline(file, line)) {
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-		if (identifier == "map_Kd") {
-			std::string textureFilename;
-			s >> textureFilename;
-			materialData.textureFilePath = directoryPath + "/" + textureFilename;
-		}
-	}
-	return materialData;
-}
-ModelData LoadOjFile(const std::string& directoryPath, const std::string& filename)
-{
-	ModelData modelData;
-	std::vector<Vector4> positions;
-	std::vector<Vector3> normals;
-	std::vector<Vector2> texcoords;
-	std::string line;
-	std::ifstream file(directoryPath + "/" + filename);
-	assert(file.is_open());
-	while (std::getline(file, line)) {
-		std::string identifiler;
-		std::istringstream s(line);
-		s >> identifiler;
-		if (identifiler == "v") {
-			Vector4 position;
-			s >> position.x >> position.y >> position.z;
-			position.x *= -1.0f;
-			position.w = 1.0f;
-			positions.push_back(position);
-		} else if (identifiler == "vt") {
-			Vector2 texcoord;
-			s >> texcoord.x >> texcoord.y;
-			texcoord.y = 1.0f - texcoord.y;
-			texcoords.push_back(texcoord);
-		} else if (identifiler == "vn") {
-			Vector3 normal;
-			s >> normal.x >> normal.y >> normal.z;
-			normal.x *= -1.0f;
-			normals.push_back(normal);
-		} else if (identifiler == "f") {
-			VertexData triangle[3];
-			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-				std::string vertexDefinition;
-				s >> vertexDefinition;
-				std::istringstream v(vertexDefinition);
-				uint32_t elementIndices[3];
-				for (int32_t element = 0; element < 3; ++element) {
-					std::string index;
-					std::getline(v, index, '/');
-					elementIndices[element] = std::stoi(index);
-				}
-				Vector4 position = positions[elementIndices[0] - 1];
-				Vector2 texcoord = texcoords[elementIndices[1] - 1];
-				Vector3 normal = normals[elementIndices[2] - 1];
-				triangle[faceVertex] = { position, texcoord, normal };
-			}
-			modelData.vertices.push_back(triangle[2]);
-			modelData.vertices.push_back(triangle[1]);
-			modelData.vertices.push_back(triangle[0]);
-		} else if (identifiler == "mtllib") {
-			std::string materialFilename;
-			s >> materialFilename;
-			modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
-		}
-	}
-	return modelData;
+	// 6. 描画
+	commandList->DrawInstanced(vertexCount, instanceCount, 0, 0);
 }
