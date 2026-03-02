@@ -182,16 +182,10 @@ void GamePlayScene::Finalize() {
 void GamePlayScene::Update() {
     // ImGui処理 (デバッグビルドのみ)
 #ifdef _DEBUG
-    ImGui::Begin("Particle Control");
-    ImGui::Text("Effect Type:");
-    if (ImGui::RadioButton("Explosion", currentEffect_ == kTypeExplosion)) currentEffect_ = kTypeExplosion;
-    if (ImGui::RadioButton("Fountain", currentEffect_ == kTypeFountain)) currentEffect_ = kTypeFountain;
-    if (ImGui::RadioButton("Spiral", currentEffect_ == kTypeSpiral)) currentEffect_ = kTypeSpiral;
-    if (ImGui::RadioButton("Rain", currentEffect_ == kTypeRain)) currentEffect_ = kTypeRain;
-    ImGui::Separator();
-    ImGui::Checkbox("Use Gravity", &useGravity_);
-    ImGui::Checkbox("Additive Blend", &useAdditiveBlend_);
-    ImGui::DragFloat3("Emitter Pos", &emitterPos_.x, 0.1f);
+    // 指定された仕様のUI（ウィンドウサイズ500x100、書式指定%.1fなど）
+    ImGui::SetNextWindowSize(ImVec2(500, 100));
+    ImGui::Begin("Sprite Control");
+    ImGui::DragFloat2("Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
     ImGui::End();
 #endif
 
@@ -263,8 +257,8 @@ void GamePlayScene::Update() {
         float halfClientW = (float)WinApp::kClientWidth / 2.0f;
         float halfClientH = (float)WinApp::kClientHeight / 2.0f;
         Vector3 translate = {
-            -halfClientW + (imageWidth / 2.0f) + 100.0f,
-            -halfClientH + (imageHeight / 2.0f) + 150.0f,
+            -halfClientW + (imageWidth / 2.0f) + spritePos_.x,
+            -halfClientH + (imageHeight / 2.0f) + spritePos_.y,
             0.0f
         };
         Matrix4x4 worldSprite = MakeAffineMatrix(scale, rotate, translate);
