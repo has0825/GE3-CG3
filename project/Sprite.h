@@ -1,18 +1,19 @@
 #pragma once
 #include <string>
+#include <memory> // ★追加
 #include <wrl.h>
 #include <d3d12.h>
 
 // 必要なヘッダーをインクルード
 #include "D3D12Util.h"
 #include "MathTypes.h"
-#include "DataTypes.h"      // ★これが抜けていたため VertexData などが見つからないエラーが出ていました
-#include "TextureManager.h" // TextureManagerを使うため
+#include "DataTypes.h"
+#include "TextureManager.h"
 
 class Sprite {
 public:
-    // テクスチャ名を指定してスプライト生成
-    static Sprite* Create(const std::string& textureName, Vector2 position);
+    // ★戻り値を unique_ptr に変更
+    static std::unique_ptr<Sprite> Create(const std::string& textureName, Vector2 position);
 
     void Initialize(const std::string& textureName, Vector2 position);
     void Update();

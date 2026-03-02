@@ -36,14 +36,14 @@ void GamePlayScene::Initialize() {
     ID3D12Device* device = dxCommon_->GetDevice();
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-    // ★Game.cppではFrameworkが持っていたものをここで生成
-    audio_ = new Audio();
+    // ★new を廃止し std::make_unique に変更
+    audio_ = std::make_unique<Audio>();
     audio_->Initialize();
 
-    graphicsPipeline_ = new GraphicsPipeline();
+    graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
     graphicsPipeline_->Initialize(device);
 
-    // ★SRVヒープもここで生成 (Game.cppと同じ設定)
+    // ★SRVヒープもここで生成
     srvDescriptorHeap_ = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
     descriptorSizeSRV_ = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
@@ -77,7 +77,7 @@ void GamePlayScene::Initialize() {
         instancingData_[i].color = particles_[i].color;
     }
 
-    // --- テクスチャ読み込みとSRV作成 (Game.cppの処理をそのまま) ---
+    // --- テクスチャ読み込みとSRV作成 ---
 
     // 1. Particle Texture
     DirectX::ScratchImage mipImages = LoadTexture("resources/circle.png");
@@ -171,18 +171,18 @@ void GamePlayScene::Initialize() {
 }
 
 void GamePlayScene::Finalize() {
+    // ★ここにあった delete graphicsPipeline_ や delete audio_ は
+    // unique_ptrにより自動的に解放されるため削除（コメントアウトも残しません）
 
-    delete graphicsPipeline_;
-
-    // Audioはここで生成したのでここで解放
-    audio_->Finalize();
-    delete audio_;
+    if (audio_) {
+        audio_->Finalize();
+    }
 }
 
 void GamePlayScene::Update() {
     // ImGui処理 (デバッグビルドのみ)
 #ifdef _DEBUG
-    // 指定された仕様のUI（ウィンドウサイズ500x100、書式指定%.1fなど）
+    // 指定された仕様のUI
     ImGui::SetNextWindowSize(ImVec2(500, 100));
     ImGui::Begin("Sprite Control");
     ImGui::DragFloat2("Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
@@ -190,7 +190,6 @@ void GamePlayScene::Update() {
 #endif
 
     // キーボード入力
-    // GetAsyncKeyStateの代わりにInputクラスを使用
     if (input_->IsKeyPressed(DIK_1)) currentEffect_ = kTypeExplosion;
     if (input_->IsKeyPressed(DIK_2)) currentEffect_ = kTypeFountain;
     if (input_->IsKeyPressed(DIK_3)) currentEffect_ = kTypeSpiral;
@@ -253,7 +252,6 @@ void GamePlayScene::Update() {
         float imageHeight = (float)desc.Height;
         Vector3 scale = { imageWidth, imageHeight, 1.0f };
         Vector3 rotate = { 0.0f, 0.0f, 0.0f };
-        // WinApp::kClientWidth を使用
         float halfClientW = (float)WinApp::kClientWidth / 2.0f;
         float halfClientH = (float)WinApp::kClientHeight / 2.0f;
         Vector3 translate = {
@@ -273,24 +271,17 @@ void GamePlayScene::Update() {
 }
 
 void GamePlayScene::Draw() {
-    // ImGui描画はFramework/SceneManager側で行われることが多いですが、
-    // 描画コマンドの発行はこの中が必要です
-
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
-
-    // ★シーン独自のヒープをセット
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
     commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
     commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // 1. パーティクル描画
     BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
     commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
     particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
 
-    // 2. スプライト描画
     commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
     particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
 }

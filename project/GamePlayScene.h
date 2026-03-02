@@ -8,6 +8,7 @@
 #include "GraphicsPipeline.h"
 #include <vector>
 #include <random>
+#include <memory> // ★追加
 #include <d3d12.h>
 #include <wrl.h>
 
@@ -44,13 +45,13 @@ private:
     Particle MakeNewParticle(int type, const Vector3& emitterPos);
 
 private:
-    // エンジン機能へのポインタ
+    // エンジン機能へのポインタ（シングルトンなので生ポインタでOK）
     DirectXCommon* dxCommon_ = nullptr;
     Input* input_ = nullptr;
 
-    // シーン内で独自に管理する必要があるもの
-    Audio* audio_ = nullptr;
-    GraphicsPipeline* graphicsPipeline_ = nullptr;
+    // シーン内で独自に管理する必要があるもの（★ unique_ptr に変更）
+    std::unique_ptr<Audio> audio_;
+    std::unique_ptr<GraphicsPipeline> graphicsPipeline_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
 
     // Game.cpp から移植した変数
@@ -92,7 +93,7 @@ private:
     Vector3 emitterPos_ = { 0, 0, 0 };
     bool isSpacePressed_ = false;
 
-    // スプライトの座標制御用変数（初期値を100.0f, 150.0fに設定）
+    // スプライトの座標制御用変数
     Vector3 spritePos_ = { 100.0f, 150.0f, 0.0f };
 
     // 音声データ

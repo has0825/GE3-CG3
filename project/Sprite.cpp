@@ -1,9 +1,10 @@
 #include "Sprite.h"
 #include "MathUtil.h"
-#include "DirectXCommon.h" // ★これが抜けていたため DirectXCommon が見つからないエラーが出ていました
+#include "DirectXCommon.h"
 
-Sprite* Sprite::Create(const std::string& textureName, Vector2 position) {
-    Sprite* sprite = new Sprite();
+// ★ rawポインタから unique_ptr を返す形に変更
+std::unique_ptr<Sprite> Sprite::Create(const std::string& textureName, Vector2 position) {
+    std::unique_ptr<Sprite> sprite = std::make_unique<Sprite>();
     sprite->Initialize(textureName, position);
     return sprite;
 }
@@ -19,16 +20,6 @@ void Sprite::Initialize(const std::string& textureName, Vector2 position) {
     // デバイス取得
     ID3D12Device* device = DirectXCommon::GetInstance()->GetDevice();
 
-    // 四角形（2ポリゴン = 三角形2つ）の頂点データ作成
-    // 左下、左上、右下、右上 の順序でTriangleStrip、あるいは6頂点でTriangleList
-    // ここでは簡易的に6頂点でTriangleListを作ります
-    // ※本来はIndexBufferを使うのが効率的ですが、実装を単純にするため頂点を羅列します
-
-    // 暫定サイズ（後でSetTextureRectで調整されるが、初期値として画像サイズを入れておく）
-    float w = (float)metadata_.width;
-    float h = (float)metadata_.height;
-
-    // --- 修正後（これに書き換える） ---
     // ★ サイズを 1.0f x 1.0f に固定する (大きさは Transform.scale で制御するため)
     VertexData vertices[] = {
         // pos(x,y,z,w), tex(u,v), normal(x,y,z)
@@ -60,8 +51,7 @@ void Sprite::Initialize(const std::string& textureName, Vector2 position) {
     materialResource_ = CreateBufferResource(device, sizeof(Material));
     materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
     materialData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    materialData_->enableLighting = false; // スプライトはライティングしない（これを0にするかfalseにするかはシェーダの実装次第だが、int型なら0/1）
-    // DataTypes.hの定義が int32_t enableLighting なら下記のように数値を入れる
+    materialData_->enableLighting = false; // スプライトはライティングしない
     materialData_->enableLighting = 0;
     materialData_->uvTransform = MakeIdentity4x4();
 
@@ -83,14 +73,11 @@ void Sprite::Update() {
 }
 
 void Sprite::SetTextureRect(float left, float top, float width, float height) {
-    // UV座標を計算して uvTransform 行列を設定する
-    // テクスチャの幅・高さに対する割合を計算
     float w = width / (float)metadata_.width;
     float h = height / (float)metadata_.height;
     float x = left / (float)metadata_.width;
     float y = top / (float)metadata_.height;
 
-    // UVトランスフォーム行列の更新 (平行移動とスケーリング)
     materialData_->uvTransform = MakeIdentity4x4();
     materialData_->uvTransform.m[0][0] = w; // Scale X
     materialData_->uvTransform.m[1][1] = h; // Scale Y
