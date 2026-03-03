@@ -182,10 +182,14 @@ void GamePlayScene::Finalize() {
 void GamePlayScene::Update() {
     // ImGui処理 (デバッグビルドのみ)
 #ifdef _DEBUG
-    // 指定された仕様のUI
     ImGui::SetNextWindowSize(ImVec2(500, 100));
+
+    // ウィンドウ名
     ImGui::Begin("Sprite Control");
+
+    // spritePos_.x と .y を操作対象にします
     ImGui::DragFloat2("Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
+
     ImGui::End();
 #endif
 

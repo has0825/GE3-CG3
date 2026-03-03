@@ -94,7 +94,7 @@ private:
     bool isSpacePressed_ = false;
 
     // スプライトの座標制御用変数
-    Vector3 spritePos_ = { 100.0f, 150.0f, 0.0f };
+    Vector3 spritePos_ = { 100.0f, 100.0f, 0.0f };
 
     // 音声データ
     SoundData bgmData_;
