@@ -204,7 +204,7 @@ void DirectXCommon::CreateSwapChain(WinApp* winApp) {
 }
 
 void DirectXCommon::CreateRenderTarget() {
-    rtvDescriptorHeap_ = CreateDescriptorHeap(device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kBackBufferCount_, false);
+    rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kBackBufferCount_, false);
 
     rtvDesc_.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     rtvDesc_.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -224,7 +224,7 @@ void DirectXCommon::CreateRenderTarget() {
 void DirectXCommon::CreateDepthBuffer(WinApp* winApp) {
     depthStencilResource_ = CreateDepthStencilTextureResource(device_.Get(), winApp->kClientWidth, winApp->kClientHeight);
 
-    dsvDescriptorHeap_ = CreateDescriptorHeap(device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
+    dsvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
     dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -239,4 +239,21 @@ void DirectXCommon::CreateFence() {
 
     fenceEvent_ = CreateEvent(NULL, FALSE, FALSE, NULL);
     assert(fenceEvent_ != nullptr);
+}
+
+// DirectXCommon.cpp の末尾などに追加してください
+
+Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DirectXCommon::CreateDescriptorHeap(
+    D3D12_DESCRIPTOR_HEAP_TYPE type, UINT numDescriptors, bool shaderVisible) {
+
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptorHeap = nullptr;
+    D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+    descriptorHeapDesc.Type = type;
+    descriptorHeapDesc.NumDescriptors = numDescriptors;
+    descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+    HRESULT hr = device_->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
+    assert(SUCCEEDED(hr));
+
+    return descriptorHeap;
 }

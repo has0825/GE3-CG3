@@ -1,63 +1,113 @@
 #include "ImGuiManager.h"
 #include "WinApp.h"
 #include "DirectXCommon.h"
+#include "SrvManager.h"
 
-void ImGuiManager::Initialize(WinApp* winApp, DirectXCommon* dxCommon) {
 #ifdef USE_IMGUI
-    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    desc.NumDescriptors = 1;
-    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+#include "externals/imgui/imgui.h"
+#include "externals/imgui/imgui_impl_dx12.h" // これが InitInfo の定義
+#include "externals/imgui/imgui_impl_win32.h"
+#endif
+ImGuiManager* ImGuiManager::instance_ = nullptr;
 
-    HRESULT result = dxCommon->GetDevice()->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&srvHeap_));
-    assert(SUCCEEDED(result));
+ImGuiManager* ImGuiManager::GetInstance()
+{
+	if (instance_ == nullptr)
+	{
+		instance_ = new ImGuiManager;
+	}
+	return instance_;
+}
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
+struct ImGui_ImplDX12_InitInfo
+{
+	ID3D12Device* Device = nullptr;
+	ID3D12CommandQueue* CommandQueue = nullptr;
+	DXGI_FORMAT RTVFormat = DXGI_FORMAT_UNKNOWN;
+	int NumFramesInFlight = 0;
+	D3D12_CPU_DESCRIPTOR_HANDLE LegacySingleSrvCpuDescriptor = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE LegacySingleSrvGpuDescriptor = {};
+};
 
-    ImGui_ImplWin32_Init(winApp->GetHwnd());
-    ImGui_ImplDX12_Init(
-        dxCommon->GetDevice(),
-        dxCommon->GetBackBufferCount(),
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        srvHeap_.Get(),
-        srvHeap_->GetCPUDescriptorHandleForHeapStart(),
-        srvHeap_->GetGPUDescriptorHandleForHeapStart()
-    );
-#else
-    // Release時は変数を使わないため警告回避
-    (void)winApp;
-    (void)dxCommon;
+
+void ImGuiManager::Finalize()
+{
+#ifdef USE_IMGUI
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+#endif
+	delete instance_;
+	instance_ = nullptr;
+}
+
+void ImGuiManager::Initialize(WinApp* winAPI, DirectXCommon* dxBase)
+{
+#ifdef USE_IMGUI
+	winAPI_ = winAPI;
+	dxBase_ = dxBase;
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
+
+	// Win32用初期化
+	ImGui_ImplWin32_Init(winAPI_->GetHwnd());
+
+	// SrvManagerを使用したデスクリプタ確保（ご提示の処理）
+	srvHeap_ = SrvManager::GetInstance()->GetDescriptorHeap();
+	srvIndex_ = SrvManager::GetInstance()->Allocate();
+	srvHandleCPU_ = SrvManager::GetInstance()->GetCPUDescriptorHandle(srvIndex_);
+	srvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(srvIndex_);
+
+	// --- エラー C2065 等が起きていた箇所 ---
+	ImGui_ImplDX12_InitInfo init_info = {};
+	init_info.Device = dxBase_->GetDevice();
+	init_info.CommandQueue = dxBase_->GetCommandQueue();
+	// プロジェクトの DirectXCommon に合わせて GetBackBufferCount を使用
+	init_info.NumFramesInFlight = static_cast<int>(dxBase_->GetBackBufferCount());
+	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	init_info.LegacySingleSrvCpuDescriptor = srvHandleCPU_;
+	init_info.LegacySingleSrvGpuDescriptor = srvHandleGPU_;
+
+	ImGui_ImplDX12_Init(
+		init_info.Device,
+		init_info.NumFramesInFlight,
+		init_info.RTVFormat,
+		srvHeap_,
+		init_info.LegacySingleSrvCpuDescriptor,
+		init_info.LegacySingleSrvGpuDescriptor
+	);
+
 #endif
 }
 
-void ImGuiManager::NewFrame() {
+void ImGuiManager::Begin()
+{
 #ifdef USE_IMGUI
-    ImGui_ImplDX12_NewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
+	ImGui_ImplDX12_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
 #endif
 }
 
-void ImGuiManager::Draw(ID3D12GraphicsCommandList* commandList) {
+void ImGuiManager::End()
+{
 #ifdef USE_IMGUI
-    // ★修正: ここに Render を移動
-    ImGui::Render();
-
-    ID3D12DescriptorHeap* descriptorHeaps[] = { srvHeap_.Get() };
-    commandList->SetDescriptorHeaps(1, descriptorHeaps);
-    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
-#else
-    (void)commandList;
+	ImGui::Render();
 #endif
 }
 
-void ImGuiManager::Shutdown() {
+void ImGuiManager::Draw()
+{
 #ifdef USE_IMGUI
-    ImGui_ImplDX12_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
-    srvHeap_.Reset();
+	ID3D12GraphicsCommandList* commandList = dxBase_->GetCommandList();
+
+	// デスクリプタヒープをセット（ご提示の処理）
+	ID3D12DescriptorHeap* ppHeaps[] = { srvHeap_ };
+	commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+	// 描画コマンド発行
+	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 #endif
 }

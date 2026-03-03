@@ -34,6 +34,9 @@ public:
     UINT GetBackBufferCount() const { return kBackBufferCount_; }
     ID3D12CommandAllocator* GetCommandAllocator() const { return commandAllocator_.Get(); }
 
+    // デスクリプタヒープ生成
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
+        D3D12_DESCRIPTOR_HEAP_TYPE type, UINT numDescriptors, bool shaderVisible);
 
 private:
     DirectXCommon() = default;

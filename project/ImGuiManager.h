@@ -1,39 +1,35 @@
 #pragma once
-
-#include <Windows.h>
 #include <d3d12.h>
-#include <wrl.h>
+#include <cstdint> // uint32_t のために必須
 
 // 前方宣言
 class WinApp;
 class DirectXCommon;
 
-// 修正: _DEBUG ではなく !NDEBUG を使用
-// NDEBUG は Release ビルドで標準的に定義されるマクロです。
-// "NDEBUG が定義されていない場合" = "Debug ビルド" とみなします。
-#ifndef NDEBUG
-#define USE_IMGUI
-#endif
-
-// ImGuiが有効な場合のみインクルード
-#ifdef USE_IMGUI
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
-#endif
-
 class ImGuiManager {
 public:
-    ImGuiManager() = default;
-    ~ImGuiManager() = default;
+    static ImGuiManager* GetInstance();
 
-    void Initialize(WinApp* winApp, DirectXCommon* dxCommon);
-    void NewFrame();
-    void Draw(ID3D12GraphicsCommandList* commandList);
-    void Shutdown();
+    // 引数名はスニペットに合わせる（型はプロジェクトの WinApp / DirectXCommon）
+    void Initialize(WinApp* winAPI, DirectXCommon* dxBase);
+    void Finalize();
+    void Begin();
+    void End();
+    void Draw();
 
 private:
-#ifdef USE_IMGUI
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap_;
-#endif
+    ImGuiManager() = default;
+    ~ImGuiManager() = default;
+    ImGuiManager(const ImGuiManager&) = delete;
+    ImGuiManager& operator=(const ImGuiManager&) = delete;
+
+    static ImGuiManager* instance_;
+
+    // ご提示のスニペット通りのメンバ変数
+    WinApp* winAPI_ = nullptr;
+    DirectXCommon* dxBase_ = nullptr;
+    ID3D12DescriptorHeap* srvHeap_ = nullptr;
+    uint32_t srvIndex_ = 0;
+    D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU_;
 };

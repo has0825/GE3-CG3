@@ -33,6 +33,7 @@
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="GamePlayScene.cpp" />
     <ClCompile Include="Hoge.cpp" />
+    <ClCompile Include="ImGuiManager.cpp" />
     <ClCompile Include="Input.cpp" />
     <ClCompile Include="main.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
@@ -46,6 +47,7 @@
     <ClCompile Include="SceneFactory.cpp" />
     <ClCompile Include="SceneManager.cpp" />
     <ClCompile Include="Sprite.cpp" />
+    <ClCompile Include="SrvManager.cpp" />
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="TitleScene.cpp" />
   </ItemGroup>
@@ -105,12 +107,14 @@
     <ClInclude Include="Game.h" />
     <ClInclude Include="GamePlayScene.h" />
     <ClInclude Include="Hoge.h" />
+    <ClInclude Include="ImGuiManager.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="ModelManager.h" />
     <ClInclude Include="ParticleManager.h" />
     <ClInclude Include="SceneFactory.h" />
     <ClInclude Include="SceneManager.h" />
     <ClInclude Include="Sprite.h" />
+    <ClInclude Include="SrvManager.h" />
     <ClInclude Include="TextureManager.h" />
     <ClInclude Include="TitleScene.h" />
   </ItemGroup>
