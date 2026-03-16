@@ -1,19 +1,17 @@
 #include "SrvManager.h"
 #include <D3D12Util.h>
 
-SrvManager* SrvManager::instance_ = nullptr;
 const uint32_t SrvManager::kMaxSRVCount = 512;
 
 SrvManager* SrvManager::GetInstance() {
-    if (instance_ == nullptr) {
-        instance_ = new SrvManager;
-    }
-    return instance_;
+    static SrvManager instance;
+    return &instance;
 }
 
 void SrvManager::Finalize() {
-    delete instance_;
-    instance_ = nullptr;
+    // delete instance_; は不要になったため削除しました。
+    // ComPtrを使用しているため自動で解放されますが、明示的にリセットして安全性を高めておきます。
+    descriptorHeap_.Reset();
 }
 
 void SrvManager::Initialize(DirectXCommon* dxCommon) {

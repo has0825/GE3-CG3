@@ -37,7 +37,6 @@ public:
     static const uint32_t kMaxSRVCount;
 
 private:
-    static SrvManager* instance_;
     SrvManager() = default;
     ~SrvManager() = default;
     SrvManager(const SrvManager&) = delete;

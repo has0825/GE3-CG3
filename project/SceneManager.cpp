@@ -19,8 +19,8 @@ void SceneManager::ChangeScene(const std::string& sceneName) {
     assert(sceneFactory_); // ファクトリーがセットされていないとエラー
     assert(nextScene_ == nullptr); // 同一フレームでの連続呼び出しは想定しない
 
-    // 次のシーンを生成して予約
-    nextScene_ = std::unique_ptr<BaseScene>(sceneFactory_->CreateScene(sceneName));
+    // 次のシーンを生成して予約 (修正: ファクトリーから直接unique_ptrを受け取る)
+    nextScene_ = sceneFactory_->CreateScene(sceneName);
 }
 
 void SceneManager::Update() {

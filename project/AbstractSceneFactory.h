@@ -1,12 +1,13 @@
 #pragma once
 #include "BaseScene.h"
 #include <string>
+#include <memory>
 
-// シーン工場インターフェース
+// 抽象シーン工場
 class AbstractSceneFactory {
 public:
     virtual ~AbstractSceneFactory() = default;
 
-    // シーン生成メソッド
-    virtual BaseScene* CreateScene(const std::string& sceneName) = 0;
+    // シーン生成 (純粋仮想関数の戻り値もunique_ptrに変更)
+    virtual std::unique_ptr<BaseScene> CreateScene(const std::string& sceneName) = 0;
 };
