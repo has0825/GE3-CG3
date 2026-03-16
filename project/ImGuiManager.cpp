@@ -8,15 +8,11 @@
 #include "externals/imgui/imgui_impl_dx12.h" // これが InitInfo の定義
 #include "externals/imgui/imgui_impl_win32.h"
 #endif
-ImGuiManager* ImGuiManager::instance_ = nullptr;
 
 ImGuiManager* ImGuiManager::GetInstance()
 {
-	if (instance_ == nullptr)
-	{
-		instance_ = new ImGuiManager;
-	}
-	return instance_;
+	static ImGuiManager instance;
+	return &instance;
 }
 
 struct ImGui_ImplDX12_InitInfo
@@ -37,30 +33,27 @@ void ImGuiManager::Finalize()
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 #endif
-	delete instance_;
-	instance_ = nullptr;
 }
 
 void ImGuiManager::Initialize(WinApp* winAPI, DirectXCommon* dxBase)
 {
-#ifdef USE_IMGUI
 	winAPI_ = winAPI;
 	dxBase_ = dxBase;
 
+#ifdef USE_IMGUI
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGui::StyleColorsDark();
-
-	// Win32用初期化
 	ImGui_ImplWin32_Init(winAPI_->GetHwnd());
 
-	// SrvManagerを使用したデスクリプタ確保（ご提示の処理）
-	srvHeap_ = SrvManager::GetInstance()->GetDescriptorHeap();
+	// SrvManagerからヒープとインデックスをもらう
+	// ※プロジェクトの実装に合わせて取得関数名を適宜調整してください
+	// 例: srvHeap_ = SrvManager::GetInstance()->GetDescriptorHeap();
+
 	srvIndex_ = SrvManager::GetInstance()->Allocate();
 	srvHandleCPU_ = SrvManager::GetInstance()->GetCPUDescriptorHandle(srvIndex_);
 	srvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(srvIndex_);
 
-	// --- エラー C2065 等が起きていた箇所 ---
 	ImGui_ImplDX12_InitInfo init_info = {};
 	init_info.Device = dxBase_->GetDevice();
 	init_info.CommandQueue = dxBase_->GetCommandQueue();
@@ -102,12 +95,8 @@ void ImGuiManager::Draw()
 {
 #ifdef USE_IMGUI
 	ID3D12GraphicsCommandList* commandList = dxBase_->GetCommandList();
-
-	// デスクリプタヒープをセット（ご提示の処理）
-	ID3D12DescriptorHeap* ppHeaps[] = { srvHeap_ };
-	commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
-
-	// 描画コマンド発行
+	ID3D12DescriptorHeap* descriptorHeaps[] = { srvHeap_ };
+	commandList->SetDescriptorHeaps(1, descriptorHeaps);
 	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 #endif
 }

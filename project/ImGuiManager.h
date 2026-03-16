@@ -23,8 +23,6 @@ private:
     ImGuiManager(const ImGuiManager&) = delete;
     ImGuiManager& operator=(const ImGuiManager&) = delete;
 
-    static ImGuiManager* instance_;
-
     // ご提示のスニペット通りのメンバ変数
     WinApp* winAPI_ = nullptr;
     DirectXCommon* dxBase_ = nullptr;
