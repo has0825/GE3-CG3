@@ -14,14 +14,13 @@ struct D3DResourceLeakChecker {
 };
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+
     D3DResourceLeakChecker leakChecker;
 
     std::unique_ptr<Game> game = std::make_unique<Game>();
 
     // 実行
     game->Run();
-
-
 
     return 0;
 }
