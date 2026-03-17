@@ -2,9 +2,9 @@
 #include <cassert>
 #include <cstring> // memcpy用
 
-// ★パーティクル用の四角形モデル生成の実装
-Model* Model::CreateParticleModel(ID3D12Device* device) {
-	Model* model = new Model();
+// ★変更: 戻り値と内部生成を std::unique_ptr と std::make_unique に置き換え、newを排除
+std::unique_ptr<Model> Model::CreateParticleModel(ID3D12Device* device) {
+	std::unique_ptr<Model> model = std::make_unique<Model>();
 	ModelData modelData;
 
 	// 四角形の頂点定義
@@ -14,49 +14,33 @@ Model* Model::CreateParticleModel(ID3D12Device* device) {
 
 	modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
 	modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
-	modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f },  { 1.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+	modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
 
-	modelData.material.textureFilePath = "resources/uvChecker.png";
-
-	// 単独初期化モードで呼ぶ
 	model->Initialize(modelData, device);
+
 	return model;
 }
 
-// ============================================================
-// パターン1: ModelManager経由の初期化 (エラーが出ていた箇所に対応)
-// ============================================================
 void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
-	assert(commonData);
-	this->commonData_ = commonData; // 共通データを保持
+	commonData_ = commonData;
 
-	// マテリアルバッファ作成 (インスタンスごとに固有)
+	// マテリアル用のリソース作成
 	materialResource_ = CreateBufferResource(device, sizeof(Material));
-	Material* materialMap = nullptr;
-	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
+	Material* materialData = nullptr;
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialData->enableLighting = 1;
+	materialData->uvTransform = MakeIdentity4x4();
+	materialResource_->Unmap(0, nullptr);
 
-	materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	materialMap->enableLighting = true;
-	materialMap->uvTransform = MakeIdentity4x4();
-	this->materialData = materialMap;
-
-	// WVPバッファ作成 (インスタンスごとに固有)
-	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
-	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
-	wvpData_->WVP = MakeIdentity4x4();
-	wvpData_->World = MakeIdentity4x4();
+	transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
 }
 
-// ============================================================
-// パターン2: 単独初期化 (パーティクル等)
-// ============================================================
 void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
-	this->commonData_ = nullptr; // マネージャーは使わない
-
-	// 頂点データをコピーして自己管理
 	vertices_ = modelData.vertices;
+	materialData_ = modelData.material;
 
-	// 頂点バッファ作成
+	// 頂点バッファの作成
 	vertexResource_ = CreateBufferResource(device, sizeof(VertexData) * vertices_.size());
 	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
 	vertexBufferView_.SizeInBytes = UINT(sizeof(VertexData) * vertices_.size());
@@ -65,26 +49,22 @@ void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
 	VertexData* vertexData = nullptr;
 	vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	std::memcpy(vertexData, vertices_.data(), sizeof(VertexData) * vertices_.size());
+	vertexResource_->Unmap(0, nullptr);
 
-	// マテリアルバッファ作成
+	// マテリアル用のリソース作成
 	materialResource_ = CreateBufferResource(device, sizeof(Material));
-	Material* materialMap = nullptr;
-	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialMap));
+	Material* material = nullptr;
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&material));
+	material->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	material->enableLighting = 1;
+	material->uvTransform = MakeIdentity4x4();
+	materialResource_->Unmap(0, nullptr);
 
-	materialMap->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	materialMap->enableLighting = true;
-	materialMap->uvTransform = MakeIdentity4x4();
-	this->materialData = materialMap;
-
-	// WVPバッファ作成
-	wvpResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
-	wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
-	wvpData_->WVP = MakeIdentity4x4();
-	wvpData_->World = MakeIdentity4x4();
+	transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
 }
 
 void Model::Update() {
-	// 更新処理が必要ならここに記述
+	// 必要な更新処理があればここに記述
 }
 
 void Model::Draw(ID3D12GraphicsCommandList* commandList) {
@@ -129,15 +109,11 @@ void Model::Draw(
 	// 2. マテリアル (CBV)
 	commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
 
-	// 3. Instancingデータ (StructuredBuffer SRV)
+	// 3. インスタンシング用 SRV (パーティクルデータ等)
 	commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandle);
 
-	// 4. テクスチャ (Texture SRV)
+	// 4. テクスチャ SRV (オブジェクトのテクスチャ等)
 	commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
 
-	// 5. Light (CBV) - Lightingが必要なら
-	commandList->SetGraphicsRootConstantBufferView(3, materialResource_->GetGPUVirtualAddress());
-
-	// 6. 描画
 	commandList->DrawInstanced(vertexCount, instanceCount, 0, 0);
 }

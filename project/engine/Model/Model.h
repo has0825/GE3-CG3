@@ -3,6 +3,7 @@
 #include <wrl.h>
 #include <string>
 #include <vector>
+#include <memory> // ★追加: unique_ptrを使うために必要
 #include "D3D12Util.h"
 #include "DataTypes.h"
 #include "MathUtil.h"
@@ -17,13 +18,13 @@ struct ModelCommonData {
 
 class Model {
 public:
-	// ★パーティクル用のモデル生成 (Managerを使わない単独生成)
-	static Model* CreateParticleModel(ID3D12Device* device);
+	// ★変更: 戻り値を std::unique_ptr<Model> に変更
+	static std::unique_ptr<Model> CreateParticleModel(ID3D12Device* device);
 
 	Model() = default;
 	~Model() = default;
 
-	// ★オーバーロード1: Manager経由で初期化する場合 (今回のエラーを直すためのもの)
+	// ★オーバーロード1: Manager経由で初期化する場合
 	// 引数: デバイス, 共通データへのポインタ
 	void Initialize(ID3D12Device* device, ModelCommonData* commonData);
 
@@ -46,20 +47,15 @@ public:
 public:
 	Transform transform;
 
-	// マテリアルデータ (定数バッファの中身へのアクセス用)
-	Material* materialData = nullptr;
-
 private:
-	// 共通データへのポインタ (Manager管理の場合に使用)
-	ModelCommonData* commonData_ = nullptr;
-
-	// --- 独自管理用 (パーティクルなどManagerを使わない場合に使用) ---
+	// 自己管理用データ
 	std::vector<VertexData> vertices_;
+	MaterialData materialData_;
 	Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
 
-	// --- 定数バッファ (マテリアル・WVP) ---
+	// 共通データ参照用
+	ModelCommonData* commonData_ = nullptr;
+
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
-	Microsoft::WRL::ComPtr<ID3D12Resource> wvpResource_;
-	TransformationMatrix* wvpData_ = nullptr;
 };
