@@ -1,7 +1,7 @@
 ﻿#include "Game.h"
 #include <Windows.h>
 #include <dxgidebug.h>
-#include <memory> // std::unique_ptr 用に追加
+#include <memory> 
 
 // D3D12のリソースリークをチェックするための構造体
 struct D3DResourceLeakChecker {
