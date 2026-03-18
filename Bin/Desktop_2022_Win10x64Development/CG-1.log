@@ -1,7 +1,0 @@
-﻿  main.cpp
-  main.obj : MSIL .netmodule または /GL を伴ってコンパイルされたモジュールが見つかりました。/LTCG を使用して再開始してください。リンカーのパフォーマンスを向上させるためには、コマンドラインに /LTCG を追加してください。
-D3D12Util.obj : error LNK2001: 外部シンボル "class std::basic_string<wchar_t,struct std::char_traits<wchar_t>,class std::allocator<wchar_t> > __cdecl ConvertString(class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const &)" (?ConvertString@@YA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@2@@Z) は未解決です
-GraphicsPipeline.obj : error LNK2001: 外部シンボル __imp_DxcCreateInstance は未解決です
-GraphicsPipeline.obj : error LNK2001: 外部シンボル "void __cdecl Log(class std::basic_ostream<char,struct std::char_traits<char> > &,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const &)" (?Log@@YAXAEAV?$basic_ostream@DU?$char_traits@D@std@@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@2@@Z) は未解決です
-GraphicsPipeline.obj : error LNK2001: 外部シンボル "class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > __cdecl ConvertString(class std::basic_string<wchar_t,struct std::char_traits<wchar_t>,class std::allocator<wchar_t> > const &)" (?ConvertString@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@2@@Z) は未解決です
-Bin\Desktop_2022_Win10x64Development\CG-1.exe : fatal error LNK1120: 4 件の未解決の外部参照

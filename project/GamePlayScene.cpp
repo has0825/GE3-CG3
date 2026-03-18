@@ -36,14 +36,13 @@ void GamePlayScene::Initialize() {
     ID3D12Device* device = dxCommon_->GetDevice();
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-    // ★new を廃止し std::make_unique に変更
     audio_ = std::make_unique<Audio>();
     audio_->Initialize();
 
     graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
     graphicsPipeline_->Initialize(device);
 
-    // ★SRVヒープもここで生成
+    // SRVヒープもここで生成
     srvDescriptorHeap_ = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
     descriptorSizeSRV_ = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 

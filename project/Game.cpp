@@ -8,7 +8,6 @@ void Game::Initialize() {
     Framework::Initialize();
     Input::GetInstance()->Initialize(winApp_);
 
-    // 修正: new ではなく std::make_unique を使う
     sceneFactory_ = std::make_unique<SceneFactory>();
 
     // get() で生ポインタを渡す（所有権は移さない）
@@ -17,7 +16,7 @@ void Game::Initialize() {
 }
 
 void Game::Finalize() {
-    // 修正: delete sceneFactory_; は不要になる（自動解放）
+
     Framework::Finalize();
 }
 
