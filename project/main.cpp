@@ -2,7 +2,6 @@
 #include <Windows.h>
 #include <dxgidebug.h>
 #include <memory> 
-
 // D3D12のリソースリークをチェックするための構造体
 struct D3DResourceLeakChecker {
     ~D3DResourceLeakChecker() {
