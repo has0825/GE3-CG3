@@ -9,7 +9,6 @@
 #include "externals/imgui/imgui_impl_win32.h"
 #endif
 
-
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib, "dbghelp.lib")
 
@@ -17,8 +16,6 @@
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
-
-
 
 void Log(std::ostream& os, const std::string& message) {
     os << message << std::endl;
@@ -42,8 +39,6 @@ std::string ConvertString(const std::wstring& str) {
     WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), sizeNeeded, NULL, NULL);
     return result;
 }
-// -------------------------------------------------------
-
 
 // 例外ダンプ出力関数
 static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
@@ -111,6 +106,7 @@ void Framework::Initialize() {
     audio_->Initialize();
 
     graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
+    graphicsPipeline_->Initialize(dxCommon_->GetDevice());
 
     // SRVヒープ作成
     srvDescriptorHeap_ = CreateDescriptorHeap(dxCommon_->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
@@ -142,7 +138,7 @@ void Framework::Finalize() {
     ImGui::DestroyContext();
 #endif
 
-    audio_->Finalize();
+    // Audioはstd::unique_ptrの破棄時にデストラクタで終了処理が行われるため削除
 
     CoUninitialize();
 

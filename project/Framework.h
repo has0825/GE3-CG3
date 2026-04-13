@@ -29,6 +29,12 @@ public:
     // 終了フラグのチェック
     virtual bool IsEndRequest();
 
+    // --- 各シーンからリソースにアクセスするためのゲッターを追加 ---
+    Audio* GetAudio() const { return audio_.get(); }
+    GraphicsPipeline* GetGraphicsPipeline() const { return graphicsPipeline_.get(); }
+    ID3D12DescriptorHeap* GetSrvDescriptorHeap() const { return srvDescriptorHeap_.Get(); }
+    UINT GetDescriptorSizeSRV() const { return descriptorSizeSRV_; }
+
 protected:
 
     WinApp* winApp_ = nullptr;
