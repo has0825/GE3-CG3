@@ -17,7 +17,6 @@ enum BlendMode {
     kCountOfBlendMode,    // カウント用
 };
 
-
 // グラフィックスパイプライン管理クラス
 class GraphicsPipeline {
 public:
@@ -27,6 +26,9 @@ public:
     // ゲッター
     ID3D12RootSignature* GetRootSignature() const { return rootSignature_.Get(); }
     ID3D12PipelineState* GetPipelineState(BlendMode blendMode) const { return pipelineStates_[blendMode].Get(); }
+
+    // ★Skybox用ゲッター追加
+    ID3D12PipelineState* GetSkyboxPipelineState() const { return skyboxPipelineState_.Get(); }
 
 private:
     // シェーダーのコンパイル
@@ -40,5 +42,9 @@ private:
 private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStates_[kCountOfBlendMode]; // 全ブレンドモード分のPSO
+
+    // ★Skybox用PSO追加
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> skyboxPipelineState_;
+
     std::ofstream logStream_;
 };

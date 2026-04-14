@@ -62,6 +62,12 @@ public:
      */
     bool IsKeyReleased(uint8_t keyCode);
 
+    // ===========================================
+    // ★追加: マウスボタンが押されているか判定
+    // buttonNumber: 0=左クリック, 1=右クリック, 2=中クリック
+    // ===========================================
+    bool IsMousePressed(int buttonNumber);
+
 private:
     // シングルトンにするためのプライベートコンストラクタ
     Input() = default;
