@@ -135,12 +135,17 @@
     <ClCompile Include="SrvManager.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="Skybox.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\Object3d.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Object3d.PS.hlsl" />
     <FxCompile Include="Particle.PS.hlsl" />
     <FxCompile Include="Particle.VS.hlsl" />
+    <FxCompile Include="Skybox.PS.hlsl" />
+    <FxCompile Include="Skybox.VS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="externals\imgui\imconfig.h">
@@ -248,6 +253,9 @@
     <ClInclude Include="SrvManager.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="Skybox.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Text Include="externals\imgui\LICENSE.txt">
@@ -257,5 +265,6 @@
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />
     <None Include="Particle.hlsli" />
+    <None Include="Skybox.hlsli" />
   </ItemGroup>
 </Project>

@@ -11,7 +11,6 @@ std::string ConvertString(const std::wstring& str);
 void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	logStream_.open("ShaderCompile.log");
 
-	// --- DXCの初期化 ---
 	Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils;
 	Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler;
 	HRESULT hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
@@ -22,7 +21,6 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
 	assert(SUCCEEDED(hr));
 
-	// --- ルートシグネチャの作成 ---
 	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
 	descriptionRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -38,17 +36,14 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	descriptionRootSignature.pStaticSamplers = staticSamplers;
 	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
-	// パラメータ数を4つに設定
 	D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
-	// Param [0]: Material (PS, b0)
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL; // Skybox用にALLにするか、VSでも使うので制限緩和
 	rootParameters[0].Descriptor.ShaderRegister = 0;
 
-	// Param [1]: TransformationMatrices (VS, t1) - StructuredBuffer
 	D3D12_DESCRIPTOR_RANGE descriptorRangeForInstancing[1] = {};
-	descriptorRangeForInstancing[0].BaseShaderRegister = 1; // VS register(t1)
+	descriptorRangeForInstancing[0].BaseShaderRegister = 1;
 	descriptorRangeForInstancing[0].NumDescriptors = 1;
 	descriptorRangeForInstancing[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	descriptorRangeForInstancing[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
@@ -58,9 +53,8 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	rootParameters[1].DescriptorTable.pDescriptorRanges = descriptorRangeForInstancing;
 	rootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(descriptorRangeForInstancing);
 
-	// Param [2]: Texture (PS, t0)
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
-	descriptorRange[0].BaseShaderRegister = 0; // PS register(t0)
+	descriptorRange[0].BaseShaderRegister = 0;
 	descriptorRange[0].NumDescriptors = 1;
 	descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
@@ -70,7 +64,6 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
 	rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(descriptorRange);
 
-	// Param [3]: Light (PS, b1)
 	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[3].Descriptor.ShaderRegister = 1;
@@ -88,7 +81,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	hr = device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(), IID_PPV_ARGS(&rootSignature_));
 	assert(SUCCEEDED(hr));
 
-	// シェーダーファイルを "Particle" 用に変更
+	// 通常のパーティクル用
 	Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Particle.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(vertexShaderBlob != nullptr);
 	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Particle.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
@@ -112,14 +105,12 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
 
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
-	// ★修正: カリングモードを NONE (両面描画) に設定。これで裏返っても消えません。
 	rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 	rasterizerDesc.FrontCounterClockwise = FALSE;
 
 	D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
 	depthStencilDesc.DepthEnable = true;
-	// 半透明描画のため深度書き込みを無効化
 	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
@@ -128,9 +119,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
 		switch (static_cast<BlendMode>(i)) {
-		case kBlendModeNone:
-			blendDesc.RenderTarget[0].BlendEnable = FALSE;
-			break;
+		case kBlendModeNone: blendDesc.RenderTarget[0].BlendEnable = FALSE; break;
 		case kBlendModeNormal:
 			blendDesc.RenderTarget[0].BlendEnable = TRUE;
 			blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
@@ -167,9 +156,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 			blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
 			blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 			break;
-		case kBlendModeAlphaClip:
-			blendDesc.RenderTarget[0].BlendEnable = FALSE;
-			break;
+		case kBlendModeAlphaClip: blendDesc.RenderTarget[0].BlendEnable = FALSE; break;
 		}
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
@@ -190,6 +177,48 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 		hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&pipelineStates_[i]));
 		assert(SUCCEEDED(hr));
 	}
+
+	// ★ --- Skybox用パイプラインステートの作成 ---
+	Microsoft::WRL::ComPtr<IDxcBlob> skyboxVSBlob = CompileShader(L"Skybox.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(skyboxVSBlob != nullptr);
+	Microsoft::WRL::ComPtr<IDxcBlob> skyboxPSBlob = CompileShader(L"Skybox.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(skyboxPSBlob != nullptr);
+
+	D3D12_INPUT_ELEMENT_DESC skyboxInputElements[] = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+	};
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyboxPsoDesc{};
+	skyboxPsoDesc.pRootSignature = rootSignature_.Get();
+	skyboxPsoDesc.InputLayout = { skyboxInputElements, _countof(skyboxInputElements) };
+	skyboxPsoDesc.VS = { skyboxVSBlob->GetBufferPointer(), skyboxVSBlob->GetBufferSize() };
+	skyboxPsoDesc.PS = { skyboxPSBlob->GetBufferPointer(), skyboxPSBlob->GetBufferSize() };
+
+	D3D12_BLEND_DESC skyboxBlendDesc{};
+	skyboxBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	skyboxBlendDesc.RenderTarget[0].BlendEnable = FALSE;
+	skyboxPsoDesc.BlendState = skyboxBlendDesc;
+
+	D3D12_RASTERIZER_DESC skyboxRasterizerDesc{};
+	skyboxRasterizerDesc.CullMode = D3D12_CULL_MODE_NONE; // 内側から見るためNONE
+	skyboxRasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+	skyboxPsoDesc.RasterizerState = skyboxRasterizerDesc;
+
+	D3D12_DEPTH_STENCIL_DESC skyboxDepthDesc{};
+	skyboxDepthDesc.DepthEnable = true;
+	skyboxDepthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // 深度書き込みゼロ
+	skyboxDepthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL; // 常に最遠方描画
+	skyboxPsoDesc.DepthStencilState = skyboxDepthDesc;
+
+	skyboxPsoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	skyboxPsoDesc.NumRenderTargets = 1;
+	skyboxPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	skyboxPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	skyboxPsoDesc.SampleDesc.Count = 1;
+	skyboxPsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	hr = device->CreateGraphicsPipelineState(&skyboxPsoDesc, IID_PPV_ARGS(&skyboxPipelineState_));
+	assert(SUCCEEDED(hr));
 }
 
 Microsoft::WRL::ComPtr<IDxcBlob> GraphicsPipeline::CompileShader(

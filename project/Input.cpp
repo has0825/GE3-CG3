@@ -2,6 +2,7 @@
 #include "WinApp.h" // 初期化にWinAppが必要
 #include <cassert>  // assert()用
 #include <cstring>  // memcpy用
+#include <windows.h> // ★GetAsyncKeyState用に追加
 
 // DirectInputのライブラリをリンク
 #pragma comment(lib, "dinput8.lib")
@@ -92,4 +93,26 @@ bool Input::IsKeyTriggered(uint8_t keyCode) {
 bool Input::IsKeyReleased(uint8_t keyCode) {
     // (今は押されていない) AND (前は押されていた)
     return !(keys_[keyCode] & 0x80) && (prevKeys_[keyCode] & 0x80);
+}
+
+// ===========================================
+// ★追加: マウスボタンの判定 (Windows APIを使用)
+// ===========================================
+bool Input::IsMousePressed(int buttonNumber) {
+    int vKey = 0;
+
+    // 引数に応じて仮想キーコードを設定
+    if (buttonNumber == 0) {
+        vKey = VK_LBUTTON; // 左クリック
+    } else if (buttonNumber == 1) {
+        vKey = VK_RBUTTON; // 右クリック
+    } else if (buttonNumber == 2) {
+        vKey = VK_MBUTTON; // 中クリック
+    } else {
+        return false; // それ以外の無効な番号
+    }
+
+    // GetAsyncKeyState で現在のボタンの状態を取得
+    // 最上位ビット(0x8000)が立っていれば押されている
+    return (GetAsyncKeyState(vKey) & 0x8000) != 0;
 }
