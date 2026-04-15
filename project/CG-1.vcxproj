@@ -224,7 +224,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)eternals\assimp\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -251,7 +251,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)eternals\assimp\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -280,7 +280,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>Disabled</Optimization>
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)eternals\assimp\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
