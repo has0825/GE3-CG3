@@ -150,7 +150,8 @@ void GamePlayScene::Initialize() {
     audio_->PlayWave(bgmData_, true, 0.5f);
 
     TextureManager::GetInstance()->Initialize(device, "resources/");
-    TextureManager::GetInstance()->LoadTexture("rostock_laage_airport_4k.dds");
+    // ★ 変更点：自分で作成した test.dds を読み込むように変更
+    TextureManager::GetInstance()->LoadTexture("test.dds");
 
     skybox_ = std::make_unique<Skybox>();
     skybox_->Initialize(device);
@@ -219,7 +220,6 @@ void GamePlayScene::Update() {
 
         SetCursorPos(centerX, centerY);
 
-        // ※もしこれでまだ左右が逆の場合は、ここの += を -= に変更してください
         camTrans.rotate.y += deltaX * mouseSensitivity_;
         camTrans.rotate.x += deltaY * mouseSensitivity_;
 
@@ -309,7 +309,8 @@ void GamePlayScene::Draw() {
     Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
     Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
 
-    skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("rostock_laage_airport_4k.dds"));
+    // ★ 変更点：描画時に test.dds のハンドルを渡すように変更
+    skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
 }
 
 Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
