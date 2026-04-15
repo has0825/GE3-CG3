@@ -47,3 +47,24 @@ struct ModelData {
 	std::vector<VertexData> vertices;
 	MaterialData material;
 };
+
+// シェーダーの struct TransformationMatrix に対応
+struct TransformationMatrixForGPU {
+	Matrix4x4 WVP;
+	Matrix4x4 World;
+};
+
+// シェーダーの struct Material に対応
+struct MaterialForGPU {
+	Vector4 color;            // 16バイト (float x 4)
+	int32_t enableLighting;   // 4バイト
+	float padding[3];         // 12バイトの余白（※HLSLとのバイト数を合わせるための必須パディングです！）
+	Matrix4x4 uvTransform;    // 64バイト
+};
+
+// シェーダーの struct DirectionalLight に対応
+struct DirectionalLightForGPU {
+	Vector4 color;            // 16バイト
+	Vector3 direction;        // 12バイト
+	float intensity;          // 4バイト
+};
