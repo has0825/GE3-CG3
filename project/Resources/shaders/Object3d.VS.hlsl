@@ -1,5 +1,12 @@
 #include "Object3d.hlsli"
 
+struct TransformationMatrix
+{
+    float32_t4x4 WVP;
+    float32_t4x4 World;
+};
+
+// ★ここが b1 になっていたせいでモデルが消滅していました。b0 に戻します。
 ConstantBuffer<TransformationMatrix> gTransformationMatrix : register(b0);
 
 struct VertexShaderInput
@@ -13,14 +20,11 @@ VertexShaderOutput main(VertexShaderInput input)
 {
     VertexShaderOutput output;
     
-    // 座標変換
     output.position = mul(input.position, gTransformationMatrix.WVP);
-    
-    // UV座標はそのまま渡す
     output.texcoord = input.texcoord;
     
-    // 法線をWorld行列で回転させてワールド空間の法線に変換する
     output.normal = normalize(mul(input.normal, (float32_t3x3) gTransformationMatrix.World));
+    output.worldPosition = mul(input.position, gTransformationMatrix.World).xyz;
     
     return output;
 }

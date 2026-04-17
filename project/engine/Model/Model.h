@@ -3,59 +3,61 @@
 #include <wrl.h>
 #include <string>
 #include <vector>
-#include <memory> // ★追加: unique_ptrを使うために必要
+#include <memory>
 #include "D3D12Util.h"
 #include "DataTypes.h"
 #include "MathUtil.h"
+#include "Camera.h"
 
-// マネージャーとモデルで共有するデータ（頂点バッファなど）
+struct Node {
+    Matrix4x4 localMatrix;
+    std::string name;
+    std::vector<Node> children;
+};
+
 struct ModelCommonData {
-	std::vector<VertexData> vertices;
-	MaterialData materialData;
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource;
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
+    std::vector<VertexData> vertices;
+    MaterialData materialData;
+    Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource;
+    D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
 };
 
 class Model {
 public:
-	// ★変更: 戻り値を std::unique_ptr<Model> に変更
-	static std::unique_ptr<Model> CreateParticleModel(ID3D12Device* device);
+    static std::unique_ptr<Model> CreateParticleModel(ID3D12Device* device);
+    static std::unique_ptr<Model> LoadGLTF(const std::string& filename, ID3D12Device* device);
 
-	Model() = default;
-	~Model() = default;
+    Model() = default;
+    ~Model() = default;
 
-	// ★オーバーロード1: Manager経由で初期化する場合
-	// 引数: デバイス, 共通データへのポインタ
-	void Initialize(ID3D12Device* device, ModelCommonData* commonData);
+    void Initialize(ID3D12Device* device, ModelCommonData* commonData);
+    void Initialize(const ModelData& modelData, ID3D12Device* device);
 
-	// ★オーバーロード2: 単独で初期化する場合 (パーティクル等)
-	// 引数: モデルデータ, デバイス
-	void Initialize(const ModelData& modelData, ID3D12Device* device);
+    void Update();
 
-	void Update();
+    void Draw(ID3D12GraphicsCommandList* commandList);
 
-	// 通常描画
-	void Draw(ID3D12GraphicsCommandList* commandList);
+    void Draw(
+        ID3D12GraphicsCommandList* commandList,
+        UINT instanceCount,
+        D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle);
 
-	// インスタンシング描画
-	void Draw(
-		ID3D12GraphicsCommandList* commandList,
-		UINT instanceCount,
-		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
-		D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle);
+    void DrawModel(
+        ID3D12GraphicsCommandList* commandList,
+        D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle);
 
-public:
-	Transform transform;
+    void SetEnvironmentCoefficient(float coefficient);
+
+    Camera::Transform transform;
+    float environmentCoefficient = 0.0f;
+    Node rootNode;
 
 private:
-	// 自己管理用データ
-	std::vector<VertexData> vertices_;
-	MaterialData materialData_;
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
-
-	// 共通データ参照用
-	ModelCommonData* commonData_ = nullptr;
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
+    ModelCommonData* commonData_ = nullptr;
+    std::vector<VertexData> vertices_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
+    D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 };

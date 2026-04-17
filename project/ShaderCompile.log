@@ -6,11 +6,3 @@ Begin CompileShader, path:Particle.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Particle.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Skybox.VS.hlsl, profile:vs_6_0
-
-Compile Succeeded, path:Skybox.VS.hlsl, profile:vs_6_0
-
-Begin CompileShader, path:Skybox.PS.hlsl, profile:ps_6_0
-
-Compile Succeeded, path:Skybox.PS.hlsl, profile:ps_6_0
-
