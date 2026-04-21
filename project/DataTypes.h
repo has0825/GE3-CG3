@@ -8,6 +8,8 @@ struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
 	Vector3 normal;
+	uint32_t jointIndices[4];
+	float jointWeights[4];
 };
 
 // マテリアル

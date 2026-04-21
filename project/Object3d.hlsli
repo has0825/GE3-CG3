@@ -30,3 +30,9 @@ struct DirectionalLight
     float32_t3 direction;
     float32_t intensity;
 };
+
+// スキニングデータ
+struct SkinningPalette
+{
+    float32_t4x4 boneMatrices[128];
+};

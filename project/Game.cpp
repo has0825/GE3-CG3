@@ -2,6 +2,11 @@
 #include "SceneManager.h"
 #include "SceneFactory.h"
 #include "Input.h" // 忘れずに
+ 
+#ifdef USE_IMGUI
+#include "externals/imgui/imgui.h"
+#include "externals/imgui/imgui_impl_dx12.h"
+#endif
 
 
 void Game::Initialize() {
@@ -32,5 +37,16 @@ void Game::Update() {
 void Game::Draw() {
     dxCommon_->PreDraw();
     SceneManager::GetInstance()->Draw();
+
+#ifdef USE_IMGUI
+    // ImGui描画
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (drawData) {
+        ID3D12DescriptorHeap* descriptorHeaps[] = { imguiDescriptorHeap_.Get() };
+        dxCommon_->GetCommandList()->SetDescriptorHeaps(1, descriptorHeaps);
+        ImGui_ImplDX12_RenderDrawData(drawData, dxCommon_->GetCommandList());
+    }
+#endif
+
     dxCommon_->PostDraw();
 }

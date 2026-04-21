@@ -7,7 +7,7 @@
 #include "TextureManager.h"
 #include <algorithm>
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #endif
@@ -177,7 +177,7 @@ void GamePlayScene::Initialize() {
 
     // 【重要】モデルのスケール・座標設定
     // ※もし画面に見えない場合は、ここ(scale)を 10.0f や 100.0f など大きくしてみてください。
-    playerModel_->transform.scale = { 100.0f, 100.0f, 100.0f };
+    playerModel_->transform.scale = { 10.0f, 10.0f, 10.0f };
     playerModel_->transform.translate = { 0.0f, 0.0f, 0.0f };
     playerModel_->transform.rotate = { 0.0f, 0.0f, 0.0f };
     playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
@@ -192,7 +192,7 @@ void GamePlayScene::Finalize() {
 }
 
 void GamePlayScene::Update() {
-#ifdef _DEBUG
+#ifdef USE_IMGUI
     ImGui::SetNextWindowSize(ImVec2(500, 100));
     ImGui::Begin("Sprite Control");
     ImGui::DragFloat2("Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
@@ -266,13 +266,15 @@ void GamePlayScene::Update() {
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
 
     if (playerModel_) {
+        // アニメーションの更新 (DeltaTimeは固定60fpsとする)
+        playerModel_->UpdateAnimation(kDeltaTime);
         playerModel_->Update();
 
-        Matrix4x4 worldMatrix = MakeAffineMatrix(playerModel_->transform.scale, playerModel_->transform.rotate, playerModel_->transform.translate);
-        Matrix4x4 localWorldMatrix = Multiply(playerModel_->rootNode.localMatrix, worldMatrix);
-
-        transformData_->WVP = Multiply(localWorldMatrix, viewProjectionMatrix);
-        transformData_->World = localWorldMatrix;
+        // モデル自体のトランスフォームを適用したWVP/Worldを計算
+        Matrix4x4 modelWorldMatrix = MakeAffineMatrix(playerModel_->transform.scale, playerModel_->transform.rotate, playerModel_->transform.translate);
+        
+        transformData_->WVP = Multiply(modelWorldMatrix, viewProjectionMatrix);
+        transformData_->World = modelWorldMatrix;
 
         if (cameraDataCB_) {
             cameraDataCB_->worldPosition = camTrans.translate;
@@ -331,46 +333,65 @@ void GamePlayScene::Draw() {
         ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
         commandList->SetDescriptorHeaps(1, modelHeaps);
 
-        commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
-        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+        // パイプラインが生成されているか念のためチェック
+        if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
+            commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
 
-        // 行列、ライト、カメラの定数バッファをセット
-        commandList->SetGraphicsRootConstantBufferView(1, transformResource_->GetGPUVirtualAddress());
-        commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
-        if (cameraResource_) {
-            commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+            // 行列、ライト、カメラの定数バッファをセット
+            if (transformResource_) {
+                commandList->SetGraphicsRootConstantBufferView(1, transformResource_->GetGPUVirtualAddress());
+            }
+            if (directionalLightResource_) {
+                commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+            }
+            if (cameraResource_) {
+                commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+            }
+
+            playerModel_->DrawModel(
+                commandList,
+                TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"),
+                TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+            );
         }
-
-        playerModel_->DrawModel(
-            commandList,
-            TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"),
-            TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
-        );
     }
 
     // 2. パーティクルの描画（元に戻す）
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
     commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
-    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    if (graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
-    commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
-    particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
+        BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
+        if (graphicsPipeline_->GetPipelineState(blendMode)) {
+            commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
+            if (particleModel_) {
+                particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
+            }
+        }
 
-    commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
-    particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
+        if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+            commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+            if (particleModel_) {
+                particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
+            }
+        }
+    }
 
     // 3. スカイボックスの描画
-    ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
-    commandList->SetDescriptorHeaps(1, skyboxHeaps);
-    commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
+    if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
+        ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, skyboxHeaps);
+        commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
 
-    Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
-    Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
+        Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
+        Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
 
-    skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+        skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+    }
 }
 
 Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {

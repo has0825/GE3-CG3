@@ -46,7 +46,7 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
     UINT descriptorSizeSRV_ = 0;
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> imguiDescriptorHeap_;
 #endif
 };

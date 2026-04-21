@@ -87,7 +87,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Particle.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(pixelShaderBlob != nullptr);
 
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[5] = {};
 	inputElementDescs[0].SemanticName = "POSITION";
 	inputElementDescs[0].SemanticIndex = 0;
 	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -100,6 +100,14 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	inputElementDescs[2].SemanticIndex = 0;
 	inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
 	inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[3].SemanticName = "BONEINDICES";
+	inputElementDescs[3].SemanticIndex = 0;
+	inputElementDescs[3].Format = DXGI_FORMAT_R32G32B32A32_UINT;
+	inputElementDescs[3].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[4].SemanticName = "BONEWEIGHTS";
+	inputElementDescs[4].SemanticIndex = 0;
+	inputElementDescs[4].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	inputElementDescs[4].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
@@ -228,7 +236,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	D3D12_ROOT_SIGNATURE_DESC obj3dRootDesc{};
 	obj3dRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	D3D12_ROOT_PARAMETER obj3dParams[6] = {};
+	D3D12_ROOT_PARAMETER obj3dParams[7] = {};
 
 	// [0] Material (b0, PIXELシェーダー用)
 	obj3dParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -272,6 +280,11 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	obj3dParams[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	obj3dParams[5].Descriptor.ShaderRegister = 2;
 
+	// [6] SkinningPalette (b1, VERTEXシェーダー用)
+	obj3dParams[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	obj3dParams[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	obj3dParams[6].Descriptor.ShaderRegister = 1;
+
 	obj3dRootDesc.pParameters = obj3dParams;
 	obj3dRootDesc.NumParameters = _countof(obj3dParams);
 	obj3dRootDesc.pStaticSamplers = staticSamplers; // パーティクルと同じサンプラーを流用
@@ -285,6 +298,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 		assert(false);
 	}
 	hr = device->CreateRootSignature(0, obj3dSignatureBlob->GetBufferPointer(), obj3dSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&object3dRootSignature_));
+	if (FAILED(hr)) {
+		Log(logStream_, "Failed to Create Object3d RootSignature.\n");
+		assert(false);
+	}
 	assert(SUCCEEDED(hr));
 
 	// Object3d用シェーダーのコンパイル
@@ -326,6 +343,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	obj3dPsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
 	hr = device->CreateGraphicsPipelineState(&obj3dPsoDesc, IID_PPV_ARGS(&object3dPipelineState_));
+	if (FAILED(hr)) {
+		Log(logStream_, "Failed to Create Object3d PipelineState.\n");
+		assert(false);
+	}
 	assert(SUCCEEDED(hr));
 }
 

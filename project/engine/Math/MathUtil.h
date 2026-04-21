@@ -14,3 +14,7 @@ Matrix4x4 Inverse(Matrix4x4 m);
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip, float farClip);
 Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearClip, float farClip);
 Vector3 Normalize(const Vector3& v);
+
+Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t);
+Quaternion Slerp(const Quaternion& q0, const Quaternion& q1, float t);
+Matrix4x4 MakeRotateMatrixFromQuaternion(const Quaternion& q);
