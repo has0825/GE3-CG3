@@ -67,6 +67,7 @@ public:
     // buttonNumber: 0=左クリック, 1=右クリック, 2=中クリック
     // ===========================================
     bool IsMousePressed(int buttonNumber);
+    int32_t GetWheelDelta() const { return wheelDelta_; }
 
 private:
     // シングルトンにするためのプライベートコンストラクタ
@@ -87,4 +88,6 @@ private:
     BYTE keys_[256] = {};
     // 前のフレームのキー入力状態 (トリガー判定用)
     BYTE prevKeys_[256] = {};
+    // マウスホイールのデルタ値
+    int32_t wheelDelta_ = 0;
 };

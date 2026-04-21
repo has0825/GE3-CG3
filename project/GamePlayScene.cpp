@@ -202,6 +202,14 @@ void GamePlayScene::Update() {
     ImGui::End();
 #endif
 
+    // マウスホイールによる環境マップ反射強度の調整
+    int32_t wheel = input_->GetWheelDelta();
+    if (wheel != 0) {
+        modelEnvCoefficient_ += static_cast<float>(wheel) / 12000.0f; // 感度調整 (120ごとに0.01動く程度)
+        modelEnvCoefficient_ = std::clamp(modelEnvCoefficient_, 0.0f, 1.0f);
+        if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
+    }
+
     if (input_->IsKeyPressed(DIK_1)) currentEffect_ = kTypeExplosion;
     if (input_->IsKeyPressed(DIK_2)) currentEffect_ = kTypeFountain;
     if (input_->IsKeyPressed(DIK_3)) currentEffect_ = kTypeSpiral;
