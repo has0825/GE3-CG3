@@ -87,6 +87,9 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 
     // 通常のメッセージ処理
     switch (msg) {
+    case WM_MOUSEWHEEL:
+        GetInstance()->wheelDelta_ += GET_WHEEL_DELTA_WPARAM(wparam);
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;

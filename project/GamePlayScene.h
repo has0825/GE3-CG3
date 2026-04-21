@@ -7,6 +7,7 @@
 #include "Camera.h"
 #include "GraphicsPipeline.h"
 #include "Skybox.h"
+#include "DataTypes.h"
 #include <vector>
 #include <random>
 #include <memory>
@@ -26,6 +27,11 @@ struct ParticleForGPU {
     Matrix4x4 WVP;
     Matrix4x4 World;
     Vector4 color;
+};
+
+struct CameraDataCB {
+    Vector3 worldPosition;
+    float padding;
 };
 
 enum ParticleType {
@@ -55,6 +61,8 @@ private:
 
     std::unique_ptr<Camera> camera_;
     std::unique_ptr<Model> particleModel_;
+
+    std::unique_ptr<Model> playerModel_;
     std::unique_ptr<Skybox> skybox_;
 
     std::mt19937 randomEngine_;
@@ -77,22 +85,29 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE textSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleGPU_;
 
+    Microsoft::WRL::ComPtr<ID3D12Resource> transformResource_;
+    TransformationMatrix* transformData_ = nullptr;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
+    DirectionalLight* directionalLightData_ = nullptr;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
+    CameraDataCB* cameraDataCB_ = nullptr;
+
     const uint32_t kNumInstances = 2000;
     const uint32_t kSpriteInstanceCount = 1;
     UINT descriptorSizeSRV_ = 0;
 
     int currentEffect_ = kTypeExplosion;
+    Vector3 emitterPos_ = { 0.0f, 0.0f, 0.0f };
     bool useGravity_ = false;
     bool useAdditiveBlend_ = true;
-    Vector3 emitterPos_ = { 0, 0, 0 };
-    bool isSpacePressed_ = false;
-
-    Vector3 spritePos_ = { 100.0f, 100.0f, 0.0f };
 
     SoundData bgmData_;
     SoundData jumpSE_;
 
-    // マウス視点操作用の変数
-    float mouseSensitivity_ = 0.002f; // マウス感度
-    bool isCursorLocked_ = false;     // カーソルを固定しているか
+    bool isCursorLocked_ = false;
+    float modelEnvCoefficient_ = 0.5f;
+    float mouseSensitivity_ = 0.005f;
+    Vector2 spritePos_ = { 0.0f, 0.0f };
 };

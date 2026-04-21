@@ -25,10 +25,14 @@ public:
 
     // ゲッター
     ID3D12RootSignature* GetRootSignature() const { return rootSignature_.Get(); }
-    ID3D12PipelineState* GetPipelineState(BlendMode blendMode) const { return pipelineStates_[blendMode].Get(); }
+    ID3D12PipelineState* GetPipelineState(BlendMode blendMode) const { return pipelineStates_.at(blendMode).Get(); }
 
-    // ★Skybox用ゲッター追加
+    // Skybox用ゲッター
     ID3D12PipelineState* GetSkyboxPipelineState() const { return skyboxPipelineState_.Get(); }
+
+    // ★追加：Object3d（キャラクターモデル）用のゲッター
+    ID3D12RootSignature* GetObject3dRootSignature() const { return object3dRootSignature_.Get(); }
+    ID3D12PipelineState* GetObject3dPipelineState() const { return object3dPipelineState_.Get(); }
 
 private:
     // シェーダーのコンパイル
@@ -39,12 +43,13 @@ private:
         IDxcCompiler3* dxcCompiler,
         IDxcIncludeHandler* includeHandler);
 
-private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStates_[kCountOfBlendMode]; // 全ブレンドモード分のPSO
-
-    // ★Skybox用PSO追加
+    std::map<BlendMode, Microsoft::WRL::ComPtr<ID3D12PipelineState>> pipelineStates_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> skyboxPipelineState_;
+
+    // ★追加：Object3d（キャラクターモデル）用のメンバ変数
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> object3dRootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dPipelineState_;
 
     std::ofstream logStream_;
 };

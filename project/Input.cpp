@@ -75,6 +75,10 @@ void Input::Update() {
         // 取得失敗
         return;
     }
+
+    // マウスホイールの更新
+    wheelDelta_ = WinApp::GetInstance()->GetWheelDelta();
+    WinApp::GetInstance()->ResetWheelDelta();
 }
 
 // 3. 条件判定のための bool 型関数 (Press)

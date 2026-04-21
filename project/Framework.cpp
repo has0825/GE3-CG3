@@ -3,7 +3,7 @@
 #include <strsafe.h>
 #include <iostream> // 追加: Log用
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
@@ -75,7 +75,7 @@ void Framework::Run() {
             break;
         }
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
@@ -112,27 +112,23 @@ void Framework::Initialize() {
     srvDescriptorHeap_ = CreateDescriptorHeap(dxCommon_->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
     descriptorSizeSRV_ = dxCommon_->GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
     // ImGui初期化
-    D3D12_DESCRIPTOR_HEAP_DESC imguiHeapDesc = {};
-    imguiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    imguiHeapDesc.NumDescriptors = 1;
-    imguiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    dxCommon_->GetDevice()->CreateDescriptorHeap(&imguiHeapDesc, IID_PPV_ARGS(&imguiDescriptorHeap_));
+    imguiDescriptorHeap_ = CreateDescriptorHeap(dxCommon_->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, true);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(winApp_->GetHwnd());
     ImGui_ImplDX12_Init(dxCommon_->GetDevice(), dxCommon_->GetBackBufferCount(),
-        DXGI_FORMAT_R8G8B8A8_UNORM, imguiDescriptorHeap_.Get(),
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, imguiDescriptorHeap_.Get(),
         imguiDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(),
         imguiDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
 #endif
 }
 
 void Framework::Finalize() {
-#ifdef _DEBUG
+#ifdef USE_IMGUI
     ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

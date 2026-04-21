@@ -8,6 +8,8 @@ struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
 	Vector3 normal;
+	uint32_t jointIndices[4];
+	float jointWeights[4];
 };
 
 // マテリアル
@@ -16,6 +18,10 @@ struct Material {
 	int32_t enableLighting;
 	float padding[3];
 	Matrix4x4 uvTransform;
+
+	// ★以下の2つを追加
+	float shininess;
+	float environmentCoefficient;
 };
 
 // 座標変換行列

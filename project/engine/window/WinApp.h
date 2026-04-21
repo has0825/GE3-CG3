@@ -29,6 +29,10 @@ public:
     // 終了がリクエストされたか
     bool IsEndRequested() const { return endRequest_; }
 
+    // マウスホイール
+    int32_t GetWheelDelta() const { return wheelDelta_; }
+    void ResetWheelDelta() { wheelDelta_ = 0; }
+
 private:
     // シングルトンパターンのためのプライベートコンストラクタなど
     WinApp() = default;
@@ -44,4 +48,5 @@ private:
     WNDCLASSW wc_{};
     std::wstring title_;
     bool endRequest_ = false;
+    int32_t wheelDelta_ = 0;
 };

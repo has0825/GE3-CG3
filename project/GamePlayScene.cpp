@@ -3,10 +3,11 @@
 #include "SceneManager.h"
 #include "D3D12Util.h"
 #include "MathUtil.h"
+#include "DataTypes.h"
 #include "TextureManager.h"
 #include <algorithm>
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #endif
@@ -54,6 +55,21 @@ void GamePlayScene::Initialize() {
 
     spriteInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kSpriteInstanceCount);
     spriteInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&spriteInstancingData_));
+
+    transformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    transformResource_->Map(0, nullptr, reinterpret_cast<void**>(&transformData_));
+    transformData_->WVP = MakeIdentity4x4();
+    transformData_->World = MakeIdentity4x4();
+
+    directionalLightResource_ = CreateBufferResource(device, sizeof(DirectionalLight));
+    directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData_));
+    directionalLightData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    directionalLightData_->direction = Normalize({ 0.0f, -1.0f, 1.0f });
+    directionalLightData_->intensity = 1.0f;
+
+    cameraResource_ = CreateBufferResource(device, sizeof(CameraDataCB));
+    cameraResource_->Map(0, nullptr, reinterpret_cast<void**>(&cameraDataCB_));
+    cameraDataCB_->worldPosition = { 0.0f, 0.0f, 0.0f };
 
     particles_.resize(kNumInstances);
     for (UINT i = 0; i < kNumInstances; ++i) {
@@ -150,11 +166,21 @@ void GamePlayScene::Initialize() {
     audio_->PlayWave(bgmData_, true, 0.5f);
 
     TextureManager::GetInstance()->Initialize(device, "resources/");
-    // ★ 変更点：自分で作成した test.dds を読み込むように変更
     TextureManager::GetInstance()->LoadTexture("test.dds");
+    TextureManager::GetInstance()->LoadTexture("circle.png");
+    TextureManager::GetInstance()->LoadTexture("human/white.png");
 
     skybox_ = std::make_unique<Skybox>();
     skybox_->Initialize(device);
+
+    playerModel_ = Model::LoadGLTF("Resources/human/walk.gltf", device);
+
+    // 【重要】モデルのスケール・座標設定
+    // ※もし画面に見えない場合は、ここ(scale)を 10.0f や 100.0f など大きくしてみてください。
+    playerModel_->transform.scale = { 10.0f, 10.0f, 10.0f };
+    playerModel_->transform.translate = { 0.0f, 0.0f, 0.0f };
+    playerModel_->transform.rotate = { 0.0f, 0.0f, 0.0f };
+    playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
 
     isCursorLocked_ = false;
 }
@@ -166,12 +192,23 @@ void GamePlayScene::Finalize() {
 }
 
 void GamePlayScene::Update() {
-#ifdef _DEBUG
+#ifdef USE_IMGUI
     ImGui::SetNextWindowSize(ImVec2(500, 100));
     ImGui::Begin("Sprite Control");
     ImGui::DragFloat2("Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
+    if (ImGui::SliderFloat("Model Reflection", &modelEnvCoefficient_, 0.0f, 1.0f)) {
+        if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
+    }
     ImGui::End();
 #endif
+
+    // マウスホイールによる環境マップ反射強度の調整
+    int32_t wheel = input_->GetWheelDelta();
+    if (wheel != 0) {
+        modelEnvCoefficient_ += static_cast<float>(wheel) / 12000.0f; // 感度調整 (120ごとに0.01動く程度)
+        modelEnvCoefficient_ = std::clamp(modelEnvCoefficient_, 0.0f, 1.0f);
+        if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
+    }
 
     if (input_->IsKeyPressed(DIK_1)) currentEffect_ = kTypeExplosion;
     if (input_->IsKeyPressed(DIK_2)) currentEffect_ = kTypeFountain;
@@ -195,10 +232,6 @@ void GamePlayScene::Update() {
     const float kDeltaTime = 1.0f / 60.0f;
 
     Camera::Transform& camTrans = camera_->GetTransform();
-
-    // ============================================================
-    // マウスによる視点移動（左クリック中のみ回転・カーソル固定）
-    // ============================================================
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
 
     if (input_->IsMousePressed(0)) {
@@ -206,12 +239,10 @@ void GamePlayScene::Update() {
             ShowCursor(FALSE);
             isCursorLocked_ = true;
         }
-
         RECT rect;
         GetWindowRect(hwnd, &rect);
         int centerX = rect.left + (rect.right - rect.left) / 2;
         int centerY = rect.top + (rect.bottom - rect.top) / 2;
-
         POINT currentPos;
         GetCursorPos(&currentPos);
 
@@ -231,7 +262,6 @@ void GamePlayScene::Update() {
             isCursorLocked_ = false;
         }
     }
-    // ============================================================
 
     if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
         Matrix4x4 cameraRotY = MakeRotateYMatrix(camTrans.rotate.y);
@@ -242,6 +272,22 @@ void GamePlayScene::Update() {
     }
     camera_->Update();
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
+
+    if (playerModel_) {
+        // アニメーションの更新 (DeltaTimeは固定60fpsとする)
+        playerModel_->UpdateAnimation(kDeltaTime);
+        playerModel_->Update();
+
+        // モデル自体のトランスフォームを適用したWVP/Worldを計算
+        Matrix4x4 modelWorldMatrix = MakeAffineMatrix(playerModel_->transform.scale, playerModel_->transform.rotate, playerModel_->transform.translate);
+        
+        transformData_->WVP = Multiply(modelWorldMatrix, viewProjectionMatrix);
+        transformData_->World = modelWorldMatrix;
+
+        if (cameraDataCB_) {
+            cameraDataCB_->worldPosition = camTrans.translate;
+        }
+    }
 
     for (uint32_t i = 0; i < kNumInstances; ++i) {
         if (particles_[i].currentTime >= particles_[i].lifeTime) {
@@ -290,27 +336,70 @@ void GamePlayScene::Update() {
 void GamePlayScene::Draw() {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
+    // 1. キャラクターモデルの描画
+    if (playerModel_) {
+        ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, modelHeaps);
+
+        // パイプラインが生成されているか念のためチェック
+        if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
+            commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+
+            // 行列、ライト、カメラの定数バッファをセット
+            if (transformResource_) {
+                commandList->SetGraphicsRootConstantBufferView(1, transformResource_->GetGPUVirtualAddress());
+            }
+            if (directionalLightResource_) {
+                commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+            }
+            if (cameraResource_) {
+                commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+            }
+
+            playerModel_->DrawModel(
+                commandList,
+                TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"),
+                TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+            );
+        }
+    }
+
+    // 2. パーティクルの描画（元に戻す）
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
     commandList->SetDescriptorHeaps(1, descriptorHeaps);
-    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
-    commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
-    particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
+    if (graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
-    particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
+        BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
+        if (graphicsPipeline_->GetPipelineState(blendMode)) {
+            commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
+            if (particleModel_) {
+                particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
+            }
+        }
 
-    ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
-    commandList->SetDescriptorHeaps(1, skyboxHeaps);
-    commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
+        if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+            commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+            if (particleModel_) {
+                particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
+            }
+        }
+    }
 
-    Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
-    Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
+    // 3. スカイボックスの描画
+    if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
+        ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, skyboxHeaps);
+        commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
 
-    // ★ 変更点：描画時に test.dds のハンドルを渡すように変更
-    skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+        Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
+        Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
+
+        skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+    }
 }
 
 Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {

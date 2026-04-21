@@ -87,7 +87,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Particle.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(pixelShaderBlob != nullptr);
 
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[5] = {};
 	inputElementDescs[0].SemanticName = "POSITION";
 	inputElementDescs[0].SemanticIndex = 0;
 	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -100,6 +100,14 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	inputElementDescs[2].SemanticIndex = 0;
 	inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
 	inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[3].SemanticName = "BONEINDICES";
+	inputElementDescs[3].SemanticIndex = 0;
+	inputElementDescs[3].Format = DXGI_FORMAT_R32G32B32A32_UINT;
+	inputElementDescs[3].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[4].SemanticName = "BONEWEIGHTS";
+	inputElementDescs[4].SemanticIndex = 0;
+	inputElementDescs[4].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	inputElementDescs[4].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
@@ -174,11 +182,11 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 		graphicsPipelineStateDesc.SampleDesc.Count = 1;
 		graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
-		hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&pipelineStates_[i]));
+		hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&pipelineStates_[static_cast<BlendMode>(i)]));
 		assert(SUCCEEDED(hr));
 	}
 
-	// ★ --- Skybox用パイプラインステートの作成 ---
+	// --- Skybox用パイプラインステートの作成 ---
 	Microsoft::WRL::ComPtr<IDxcBlob> skyboxVSBlob = CompileShader(L"Skybox.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(skyboxVSBlob != nullptr);
 	Microsoft::WRL::ComPtr<IDxcBlob> skyboxPSBlob = CompileShader(L"Skybox.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
@@ -218,6 +226,127 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	skyboxPsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
 	hr = device->CreateGraphicsPipelineState(&skyboxPsoDesc, IID_PPV_ARGS(&skyboxPipelineState_));
+	assert(SUCCEEDED(hr));
+
+
+	// ====================================================================
+	// ★追加部分：Object3d（キャラクター等）用ルートシグネチャ＆パイプライン
+	// ====================================================================
+
+	D3D12_ROOT_SIGNATURE_DESC obj3dRootDesc{};
+	obj3dRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+	D3D12_ROOT_PARAMETER obj3dParams[7] = {};
+
+	// [0] Material (b0, PIXELシェーダー用)
+	obj3dParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	obj3dParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	obj3dParams[0].Descriptor.ShaderRegister = 0;
+
+	// [1] WVP行列などのTransformationMatrix (b0, VERTEXシェーダー用)
+	obj3dParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	obj3dParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	obj3dParams[1].Descriptor.ShaderRegister = 0;
+
+	// [2] テクスチャ (t0, PIXELシェーダー用)
+	D3D12_DESCRIPTOR_RANGE obj3dTexRange[1] = {};
+	obj3dTexRange[0].BaseShaderRegister = 0;
+	obj3dTexRange[0].NumDescriptors = 1;
+	obj3dTexRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	obj3dTexRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	obj3dParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	obj3dParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	obj3dParams[2].DescriptorTable.pDescriptorRanges = obj3dTexRange;
+	obj3dParams[2].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [3] 環境マップテクスチャ (t1, PIXELシェーダー用)
+	D3D12_DESCRIPTOR_RANGE obj3dEnvRange[1] = {};
+	obj3dEnvRange[0].BaseShaderRegister = 1;
+	obj3dEnvRange[0].NumDescriptors = 1;
+	obj3dEnvRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	obj3dEnvRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	obj3dParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	obj3dParams[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	obj3dParams[3].DescriptorTable.pDescriptorRanges = obj3dEnvRange;
+	obj3dParams[3].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [4] 平行光源 DirectionalLight (b1, PIXELシェーダー用)
+	obj3dParams[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	obj3dParams[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	obj3dParams[4].Descriptor.ShaderRegister = 1;
+
+	// [5] カメラ座標 Camera (b2, PIXELシェーダー用)
+	obj3dParams[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	obj3dParams[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	obj3dParams[5].Descriptor.ShaderRegister = 2;
+
+	// [6] SkinningPalette (b1, VERTEXシェーダー用)
+	obj3dParams[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	obj3dParams[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	obj3dParams[6].Descriptor.ShaderRegister = 1;
+
+	obj3dRootDesc.pParameters = obj3dParams;
+	obj3dRootDesc.NumParameters = _countof(obj3dParams);
+	obj3dRootDesc.pStaticSamplers = staticSamplers; // パーティクルと同じサンプラーを流用
+	obj3dRootDesc.NumStaticSamplers = 1;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> obj3dSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> obj3dErrorBlob;
+	hr = D3D12SerializeRootSignature(&obj3dRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &obj3dSignatureBlob, &obj3dErrorBlob);
+	if (FAILED(hr)) {
+		Log(logStream_, reinterpret_cast<char*>(obj3dErrorBlob->GetBufferPointer()));
+		assert(false);
+	}
+	hr = device->CreateRootSignature(0, obj3dSignatureBlob->GetBufferPointer(), obj3dSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&object3dRootSignature_));
+	if (FAILED(hr)) {
+		Log(logStream_, "Failed to Create Object3d RootSignature.\n");
+		assert(false);
+	}
+	assert(SUCCEEDED(hr));
+
+	// Object3d用シェーダーのコンパイル
+	Microsoft::WRL::ComPtr<IDxcBlob> obj3dVSBlob = CompileShader(L"Object3d.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(obj3dVSBlob != nullptr);
+	Microsoft::WRL::ComPtr<IDxcBlob> obj3dPSBlob = CompileShader(L"Object3d.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(obj3dPSBlob != nullptr);
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC obj3dPsoDesc{};
+	obj3dPsoDesc.pRootSignature = object3dRootSignature_.Get();
+	obj3dPsoDesc.InputLayout = inputLayoutDesc; // パーティクルと同じPOSITION, TEXCOORD, NORMALを使用
+	obj3dPsoDesc.VS = { obj3dVSBlob->GetBufferPointer(), obj3dVSBlob->GetBufferSize() };
+	obj3dPsoDesc.PS = { obj3dPSBlob->GetBufferPointer(), obj3dPSBlob->GetBufferSize() };
+
+	D3D12_BLEND_DESC obj3dBlendDesc{};
+	obj3dBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	obj3dBlendDesc.RenderTarget[0].BlendEnable = TRUE;
+	obj3dBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	obj3dBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	obj3dBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	obj3dBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	obj3dBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	obj3dBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	obj3dPsoDesc.BlendState = obj3dBlendDesc;
+
+	// Zバッファ（深度）を有効化して、手前のものが奥を隠すようにする
+	D3D12_DEPTH_STENCIL_DESC obj3dDepthDesc{};
+	obj3dDepthDesc.DepthEnable = true;
+	obj3dDepthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL; // モデルは深度を書き込む
+	obj3dDepthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	obj3dPsoDesc.DepthStencilState = obj3dDepthDesc;
+
+	obj3dPsoDesc.RasterizerState = rasterizerDesc;
+	obj3dPsoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	obj3dPsoDesc.NumRenderTargets = 1;
+	obj3dPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	obj3dPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	obj3dPsoDesc.SampleDesc.Count = 1;
+	obj3dPsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	hr = device->CreateGraphicsPipelineState(&obj3dPsoDesc, IID_PPV_ARGS(&object3dPipelineState_));
+	if (FAILED(hr)) {
+		Log(logStream_, "Failed to Create Object3d PipelineState.\n");
+		assert(false);
+	}
 	assert(SUCCEEDED(hr));
 }
 
