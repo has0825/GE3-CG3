@@ -243,10 +243,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	obj3dParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	obj3dParams[0].Descriptor.ShaderRegister = 0;
 
-	// [1] WVP行列などのTransformationMatrix (b0, VERTEXシェーダー用)
+	// [1] WVP行列などのTransformationMatrix (b1, VERTEXシェーダー用)
 	obj3dParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	obj3dParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	obj3dParams[1].Descriptor.ShaderRegister = 0;
+	obj3dParams[1].Descriptor.ShaderRegister = 1;
 
 	// [2] テクスチャ (t0, PIXELシェーダー用)
 	D3D12_DESCRIPTOR_RANGE obj3dTexRange[1] = {};
@@ -270,20 +270,20 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	obj3dParams[3].DescriptorTable.pDescriptorRanges = obj3dEnvRange;
 	obj3dParams[3].DescriptorTable.NumDescriptorRanges = 1;
 
-	// [4] 平行光源 DirectionalLight (b1, PIXELシェーダー用)
+	// [4] 平行光源 DirectionalLight (b2, PIXELシェーダー用)
 	obj3dParams[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	obj3dParams[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	obj3dParams[4].Descriptor.ShaderRegister = 1;
+	obj3dParams[4].Descriptor.ShaderRegister = 2;
 
-	// [5] カメラ座標 Camera (b2, PIXELシェーダー用)
+	// [5] カメラ座標 Camera (b3, PIXELシェーダー用)
 	obj3dParams[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	obj3dParams[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	obj3dParams[5].Descriptor.ShaderRegister = 2;
+	obj3dParams[5].Descriptor.ShaderRegister = 3;
 
-	// [6] SkinningPalette (b1, VERTEXシェーダー用)
+	// [6] SkinningPalette (b4, VERTEXシェーダー用)
 	obj3dParams[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	obj3dParams[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	obj3dParams[6].Descriptor.ShaderRegister = 1;
+	obj3dParams[6].Descriptor.ShaderRegister = 4;
 
 	obj3dRootDesc.pParameters = obj3dParams;
 	obj3dRootDesc.NumParameters = _countof(obj3dParams);

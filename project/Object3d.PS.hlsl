@@ -1,8 +1,8 @@
 #include "Object3d.hlsli"
 
 ConstantBuffer<Material> gMaterial : register(b0);
-ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
-ConstantBuffer<Camera> gCamera : register(b2);
+ConstantBuffer<DirectionalLight> gDirectionalLight : register(b2);
+ConstantBuffer<Camera> gCamera : register(b3);
 
 Texture2D<float32_t4> gTexture : register(t0);
 TextureCube<float32_t4> gEnvironmentTexture : register(t1); // 【追加】環境マップ用テクスチャ
