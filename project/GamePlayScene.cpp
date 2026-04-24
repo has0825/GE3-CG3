@@ -148,6 +148,7 @@ void GamePlayScene::Initialize() {
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    assert(fenceEvent != nullptr);
     commandQueue->Signal(fence.Get(), 1);
     if (fence->GetCompletedValue() < 1) {
         fence->SetEventOnCompletion(1, fenceEvent);
