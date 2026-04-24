@@ -5,7 +5,7 @@ struct TransformationMatrix
     float32_t4x4 WVP;
     float32_t4x4 World;
 };
-ConstantBuffer<TransformationMatrix> gTransformationMatrix : register(b0);
+ConstantBuffer<TransformationMatrix> gTransformationMatrix : register(b1);
 
 struct VertexShaderInput
 {
@@ -16,7 +16,7 @@ struct VertexShaderInput
     float32_t4 jointWeights : BONEWEIGHTS0;
 };
 
-ConstantBuffer<SkinningPalette> gSkinningPalette : register(b1);
+ConstantBuffer<SkinningPalette> gSkinningPalette : register(b4);
 
 VertexShaderOutput main(VertexShaderInput input)
 {
