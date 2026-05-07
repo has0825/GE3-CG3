@@ -13,7 +13,7 @@
 struct aiNode;
 
 struct Node {
-    Matrix4x4 localMatrix;
+    Matrix4x4 localMatrix = MakeIdentity4x4();
     std::string name;
     std::vector<Node> children;
 };
@@ -91,7 +91,7 @@ public:
     void SetEnvironmentCoefficient(float coefficient);
     void UpdateAnimation(float deltaTime);
 
-    Camera::Transform transform;
+    Camera::Transform transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
     float environmentCoefficient = 0.0f;
     Node rootNode;
 

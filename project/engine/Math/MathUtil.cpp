@@ -90,6 +90,13 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate,
 	return worldMatrix;
 }
 
+Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Quaternion& rotate, const Vector3& translate) {
+	Matrix4x4 scaleMatrix = Matrix4x4MakeScaleMatrix(scale);
+	Matrix4x4 rotateMatrix = MakeRotateMatrixFromQuaternion(rotate);
+	Matrix4x4 translateMatrix = MakeTranslateMatrix(translate);
+	return Multiply(Multiply(scaleMatrix, rotateMatrix), translateMatrix);
+}
+
 Matrix4x4 Inverse(Matrix4x4 m)
 {
 	Matrix4x4 result;

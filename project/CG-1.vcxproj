@@ -40,6 +40,7 @@
       <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
     </ClCompile>
     <ClCompile Include="engine\Math\MathUtil.cpp" />
+    <ClCompile Include="engine\Model\AdvancedAnimation.cpp" />
     <ClCompile Include="engine\Model\Model.cpp" />
     <ClCompile Include="engine\window\WinApp.cpp" />
     <ClCompile Include="ModelManager.cpp" />
@@ -111,6 +112,7 @@
     <ClInclude Include="engine\Pipeline state\GraphicsPipeline.h" />
     <ClInclude Include="engine\Math\MathTypes.h" />
     <ClInclude Include="engine\Math\MathUtil.h" />
+    <ClInclude Include="engine\Model\AdvancedAnimation.h" />
     <ClInclude Include="engine\Model\Model.h" />
     <ClInclude Include="engine\window\WinApp.h" />
     <ClInclude Include="Framework.h" />

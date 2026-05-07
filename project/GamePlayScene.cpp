@@ -198,13 +198,14 @@ void GamePlayScene::Initialize() {
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    assert(fenceEvent != nullptr);
-    commandQueue->Signal(fence.Get(), 1);
-    if (fence->GetCompletedValue() < 1) {
-        fence->SetEventOnCompletion(1, fenceEvent);
-        WaitForSingleObject(fenceEvent, INFINITE);
+    if (fenceEvent != nullptr) {
+        commandQueue->Signal(fence.Get(), 1);
+        if (fence->GetCompletedValue() < 1) {
+            fence->SetEventOnCompletion(1, fenceEvent);
+            WaitForSingleObject(fenceEvent, INFINITE);
+        }
+        CloseHandle(fenceEvent);
     }
-    CloseHandle(fenceEvent);
 
     dxCommon_->GetCommandAllocator()->Reset();
     commandList->Reset(dxCommon_->GetCommandAllocator(), nullptr);
@@ -230,6 +231,21 @@ void GamePlayScene::Initialize() {
     playerModel_->transform.translate = { 0.0f, 0.0f, 0.0f };
     playerModel_->transform.rotate = { 0.0f, 0.0f, 0.0f };
     playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
+
+    // AnimatedCubeの初期化 (資料の再現)
+    cubeModel_ = AdvAnim::LoadModelFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    cubeAnimation_ = AdvAnim::LoadAnimationFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    cubeRenderModel_ = std::make_unique<Model>();
+    cubeRenderModel_->Initialize(cubeModel_.modelData, device);
+    
+    // 定数バッファの生成
+    cubeTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    cubeTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&cubeTransformData_));
+    cubeTransformData_->WVP = MakeIdentity4x4();
+    cubeTransformData_->World = MakeIdentity4x4();
+
+    // テクスチャの読み込み
+    TextureManager::GetInstance()->LoadTexture("AnimatedCube/AnimatedCube_BaseColor.png");
 
     isCursorLocked_ = false;
 }
@@ -369,6 +385,30 @@ void GamePlayScene::Update() {
         }
     }
 
+    // AnimatedCubeのアニメーション更新 (資料の再現)
+    cubeAnimationTime_ += kDeltaTime;
+    cubeAnimationTime_ = std::fmod(cubeAnimationTime_, cubeAnimation_.duration);
+
+    if (cubeAnimation_.nodeAnimations.count(cubeModel_.rootNode.name)) {
+        AdvAnim::NodeAnimation& rootNodeAnim = cubeAnimation_.nodeAnimations[cubeModel_.rootNode.name];
+        
+        Vector3 translate = AdvAnim::CalculateValue(rootNodeAnim.translate.keyframes, cubeAnimationTime_);
+        Quaternion rotate = AdvAnim::CalculateValue(rootNodeAnim.rotate.keyframes, cubeAnimationTime_);
+        Vector3 scale = AdvAnim::CalculateValue(rootNodeAnim.scale.keyframes, cubeAnimationTime_);
+        
+        // 明示的にオーバーロードを呼び出す
+        Matrix4x4 localMatrix = MakeAffineMatrix(scale, rotate, translate);
+        
+        // 座標が重ならないように少しずらす
+        cubeRenderModel_->transform.translate = Vector3{ 20.0f, 0.0f, 0.0f };
+        cubeRenderModel_->transform.scale = Vector3{ 5.0f, 5.0f, 5.0f };
+
+        Matrix4x4 worldMatrix = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, cubeRenderModel_->transform.translate);
+        
+        cubeTransformData_->WVP = Multiply(localMatrix, Multiply(worldMatrix, viewProjectionMatrix));
+        cubeTransformData_->World = Multiply(localMatrix, worldMatrix);
+    }
+
     for (uint32_t i = 0; i < kNumInstances; ++i) {
         if (particles_[i].currentTime >= particles_[i].lifeTime) {
             particles_[i] = MakeNewParticle(currentEffect_, emitterPos_);
@@ -403,7 +443,7 @@ void GamePlayScene::Update() {
 
             // UVスクロール（V方向に時間とともに移動）
             float uvScrollV = ringParticles_[i].currentTime * -2.0f; 
-            ringParticles_[i].uvTransform = MakeAffineMatrix({1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, uvScrollV, 0.0f});
+            ringParticles_[i].uvTransform = MakeAffineMatrix(Vector3{1.0f, 1.0f, 1.0f}, Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, uvScrollV, 0.0f});
 
             Matrix4x4 worldMatrix = MakeAffineMatrix(ringParticles_[i].transform.scale, ringParticles_[i].transform.rotate, ringParticles_[i].transform.translate);
             ringInstancingData_[i].World = worldMatrix;
@@ -425,7 +465,7 @@ void GamePlayScene::Update() {
             // UVスクロール（横方向に移動）と、V方向のFlipを組み合わせる
             float uvScrollU = cylinderParticles_[i].currentTime * 1.0f; // 横方向のスクロール
             // Flip v: v = -v + 1 => scaleY = -1, transY = 1
-            cylinderParticles_[i].uvTransform = MakeAffineMatrix({1.0f, -1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {uvScrollU, 1.0f, 0.0f});
+            cylinderParticles_[i].uvTransform = MakeAffineMatrix(Vector3{1.0f, -1.0f, 1.0f}, Vector3{0.0f, 0.0f, 0.0f}, Vector3{uvScrollU, 1.0f, 0.0f});
 
             Matrix4x4 worldMatrix = MakeAffineMatrix(cylinderParticles_[i].transform.scale, cylinderParticles_[i].transform.rotate, cylinderParticles_[i].transform.translate);
             cylinderInstancingData_[i].World = worldMatrix;
@@ -493,13 +533,35 @@ void GamePlayScene::Draw() {
         }
     }
 
+    // AnimatedCubeの描画
+    if (cubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
+        commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+
+        if (cubeTransformResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, cubeTransformResource_->GetGPUVirtualAddress());
+        }
+        if (directionalLightResource_) {
+            commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+        }
+        if (cameraResource_) {
+            commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+        }
+
+        cubeRenderModel_->DrawModel(
+            commandList,
+            TextureManager::GetInstance()->GetSrvHandleGPU("AnimatedCube/AnimatedCube_BaseColor.png"),
+            TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+        );
+    }
+
     // 2. スカイボックスの描画
     if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
         ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
         commandList->SetDescriptorHeaps(1, skyboxHeaps);
         commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
 
-        Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
+        Matrix4x4 skyboxWorld = MakeAffineMatrix(Vector3{ 1000.0f, 1000.0f, 1000.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
         Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
 
         skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));

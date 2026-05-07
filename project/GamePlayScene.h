@@ -8,6 +8,7 @@
 #include "GraphicsPipeline.h"
 #include "Skybox.h"
 #include "DataTypes.h"
+#include "AdvancedAnimation.h"
 #include <vector>
 #include <random>
 #include <memory>
@@ -129,4 +130,12 @@ private:
     float modelEnvCoefficient_ = 0.5f;
     float mouseSensitivity_ = 0.005f;
     Vector2 spritePos_ = { 0.0f, 0.0f };
+
+    // AnimatedCube
+    AdvAnim::AnimatedModel cubeModel_;
+    AdvAnim::Animation cubeAnimation_;
+    float cubeAnimationTime_ = 0.0f;
+    std::unique_ptr<Model> cubeRenderModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> cubeTransformResource_;
+    TransformationMatrix* cubeTransformData_ = nullptr;
 };
