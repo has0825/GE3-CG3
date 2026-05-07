@@ -48,13 +48,26 @@ void GamePlayScene::Initialize() {
     std::random_device seedGenerator;
     randomEngine_.seed(seedGenerator());
 
+    camera_ = std::make_unique<Camera>(WinApp::kClientWidth, WinApp::kClientHeight);
+    camera_->SetTranslate({ 0.0f, 0.0f, -15.0f });
+
     particleModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
+    ringModel_ = std::unique_ptr<Model>(Model::CreateRingModel(device));
 
     instancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kNumInstances);
     instancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&instancingData_));
 
     spriteInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kSpriteInstanceCount);
     spriteInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&spriteInstancingData_));
+
+    ringInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kRingInstanceCount);
+    ringInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&ringInstancingData_));
+
+    ringParticles_.resize(kRingInstanceCount);
+    for (UINT i = 0; i < kRingInstanceCount; ++i) {
+        ringParticles_[i] = MakeNewParticle(kTypeRing, {0.0f, 0.0f, 0.0f});
+        ringParticles_[i].currentTime = 999.0f; // 初期状態では非表示
+    }
 
     transformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
     transformResource_->Map(0, nullptr, reinterpret_cast<void**>(&transformData_));
@@ -82,6 +95,7 @@ void GamePlayScene::Initialize() {
         instancingData_[i].WVP = MakeIdentity4x4();
         instancingData_[i].World = MakeIdentity4x4();
         instancingData_[i].color = particles_[i].color;
+        instancingData_[i].uvTransform = MakeIdentity4x4();
     }
 
     DirectX::ScratchImage mipImages = LoadTexture("resources/circle2.png");
@@ -140,6 +154,19 @@ void GamePlayScene::Initialize() {
     spriteInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 4);
     device->CreateShaderResourceView(spriteInstancingResource_.Get(), &spriteInstancingSrvDesc, spriteInstancingSrvHandleCPU);
 
+    D3D12_SHADER_RESOURCE_VIEW_DESC ringInstancingSrvDesc{};
+    ringInstancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    ringInstancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    ringInstancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    ringInstancingSrvDesc.Buffer.FirstElement = 0;
+    ringInstancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    ringInstancingSrvDesc.Buffer.NumElements = kRingInstanceCount;
+    ringInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+
+    D3D12_CPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 5);
+    ringInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 5);
+    device->CreateShaderResourceView(ringInstancingResource_.Get(), &ringInstancingSrvDesc, ringInstancingSrvHandleCPU);
+
     commandList->Close();
     ID3D12CommandQueue* commandQueue = dxCommon_->GetCommandQueue();
     ID3D12CommandList* ppCommandLists[] = { commandList };
@@ -159,9 +186,6 @@ void GamePlayScene::Initialize() {
     dxCommon_->GetCommandAllocator()->Reset();
     commandList->Reset(dxCommon_->GetCommandAllocator(), nullptr);
 
-    camera_ = std::make_unique<Camera>(WinApp::kClientWidth, WinApp::kClientHeight);
-    camera_->SetTranslate({ 0.0f, 0.0f, -15.0f });
-
     bgmData_ = audio_->LoadAudio("resources/result.mp3");
     jumpSE_ = audio_->LoadAudio("resources/damage.mp3");
     audio_->PlayWave(bgmData_, true, 0.5f);
@@ -169,6 +193,7 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->Initialize(device, "resources/");
     TextureManager::GetInstance()->LoadTexture("test.dds");
     TextureManager::GetInstance()->LoadTexture("circle2.png");
+    TextureManager::GetInstance()->LoadTexture("gradationLine.png");
     TextureManager::GetInstance()->LoadTexture("human/white.png");
 
     skybox_ = std::make_unique<Skybox>();
@@ -216,7 +241,7 @@ void GamePlayScene::Update() {
     if (input_->IsKeyPressed(DIK_3)) currentEffect_ = kTypeSpiral;
     if (input_->IsKeyPressed(DIK_4)) currentEffect_ = kTypeRain;
     
-    // キー5を押した瞬間のみ、8個のヒットエフェクトを発生させる
+    // キー5を押した瞬間のみ、ヒットエフェクトとリングエフェクトを発生させる
     if (input_->IsKeyTriggered(DIK_5)) {
         int hitCount = 8;
         for (uint32_t i = 0; i < kNumInstances && hitCount > 0; ++i) {
@@ -224,6 +249,14 @@ void GamePlayScene::Update() {
             if (particles_[i].currentTime >= particles_[i].lifeTime) {
                 particles_[i] = MakeNewParticle(kTypeHit, emitterPos_);
                 hitCount--;
+            }
+        }
+        
+        int ringCount = 1;
+        for (uint32_t i = 0; i < kRingInstanceCount && ringCount > 0; ++i) {
+            if (ringParticles_[i].currentTime >= ringParticles_[i].lifeTime) {
+                ringParticles_[i] = MakeNewParticle(kTypeRing, emitterPos_);
+                ringCount--;
             }
         }
     }
@@ -321,6 +354,32 @@ void GamePlayScene::Update() {
         instancingData_[i].World = worldMatrix;
         instancingData_[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
         instancingData_[i].color = particles_[i].color;
+        instancingData_[i].uvTransform = particles_[i].uvTransform;
+    }
+
+    // リングの更新処理
+    for (uint32_t i = 0; i < kRingInstanceCount; ++i) {
+        if (ringParticles_[i].currentTime < ringParticles_[i].lifeTime) {
+            ringParticles_[i].currentTime += kDeltaTime;
+            float alpha = 1.0f - (ringParticles_[i].currentTime / ringParticles_[i].lifeTime);
+            ringParticles_[i].color.w = alpha;
+            
+            // 拡大アニメーション
+            ringParticles_[i].transform.scale.x += 15.0f * kDeltaTime;
+            ringParticles_[i].transform.scale.y += 15.0f * kDeltaTime;
+
+            // UVスクロール（V方向に時間とともに移動）
+            float uvScrollV = ringParticles_[i].currentTime * -2.0f; 
+            ringParticles_[i].uvTransform = MakeAffineMatrix({1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, uvScrollV, 0.0f});
+
+            Matrix4x4 worldMatrix = MakeAffineMatrix(ringParticles_[i].transform.scale, ringParticles_[i].transform.rotate, ringParticles_[i].transform.translate);
+            ringInstancingData_[i].World = worldMatrix;
+            ringInstancingData_[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
+            ringInstancingData_[i].color = ringParticles_[i].color;
+            ringInstancingData_[i].uvTransform = ringParticles_[i].uvTransform;
+        } else {
+            ringInstancingData_[i].color.w = 0.0f;
+        }
     }
 
     {
@@ -405,6 +464,9 @@ void GamePlayScene::Draw() {
             if (particleModel_) {
                 particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
             }
+            if (ringModel_) {
+                ringModel_->Draw(commandList, kRingInstanceCount, TextureManager::GetInstance()->GetSrvHandleGPU("gradationLine.png"), ringInstancingSrvHandleGPU_);
+            }
         }
 
         if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
@@ -421,6 +483,7 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
     particle.transform.scale = { 1.0f, 1.0f, 1.0f };
     particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
     particle.currentTime = 0.0f;
+    particle.uvTransform = MakeIdentity4x4();
 
     std::uniform_real_distribution<float> distPos(-1.0f, 1.0f);
     std::uniform_real_distribution<float> distVel(-1.0f, 1.0f);
@@ -500,6 +563,24 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
         particle.velocity = { 0.0f, 0.0f, 0.0f };
         particle.color = { 1.0f, 1.0f, 1.0f, 1.0f };
         // 短い時間で消滅させる
+        particle.lifeTime = 0.5f;
+        break;
+    }
+    case kTypeRing:
+    {
+        particle.transform.scale = { 0.1f, 0.1f, 1.0f };
+        Camera::Transform& camTrans = camera_->GetTransform();
+        particle.transform.rotate = { camTrans.rotate.x, camTrans.rotate.y, 0.0f };
+
+        Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
+        Matrix4x4 rotY = MakeRotateYMatrix(camTrans.rotate.y);
+        Matrix4x4 camRot = Multiply(rotX, rotY);
+        Vector3 forward = TransformNormal({ 0.0f, 0.0f, 1.0f }, camRot);
+
+        particle.transform.translate = Add(camTrans.translate, Scale(forward, 5.0f));
+
+        particle.velocity = { 0.0f, 0.0f, 0.0f };
+        particle.color = { 1.0f, 1.0f, 1.0f, 1.0f };
         particle.lifeTime = 0.5f;
         break;
     }

@@ -38,6 +38,41 @@ std::unique_ptr<Model> Model::CreateParticleModel(ID3D12Device* device) {
     return model;
 }
 
+std::unique_ptr<Model> Model::CreateRingModel(ID3D12Device* device) {
+    std::unique_ptr<Model> model = std::make_unique<Model>();
+    ModelData modelData;
+
+    const uint32_t kRingDivide = 32;
+    const float kOuterRadius = 1.0f;
+    const float kInnerRadius = 0.2f;
+    const float radianPerDivide = 2.0f * 3.14159265358979323846f / float(kRingDivide);
+
+    for (uint32_t index = 0; index < kRingDivide; ++index) {
+        float s = std::sin(index * radianPerDivide);
+        float c = std::cos(index * radianPerDivide);
+        float sNext = std::sin((index + 1) * radianPerDivide);
+        float cNext = std::cos((index + 1) * radianPerDivide);
+        float u = float(index) / float(kRingDivide);
+        float uNext = float(index + 1) / float(kRingDivide);
+
+        VertexData v1 = { {-s * kOuterRadius, c * kOuterRadius, 0.0f, 1.0f}, {u, 0.0f}, {0.0f, 0.0f, -1.0f} };
+        VertexData v2 = { {-sNext * kOuterRadius, cNext * kOuterRadius, 0.0f, 1.0f}, {uNext, 0.0f}, {0.0f, 0.0f, -1.0f} };
+        VertexData v3 = { {-s * kInnerRadius, c * kInnerRadius, 0.0f, 1.0f}, {u, 1.0f}, {0.0f, 0.0f, -1.0f} };
+        VertexData v4 = { {-sNext * kInnerRadius, cNext * kInnerRadius, 0.0f, 1.0f}, {uNext, 1.0f}, {0.0f, 0.0f, -1.0f} };
+
+        modelData.vertices.push_back(v3);
+        modelData.vertices.push_back(v1);
+        modelData.vertices.push_back(v2);
+
+        modelData.vertices.push_back(v3);
+        modelData.vertices.push_back(v2);
+        modelData.vertices.push_back(v4);
+    }
+
+    model->Initialize(modelData, device);
+    return model;
+}
+
 std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device* device) {
     std::unique_ptr<Model> model = std::make_unique<Model>();
     ModelData modelData;

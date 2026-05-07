@@ -18,7 +18,7 @@ VertexShaderOutput main(VertexShaderInput input, uint instanceID : SV_InstanceID
     ParticleForGPU particle = gParticle[instanceID];
 
     output.position = mul(input.position, particle.WVP);
-    output.texcoord = input.texcoord;
+    output.texcoord = mul(float32_t4(input.texcoord, 0.0f, 1.0f), particle.uvTransform).xy;
     output.normal = normalize(mul(input.normal, (float32_t3x3) particle.World));
 	
 	// ★追加: ここで色（透明度含む）を渡すことで、消える処理が可能になる
