@@ -64,6 +64,7 @@ class Model {
 public:
     static std::unique_ptr<Model> CreateParticleModel(ID3D12Device* device);
     static std::unique_ptr<Model> CreateRingModel(ID3D12Device* device);
+    static std::unique_ptr<Model> CreateCylinderModel(ID3D12Device* device);
     static std::unique_ptr<Model> LoadGLTF(const std::string& filename, ID3D12Device* device);
 
     Model() = default;

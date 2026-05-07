@@ -42,7 +42,8 @@ enum ParticleType {
     kTypeSpiral,
     kTypeRain,
     kTypeHit,
-    kTypeRing
+    kTypeRing,
+    kTypeCylinder
 };
 
 class GamePlayScene : public BaseScene {
@@ -66,6 +67,7 @@ private:
     std::unique_ptr<Camera> camera_;
     std::unique_ptr<Model> particleModel_;
     std::unique_ptr<Model> ringModel_;
+    std::unique_ptr<Model> cylinderModel_;
 
     std::unique_ptr<Model> playerModel_;
     std::unique_ptr<Skybox> skybox_;
@@ -83,6 +85,10 @@ private:
     ParticleForGPU* ringInstancingData_ = nullptr;
     std::vector<Particle> ringParticles_;
 
+    Microsoft::WRL::ComPtr<ID3D12Resource> cylinderInstancingResource_;
+    ParticleForGPU* cylinderInstancingData_ = nullptr;
+    std::vector<Particle> cylinderParticles_;
+
     Microsoft::WRL::ComPtr<ID3D12Resource> textureResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> textTextureResource_;
 
@@ -94,6 +100,7 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE textSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleGPU_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> transformResource_;
     TransformationMatrix* transformData_ = nullptr;
@@ -107,6 +114,7 @@ private:
     const uint32_t kNumInstances = 2000;
     const uint32_t kSpriteInstanceCount = 1;
     const uint32_t kRingInstanceCount = 100;
+    const uint32_t kCylinderInstanceCount = 50;
     UINT descriptorSizeSRV_ = 0;
 
     int currentEffect_ = kTypeExplosion;

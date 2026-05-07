@@ -53,6 +53,7 @@ void GamePlayScene::Initialize() {
 
     particleModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
     ringModel_ = std::unique_ptr<Model>(Model::CreateRingModel(device));
+    cylinderModel_ = std::unique_ptr<Model>(Model::CreateCylinderModel(device));
 
     instancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kNumInstances);
     instancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&instancingData_));
@@ -66,7 +67,16 @@ void GamePlayScene::Initialize() {
     ringParticles_.resize(kRingInstanceCount);
     for (UINT i = 0; i < kRingInstanceCount; ++i) {
         ringParticles_[i] = MakeNewParticle(kTypeRing, {0.0f, 0.0f, 0.0f});
-        ringParticles_[i].currentTime = 999.0f; // 初期状態では非表示
+        ringParticles_[i].currentTime = 999.0f;
+    }
+
+    cylinderInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kCylinderInstanceCount);
+    cylinderInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&cylinderInstancingData_));
+
+    cylinderParticles_.resize(kCylinderInstanceCount);
+    for (UINT i = 0; i < kCylinderInstanceCount; ++i) {
+        cylinderParticles_[i] = MakeNewParticle(kTypeCylinder, {0.0f, 0.0f, 0.0f});
+        cylinderParticles_[i].currentTime = 999.0f;
     }
 
     transformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
@@ -167,6 +177,19 @@ void GamePlayScene::Initialize() {
     ringInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 5);
     device->CreateShaderResourceView(ringInstancingResource_.Get(), &ringInstancingSrvDesc, ringInstancingSrvHandleCPU);
 
+    D3D12_SHADER_RESOURCE_VIEW_DESC cylinderInstancingSrvDesc{};
+    cylinderInstancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    cylinderInstancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    cylinderInstancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    cylinderInstancingSrvDesc.Buffer.FirstElement = 0;
+    cylinderInstancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    cylinderInstancingSrvDesc.Buffer.NumElements = kCylinderInstanceCount;
+    cylinderInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+
+    D3D12_CPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 6);
+    cylinderInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 6);
+    device->CreateShaderResourceView(cylinderInstancingResource_.Get(), &cylinderInstancingSrvDesc, cylinderInstancingSrvHandleCPU);
+
     commandList->Close();
     ID3D12CommandQueue* commandQueue = dxCommon_->GetCommandQueue();
     ID3D12CommandList* ppCommandLists[] = { commandList };
@@ -257,6 +280,16 @@ void GamePlayScene::Update() {
             if (ringParticles_[i].currentTime >= ringParticles_[i].lifeTime) {
                 ringParticles_[i] = MakeNewParticle(kTypeRing, emitterPos_);
                 ringCount--;
+            }
+        }
+    }
+
+    if (input_->IsKeyTriggered(DIK_6)) {
+        int cylinderCount = 1;
+        for (uint32_t i = 0; i < kCylinderInstanceCount && cylinderCount > 0; ++i) {
+            if (cylinderParticles_[i].currentTime >= cylinderParticles_[i].lifeTime) {
+                cylinderParticles_[i] = MakeNewParticle(kTypeCylinder, emitterPos_);
+                cylinderCount--;
             }
         }
     }
@@ -382,6 +415,28 @@ void GamePlayScene::Update() {
         }
     }
 
+    // Cylinderの更新処理
+    for (uint32_t i = 0; i < kCylinderInstanceCount; ++i) {
+        if (cylinderParticles_[i].currentTime < cylinderParticles_[i].lifeTime) {
+            cylinderParticles_[i].currentTime += kDeltaTime;
+            float alpha = 1.0f - (cylinderParticles_[i].currentTime / cylinderParticles_[i].lifeTime);
+            cylinderParticles_[i].color.w = alpha;
+            
+            // UVスクロール（横方向に移動）と、V方向のFlipを組み合わせる
+            float uvScrollU = cylinderParticles_[i].currentTime * 1.0f; // 横方向のスクロール
+            // Flip v: v = -v + 1 => scaleY = -1, transY = 1
+            cylinderParticles_[i].uvTransform = MakeAffineMatrix({1.0f, -1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {uvScrollU, 1.0f, 0.0f});
+
+            Matrix4x4 worldMatrix = MakeAffineMatrix(cylinderParticles_[i].transform.scale, cylinderParticles_[i].transform.rotate, cylinderParticles_[i].transform.translate);
+            cylinderInstancingData_[i].World = worldMatrix;
+            cylinderInstancingData_[i].WVP = Multiply(worldMatrix, viewProjectionMatrix);
+            cylinderInstancingData_[i].color = cylinderParticles_[i].color;
+            cylinderInstancingData_[i].uvTransform = cylinderParticles_[i].uvTransform;
+        } else {
+            cylinderInstancingData_[i].color.w = 0.0f;
+        }
+    }
+
     {
         D3D12_RESOURCE_DESC desc = textTextureResource_->GetDesc();
         float imageWidth = (float)desc.Width;
@@ -466,6 +521,10 @@ void GamePlayScene::Draw() {
             }
             if (ringModel_) {
                 ringModel_->Draw(commandList, kRingInstanceCount, TextureManager::GetInstance()->GetSrvHandleGPU("gradationLine.png"), ringInstancingSrvHandleGPU_);
+            }
+            if (cylinderModel_) {
+                // シリンダーはポータル風に加算合成で描画する
+                cylinderModel_->Draw(commandList, kCylinderInstanceCount, TextureManager::GetInstance()->GetSrvHandleGPU("gradationLine.png"), cylinderInstancingSrvHandleGPU_);
             }
         }
 
@@ -582,6 +641,24 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
         particle.velocity = { 0.0f, 0.0f, 0.0f };
         particle.color = { 1.0f, 1.0f, 1.0f, 1.0f };
         particle.lifeTime = 0.5f;
+        break;
+    }
+    case kTypeCylinder:
+    {
+        particle.transform.scale = { 1.0f, 1.0f, 1.0f };
+        Camera::Transform& camTrans = camera_->GetTransform();
+        particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+
+        Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
+        Matrix4x4 rotY = MakeRotateYMatrix(camTrans.rotate.y);
+        Matrix4x4 camRot = Multiply(rotX, rotY);
+        Vector3 forward = TransformNormal({ 0.0f, 0.0f, 1.0f }, camRot);
+
+        particle.transform.translate = Add(camTrans.translate, Scale(forward, 5.0f));
+
+        particle.velocity = { 0.0f, 0.0f, 0.0f };
+        particle.color = { 0.2f, 0.4f, 1.0f, 1.0f }; // 青っぽいポータル色
+        particle.lifeTime = 2.0f; // 少し長め
         break;
     }
     }

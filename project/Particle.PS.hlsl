@@ -17,9 +17,8 @@ PixelShaderOutput main(VertexShaderOutput input)
     float4 transformedUV = mul(float32_t4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
     float32_t4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
 
-	// テクスチャの色が暗い場合描画しない（簡易的なアルファテスト）
-	// 必要に応じてコメントアウトを外してください
-    if (textureColor.r < 0.1f && textureColor.g < 0.1f && textureColor.b < 0.1f)
+	// 簡易的なアルファテスト
+    if (textureColor.a == 0.0f)
     {
         discard;
     }
