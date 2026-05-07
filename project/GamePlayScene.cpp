@@ -84,7 +84,7 @@ void GamePlayScene::Initialize() {
         instancingData_[i].color = particles_[i].color;
     }
 
-    DirectX::ScratchImage mipImages = LoadTexture("resources/circle.png");
+    DirectX::ScratchImage mipImages = LoadTexture("resources/circle2.png");
     const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
     textureResource_ = CreateTextureResource(device, metadata);
     intermediateResource_ = UploadTextureData(textureResource_.Get(), mipImages, device, commandList);
@@ -168,7 +168,7 @@ void GamePlayScene::Initialize() {
 
     TextureManager::GetInstance()->Initialize(device, "resources/");
     TextureManager::GetInstance()->LoadTexture("test.dds");
-    TextureManager::GetInstance()->LoadTexture("circle.png");
+    TextureManager::GetInstance()->LoadTexture("circle2.png");
     TextureManager::GetInstance()->LoadTexture("human/white.png");
 
     skybox_ = std::make_unique<Skybox>();
@@ -215,6 +215,19 @@ void GamePlayScene::Update() {
     if (input_->IsKeyPressed(DIK_2)) currentEffect_ = kTypeFountain;
     if (input_->IsKeyPressed(DIK_3)) currentEffect_ = kTypeSpiral;
     if (input_->IsKeyPressed(DIK_4)) currentEffect_ = kTypeRain;
+    
+    // キー5を押した瞬間のみ、8個のヒットエフェクトを発生させる
+    if (input_->IsKeyTriggered(DIK_5)) {
+        int hitCount = 8;
+        for (uint32_t i = 0; i < kNumInstances && hitCount > 0; ++i) {
+            // 死んでいるパーティクルを再利用
+            if (particles_[i].currentTime >= particles_[i].lifeTime) {
+                particles_[i] = MakeNewParticle(kTypeHit, emitterPos_);
+                hitCount--;
+            }
+        }
+    }
+
     if (input_->IsKeyTriggered(DIK_G)) useGravity_ = !useGravity_;
 
     if (input_->IsKeyTriggered(DIK_SPACE)) {
@@ -366,7 +379,19 @@ void GamePlayScene::Draw() {
         }
     }
 
-    // 2. パーティクルの描画（元に戻す）
+    // 2. スカイボックスの描画
+    if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
+        ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, skyboxHeaps);
+        commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
+
+        Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
+        Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
+
+        skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+    }
+
+    // 3. パーティクルの描画（半透明なので最後に描画）
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
     commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
@@ -388,18 +413,6 @@ void GamePlayScene::Draw() {
                 particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
             }
         }
-    }
-
-    // 3. スカイボックスの描画
-    if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
-        ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
-        commandList->SetDescriptorHeaps(1, skyboxHeaps);
-        commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
-
-        Matrix4x4 skyboxWorld = MakeAffineMatrix({ 1000.0f, 1000.0f, 1000.0f }, { 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
-        Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
-
-        skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
     }
 }
 
@@ -461,6 +474,35 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
         particle.color = { 0.8f, 0.8f, 1.0f, 1.0f };
         particle.transform.scale = { 0.2f, 1.0f, 0.2f };
         break;
+    case kTypeHit:
+    {
+        // ヒットエフェクト用のスケールランダム値
+        std::uniform_real_distribution<float> distScale(0.4f, 1.5f);
+        std::uniform_real_distribution<float> distRotate(-(float)M_PI, (float)M_PI);
+
+        particle.transform.scale = { 0.1f, distScale(randomEngine_) * 2.0f, 1.0f };
+
+        // カメラの情報を取得
+        Camera::Transform& camTrans = camera_->GetTransform();
+
+        // エフェクトの平面がカメラを向くように、カメラのXY回転を適用し、Z回転をランダムにする
+        particle.transform.rotate = { camTrans.rotate.x, camTrans.rotate.y, distRotate(randomEngine_) };
+
+        // カメラの前方向ベクトルを計算
+        Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
+        Matrix4x4 rotY = MakeRotateYMatrix(camTrans.rotate.y);
+        Matrix4x4 camRot = Multiply(rotX, rotY);
+        Vector3 forward = TransformNormal({ 0.0f, 0.0f, 1.0f }, camRot);
+
+        // 画面を覆いすぎないようカメラから 5.0f 前方に発生させる
+        particle.transform.translate = Add(camTrans.translate, Scale(forward, 5.0f));
+
+        particle.velocity = { 0.0f, 0.0f, 0.0f };
+        particle.color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        // 短い時間で消滅させる
+        particle.lifeTime = 0.5f;
+        break;
+    }
     }
     return particle;
 }

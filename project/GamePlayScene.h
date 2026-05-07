@@ -38,7 +38,8 @@ enum ParticleType {
     kTypeExplosion,
     kTypeFountain,
     kTypeSpiral,
-    kTypeRain
+    kTypeRain,
+    kTypeHit
 };
 
 class GamePlayScene : public BaseScene {
