@@ -159,6 +159,30 @@ Vector3 Normalize(const Vector3& v)
 	return { v.x / length, v.y / length, v.z / length };
 }
 
+Vector3 Cross(const Vector3& v1, const Vector3& v2)
+{
+	return {
+		v1.y * v2.z - v1.z * v2.y,
+		v1.z * v2.x - v1.x * v2.z,
+		v1.x * v2.y - v1.y * v2.x
+	};
+}
+
+Vector4 Multiply(const Vector4& v, const Matrix4x4& m)
+{
+	return {
+		v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + v.w * m.m[3][0],
+		v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + v.w * m.m[3][1],
+		v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + v.w * m.m[3][2],
+		v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + v.w * m.m[3][3]
+	};
+}
+
+Matrix4x4 MakeScaleMatrix(const Vector3& s)
+{
+	return Matrix4x4MakeScaleMatrix(s);
+}
+
 Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t) {
 	return {
 		v1.x + (v2.x - v1.x) * t,

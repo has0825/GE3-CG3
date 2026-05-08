@@ -109,6 +109,63 @@ std::unique_ptr<Model> Model::CreateCylinderModel(ID3D12Device* device) {
     return model;
 }
 
+std::unique_ptr<Model> Model::CreateSphereModel(ID3D12Device* device) {
+    std::unique_ptr<Model> model = std::make_unique<Model>();
+    ModelData modelData;
+    const uint32_t kSubdivision = 16;
+    const float kLatStep = 3.1415926535f / float(kSubdivision);
+    const float kLonStep = 2.0f * 3.1415926535f / float(kSubdivision);
+
+    for (uint32_t lat = 0; lat < kSubdivision; ++lat) {
+        float phi1 = lat * kLatStep;
+        float phi2 = (lat + 1) * kLatStep;
+        for (uint32_t lon = 0; lon < kSubdivision; ++lon) {
+            float theta1 = lon * kLonStep;
+            float theta2 = (lon + 1) * kLonStep;
+
+            auto getPos = [](float phi, float theta) -> Vector3 {
+                return { std::sin(phi) * std::cos(theta), std::cos(phi), std::sin(phi) * std::sin(theta) };
+            };
+
+            Vector3 p1 = getPos(phi1, theta1);
+            Vector3 p2 = getPos(phi1, theta2);
+            Vector3 p3 = getPos(phi2, theta1);
+            Vector3 p4 = getPos(phi2, theta2);
+
+            modelData.vertices.push_back({ {p1.x, p1.y, p1.z, 1.0f}, {0,0}, p1 });
+            modelData.vertices.push_back({ {p2.x, p2.y, p2.z, 1.0f}, {0,0}, p2 });
+            modelData.vertices.push_back({ {p3.x, p3.y, p3.z, 1.0f}, {0,0}, p3 });
+
+            modelData.vertices.push_back({ {p3.x, p3.y, p3.z, 1.0f}, {0,0}, p3 });
+            modelData.vertices.push_back({ {p2.x, p2.y, p2.z, 1.0f}, {0,0}, p2 });
+            modelData.vertices.push_back({ {p4.x, p4.y, p4.z, 1.0f}, {0,0}, p4 });
+        }
+    }
+    model->Initialize(modelData, device);
+    return model;
+}
+
+std::unique_ptr<Model> Model::CreateBoxModel(ID3D12Device* device) {
+    std::unique_ptr<Model> model = std::make_unique<Model>();
+    ModelData modelData;
+    // 0,0,0 から 0,0,1 に向かう 0.1x0.1 のボックス
+    Vector3 p[8] = {
+        {-0.05f,-0.05f, 0}, {0.05f,-0.05f, 0}, {-0.05f, 0.05f, 0}, {0.05f, 0.05f, 0},
+        {-0.05f,-0.05f, 1}, {0.05f,-0.05f, 1}, {-0.05f, 0.05f, 1}, {0.05f, 0.05f, 1}
+    };
+    uint32_t indices[] = {
+        0,2,1, 1,2,3, 4,5,6, 5,7,6, 0,1,4, 1,5,4,
+        2,6,3, 3,6,7, 0,4,2, 4,6,2, 1,3,5, 3,7,5
+    };
+    for (uint32_t i : indices) {
+        modelData.vertices.push_back({ {p[i].x, p[i].y, p[i].z, 1.0f}, {0,0}, {0,0,0} });
+    }
+    model->Initialize(modelData, device);
+    return model;
+}
+
+
+
 std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device* device) {
     std::unique_ptr<Model> model = std::make_unique<Model>();
     ModelData modelData;
@@ -357,6 +414,16 @@ void Model::SetEnvironmentCoefficient(float coefficient) {
         materialResource_->Unmap(0, nullptr);
     }
 }
+
+void Model::SetColor(const Vector4& color) {
+    if (materialResource_) {
+        Material* materialData = nullptr;
+        materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+        materialData->color = color;
+        materialResource_->Unmap(0, nullptr);
+    }
+}
+
 
 void Model::Draw(ID3D12GraphicsCommandList* commandList) {
     D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;

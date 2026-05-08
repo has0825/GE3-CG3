@@ -235,6 +235,8 @@ void GamePlayScene::Initialize() {
     // AnimatedCubeの初期化 (資料の再現)
     cubeModel_ = AdvAnim::LoadModelFile("Resources/AnimatedCube", "AnimatedCube.gltf");
     cubeAnimation_ = AdvAnim::LoadAnimationFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    cubeSkeleton_ = AdvAnim::CreateSkeleton(cubeModel_.rootNode);
+
     cubeRenderModel_ = std::make_unique<Model>();
     cubeRenderModel_->Initialize(cubeModel_.modelData, device);
     
@@ -246,6 +248,18 @@ void GamePlayScene::Initialize() {
 
     // テクスチャの読み込み
     TextureManager::GetInstance()->LoadTexture("AnimatedCube/AnimatedCube_BaseColor.png");
+
+    // デバッグ描画用の初期化
+    debugSphereModel_ = Model::CreateSphereModel(device);
+    debugSphereModel_->SetColor({ 1.0f, 0.0f, 0.0f, 1.0f }); // 赤色
+    debugBoxModel_ = Model::CreateBoxModel(device);
+    debugBoxModel_->SetColor({ 0.0f, 0.0f, 1.0f, 1.0f }); // 青色
+    for (uint32_t i = 0; i < kMaxDebugInstances; ++i) {
+        debugTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
+        debugTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&debugTransformData_[i]));
+        debugTransformData_[i]->WVP = MakeIdentity4x4();
+        debugTransformData_[i]->World = MakeIdentity4x4();
+    }
 
     isCursorLocked_ = false;
 }
@@ -385,28 +399,25 @@ void GamePlayScene::Update() {
         }
     }
 
-    // AnimatedCubeのアニメーション更新 (資料の再現)
+    // AnimatedCubeのスケルトンアニメーション更新 (資料の再現)
     cubeAnimationTime_ += kDeltaTime;
     cubeAnimationTime_ = std::fmod(cubeAnimationTime_, cubeAnimation_.duration);
 
-    if (cubeAnimation_.nodeAnimations.count(cubeModel_.rootNode.name)) {
-        AdvAnim::NodeAnimation& rootNodeAnim = cubeAnimation_.nodeAnimations[cubeModel_.rootNode.name];
-        
-        Vector3 translate = AdvAnim::CalculateValue(rootNodeAnim.translate.keyframes, cubeAnimationTime_);
-        Quaternion rotate = AdvAnim::CalculateValue(rootNodeAnim.rotate.keyframes, cubeAnimationTime_);
-        Vector3 scale = AdvAnim::CalculateValue(rootNodeAnim.scale.keyframes, cubeAnimationTime_);
-        
-        // 明示的にオーバーロードを呼び出す
-        Matrix4x4 localMatrix = MakeAffineMatrix(scale, rotate, translate);
-        
-        // 座標が重ならないように少しずらす
-        cubeRenderModel_->transform.translate = Vector3{ 20.0f, 0.0f, 0.0f };
-        cubeRenderModel_->transform.scale = Vector3{ 5.0f, 5.0f, 5.0f };
+    // 1. アニメーションをスケルトンに適用
+    AdvAnim::ApplyAnimation(cubeSkeleton_, cubeAnimation_, cubeAnimationTime_);
+    // 2. スケルトンの階層行列を更新
+    AdvAnim::Update(cubeSkeleton_);
 
-        Matrix4x4 worldMatrix = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, cubeRenderModel_->transform.translate);
-        
-        cubeTransformData_->WVP = Multiply(localMatrix, Multiply(worldMatrix, viewProjectionMatrix));
-        cubeTransformData_->World = Multiply(localMatrix, worldMatrix);
+    // 描画用のワールド行列を計算（スケルトン全体を移動させるための行列）
+    cubeRenderModel_->transform.translate = Vector3{ 20.0f, 0.0f, 0.0f };
+    cubeRenderModel_->transform.scale = Vector3{ 2.0f, 2.0f, 2.0f }; // 少し小さく表示
+    Matrix4x4 cubeBaseWorldMatrix = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, cubeRenderModel_->transform.translate);
+
+    // ルートジョイントの行列を適用して表示用WVPを更新 (暫定的にルートを表示)
+    if (!cubeSkeleton_.joints.empty()) {
+        const auto& rootJoint = cubeSkeleton_.joints[cubeSkeleton_.root];
+        cubeTransformData_->WVP = Multiply(rootJoint.skeletonSpaceMatrix, Multiply(cubeBaseWorldMatrix, viewProjectionMatrix));
+        cubeTransformData_->World = Multiply(rootJoint.skeletonSpaceMatrix, cubeBaseWorldMatrix);
     }
 
     for (uint32_t i = 0; i < kNumInstances; ++i) {
@@ -554,6 +565,11 @@ void GamePlayScene::Draw() {
             TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
         );
     }
+
+    // --- スケルトンのデバッグ描画 ---
+    // モデルと重ならないように、右側にずらして描画する (X=40)
+    Matrix4x4 debugBaseWorld = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, { 40.0f, 0.0f, 0.0f });
+    DrawSkeleton(cubeSkeleton_, debugBaseWorld);
 
     // 2. スカイボックスの描画
     if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
@@ -725,4 +741,61 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
     }
     }
     return particle;
+}
+
+void GamePlayScene::DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix) {
+    debugTransformIndex_ = 0;
+    Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    for (const auto& joint : skeleton.joints) {
+        if (debugTransformIndex_ >= kMaxDebugInstances) break;
+
+        // Jointの球体描画
+        Matrix4x4 sphereWorld = Multiply(joint.skeletonSpaceMatrix, baseWorldMatrix);
+        // 必ず見えるように大きくする (0.3 -> 1.0)
+        Matrix4x4 sphereFinal = Multiply(MakeScaleMatrix({ 1.0f, 1.0f, 1.0f }), sphereWorld);
+
+        debugTransformData_[debugTransformIndex_]->WVP = Multiply(sphereFinal, viewProjectionMatrix);
+        debugTransformData_[debugTransformIndex_]->World = sphereFinal;
+        commandList->SetGraphicsRootConstantBufferView(1, debugTransformResources_[debugTransformIndex_]->GetGPUVirtualAddress());
+        debugSphereModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+        debugTransformIndex_++;
+
+        // ボーン（線）の描画
+        if (joint.parent && debugTransformIndex_ < kMaxDebugInstances) {
+            const auto& parentJoint = skeleton.joints[*joint.parent];
+            Vector3 p1 = { parentJoint.skeletonSpaceMatrix.m[3][0], parentJoint.skeletonSpaceMatrix.m[3][1], parentJoint.skeletonSpaceMatrix.m[3][2] };
+            Vector3 p2 = { joint.skeletonSpaceMatrix.m[3][0], joint.skeletonSpaceMatrix.m[3][1], joint.skeletonSpaceMatrix.m[3][2] };
+
+            // baseWorldMatrixを適用した座標を計算
+            Vector4 p1W = Multiply(Vector4{ p1.x, p1.y, p1.z, 1.0f }, baseWorldMatrix);
+            Vector4 p2W = Multiply(Vector4{ p2.x, p2.y, p2.z, 1.0f }, baseWorldMatrix);
+            Vector3 start = { p1W.x, p1W.y, p1W.z };
+            Vector3 end = { p2W.x, p2W.y, p2W.z };
+
+            Vector3 diff = { end.x - start.x, end.y - start.y, end.z - start.z };
+            float length = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+            if (length > 0.01f) {
+                Vector3 direction = { diff.x / length, diff.y / length, diff.z / length };
+
+                // Z軸をdirectionに向け、原点をstartに置く行列を作成
+                Matrix4x4 rotateMatrix = MakeIdentity4x4();
+                Vector3 up = (std::abs(direction.y) < 0.999f) ? Vector3{ 0, 1, 0 } : Vector3{ 1, 0, 0 };
+                Vector3 right = Normalize(Cross(up, direction));
+                Vector3 realUp = Cross(direction, right);
+                rotateMatrix.m[0][0] = right.x; rotateMatrix.m[0][1] = right.y; rotateMatrix.m[0][2] = right.z;
+                rotateMatrix.m[1][0] = realUp.x; rotateMatrix.m[1][1] = realUp.y; rotateMatrix.m[1][2] = realUp.z;
+                rotateMatrix.m[2][0] = direction.x; rotateMatrix.m[2][1] = direction.y; rotateMatrix.m[2][2] = direction.z;
+
+                Matrix4x4 boxWorld = Multiply(Multiply(MakeScaleMatrix({ 1.0f, 1.0f, length }), rotateMatrix), MakeTranslateMatrix(start));
+
+                debugTransformData_[debugTransformIndex_]->WVP = Multiply(boxWorld, viewProjectionMatrix);
+                debugTransformData_[debugTransformIndex_]->World = boxWorld;
+                commandList->SetGraphicsRootConstantBufferView(1, debugTransformResources_[debugTransformIndex_]->GetGPUVirtualAddress());
+                debugBoxModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                debugTransformIndex_++;
+            }
+        }
+    }
 }

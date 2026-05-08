@@ -134,8 +134,19 @@ private:
     // AnimatedCube
     AdvAnim::AnimatedModel cubeModel_;
     AdvAnim::Animation cubeAnimation_;
+    AdvAnim::Skeleton cubeSkeleton_;
     float cubeAnimationTime_ = 0.0f;
     std::unique_ptr<Model> cubeRenderModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> cubeTransformResource_;
     TransformationMatrix* cubeTransformData_ = nullptr;
-};
+
+    // デバッグ描画用
+    std::unique_ptr<Model> debugSphereModel_;
+    std::unique_ptr<Model> debugBoxModel_;
+    static const uint32_t kMaxDebugInstances = 128;
+    Microsoft::WRL::ComPtr<ID3D12Resource> debugTransformResources_[kMaxDebugInstances];
+    TransformationMatrix* debugTransformData_[kMaxDebugInstances] = { nullptr };
+    uint32_t debugTransformIndex_ = 0;
+
+    void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
+};

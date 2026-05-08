@@ -15,6 +15,10 @@ Matrix4x4 Inverse(Matrix4x4 m);
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip, float farClip);
 Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearClip, float farClip);
 Vector3 Normalize(const Vector3& v);
+Vector3 Cross(const Vector3& v1, const Vector3& v2);
+Vector4 Multiply(const Vector4& v, const Matrix4x4& m);
+
+Matrix4x4 MakeScaleMatrix(const Vector3& s);
 
 Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t);
 Quaternion Slerp(const Quaternion& q0, const Quaternion& q1, float t);

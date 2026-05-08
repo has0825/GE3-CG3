@@ -65,6 +65,8 @@ public:
     static std::unique_ptr<Model> CreateParticleModel(ID3D12Device* device);
     static std::unique_ptr<Model> CreateRingModel(ID3D12Device* device);
     static std::unique_ptr<Model> CreateCylinderModel(ID3D12Device* device);
+    static std::unique_ptr<Model> CreateSphereModel(ID3D12Device* device);
+    static std::unique_ptr<Model> CreateBoxModel(ID3D12Device* device);
     static std::unique_ptr<Model> LoadGLTF(const std::string& filename, ID3D12Device* device);
 
     Model() = default;
@@ -89,6 +91,7 @@ public:
         D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle);
 
     void SetEnvironmentCoefficient(float coefficient);
+    void SetColor(const Vector4& color);
     void UpdateAnimation(float deltaTime);
 
     EulerTransform transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
