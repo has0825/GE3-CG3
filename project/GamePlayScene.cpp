@@ -327,7 +327,7 @@ void GamePlayScene::Update() {
     float cameraSpeed = 5.0f;
     const float kDeltaTime = 1.0f / 60.0f;
 
-    Camera::Transform& camTrans = camera_->GetTransform();
+    EulerTransform& camTrans = camera_->GetTransform();
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
 
     if (input_->IsMousePressed(0)) {
@@ -667,7 +667,7 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
         particle.transform.scale = { 0.1f, distScale(randomEngine_) * 2.0f, 1.0f };
 
         // カメラの情報を取得
-        Camera::Transform& camTrans = camera_->GetTransform();
+        EulerTransform& camTrans = camera_->GetTransform();
 
         // エフェクトの平面がカメラを向くように、カメラのXY回転を適用し、Z回転をランダムにする
         particle.transform.rotate = { camTrans.rotate.x, camTrans.rotate.y, distRotate(randomEngine_) };
@@ -690,7 +690,7 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
     case kTypeRing:
     {
         particle.transform.scale = { 0.1f, 0.1f, 1.0f };
-        Camera::Transform& camTrans = camera_->GetTransform();
+        EulerTransform& camTrans = camera_->GetTransform();
         particle.transform.rotate = { camTrans.rotate.x, camTrans.rotate.y, 0.0f };
 
         Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
@@ -708,7 +708,7 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
     case kTypeCylinder:
     {
         particle.transform.scale = { 1.0f, 1.0f, 1.0f };
-        Camera::Transform& camTrans = camera_->GetTransform();
+        EulerTransform& camTrans = camera_->GetTransform();
         particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
 
         Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);

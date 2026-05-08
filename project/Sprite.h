@@ -22,7 +22,7 @@ public:
     // 範囲指定で切り取る (左上XY, 幅, 高さ)
     void SetTextureRect(float left, float top, float width, float height);
 
-    Transform transform; // 座標、回転、スケール
+    EulerTransform transform; // 座標、回転、スケール
 
 private:
     std::string textureName_;

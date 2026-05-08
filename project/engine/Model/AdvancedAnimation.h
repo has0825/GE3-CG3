@@ -5,12 +5,31 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <optional>
 
 namespace AdvAnim {
 
     struct Node {
+        QuaternionTransform transform;
+        Matrix4x4 localMatrix;
         std::string name;
         std::vector<Node> children;
+    };
+
+    struct Joint {
+        QuaternionTransform transform;
+        Matrix4x4 localMatrix;
+        Matrix4x4 skeletonSpaceMatrix;
+        std::string name;
+        std::vector<int32_t> children;
+        int32_t index;
+        std::optional<int32_t> parent;
+    };
+
+    struct Skeleton {
+        int32_t root;
+        std::map<std::string, int32_t> jointMap;
+        std::vector<Joint> joints;
     };
 
     struct AnimatedModel {
@@ -44,6 +63,10 @@ namespace AdvAnim {
 
     AnimatedModel LoadModelFile(const std::string& directoryPath, const std::string& filename);
     Animation LoadAnimationFile(const std::string& directoryPath, const std::string& filename);
+
+    Skeleton CreateSkeleton(const Node& rootNode);
+    void ApplyAnimation(Skeleton& skeleton, const Animation& animation, float animationTime);
+    void Update(Skeleton& skeleton);
 
     Vector3 CalculateValue(const std::vector<KeyframeVector3>& keyframes, float time);
     Quaternion CalculateValue(const std::vector<KeyframeQuaternion>& keyframes, float time);

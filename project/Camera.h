@@ -23,15 +23,10 @@ public:
 	const Vector3& GetRotate() const { return transform_.rotate; }
 
 	// 参照渡しで座標を直接操作可能にする
-	struct Transform {
-		Vector3 scale;
-		Vector3 rotate;
-		Vector3 translate;
-	};
-	Transform& GetTransform() { return transform_; }
+	EulerTransform& GetTransform() { return transform_; }
 
 private:
-	Transform transform_;
+	EulerTransform transform_;
 	Matrix4x4 viewMatrix_;
 	Matrix4x4 projectionMatrix_;
 	Matrix4x4 viewProjectionMatrix_;

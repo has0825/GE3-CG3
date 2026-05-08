@@ -16,12 +16,18 @@ struct Matrix4x4 {
 	float m[4][4];
 };
 
-struct Transform {
+struct Quaternion {
+	float x, y, z, w;
+};
+
+struct EulerTransform {
 	Vector3 scale;
 	Vector3 rotate;
 	Vector3 translate;
 };
 
-struct Quaternion {
-	float x, y, z, w;
-};
+struct QuaternionTransform {
+	Vector3 scale;
+	Quaternion rotate;
+	Vector3 translate;
+};

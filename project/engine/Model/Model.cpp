@@ -190,8 +190,9 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
         aiAnimation* aiAnim = scene->mAnimations[0];
         model->animation_ = std::make_unique<Animation>();
         model->animation_->name = aiAnim->mName.C_Str();
-        model->animation_->duration = (float)aiAnim->mDuration;
-        model->animation_->ticksPerSecond = (float)aiAnim->mTicksPerSecond != 0 ? (float)aiAnim->mTicksPerSecond : 24.0f;
+        float ticksPerSecond = (float)aiAnim->mTicksPerSecond != 0 ? (float)aiAnim->mTicksPerSecond : 24.0f;
+        model->animation_->duration = (float)aiAnim->mDuration / ticksPerSecond;
+        model->animation_->ticksPerSecond = ticksPerSecond;
 
         for (unsigned int i = 0; i < aiAnim->mNumChannels; i++) {
             aiNodeAnim* aiChannel = aiAnim->mChannels[i];
@@ -199,15 +200,15 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
             channel.nodeName = aiChannel->mNodeName.C_Str();
 
             for (unsigned int k = 0; k < aiChannel->mNumPositionKeys; k++) {
-                channel.positionKeys.push_back({ (float)aiChannel->mPositionKeys[k].mTime, 
+                channel.positionKeys.push_back({ (float)aiChannel->mPositionKeys[k].mTime / ticksPerSecond, 
                     { aiChannel->mPositionKeys[k].mValue.x, aiChannel->mPositionKeys[k].mValue.y, aiChannel->mPositionKeys[k].mValue.z } });
             }
             for (unsigned int k = 0; k < aiChannel->mNumRotationKeys; k++) {
-                channel.rotationKeys.push_back({ (float)aiChannel->mRotationKeys[k].mTime, 
+                channel.rotationKeys.push_back({ (float)aiChannel->mRotationKeys[k].mTime / ticksPerSecond, 
                     { aiChannel->mRotationKeys[k].mValue.x, aiChannel->mRotationKeys[k].mValue.y, aiChannel->mRotationKeys[k].mValue.z, aiChannel->mRotationKeys[k].mValue.w } });
             }
             for (unsigned int k = 0; k < aiChannel->mNumScalingKeys; k++) {
-                channel.scaleKeys.push_back({ (float)aiChannel->mScalingKeys[k].mTime, 
+                channel.scaleKeys.push_back({ (float)aiChannel->mScalingKeys[k].mTime / ticksPerSecond, 
                     { aiChannel->mScalingKeys[k].mValue.x, aiChannel->mScalingKeys[k].mValue.y, aiChannel->mScalingKeys[k].mValue.z } });
             }
             model->animation_->channels.push_back(channel);
@@ -269,7 +270,7 @@ void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
 void Model::UpdateAnimation(float deltaTime) {
     if (!animation_) return;
 
-    animationTime_ += deltaTime * animation_->ticksPerSecond;
+    animationTime_ += deltaTime;
     animationTime_ = std::fmod(animationTime_, animation_->duration);
 
     // ノードのローカル行列を更新

@@ -91,7 +91,7 @@ public:
     void SetEnvironmentCoefficient(float coefficient);
     void UpdateAnimation(float deltaTime);
 
-    Camera::Transform transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
+    EulerTransform transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
     float environmentCoefficient = 0.0f;
     Node rootNode;
 
