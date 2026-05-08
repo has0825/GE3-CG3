@@ -1,5 +1,7 @@
 #include "D3D12Util.h"
+#include "DirectXCommon.h" // 追加
 #include <cassert>
+
 
 // 外部で定義された関数のプロトタイプ宣言 (ConvertStringはまだmain.cppにあるため)
 std::wstring ConvertString(const std::string& str);
@@ -19,7 +21,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateBufferResource(ID3D12Device* device
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource = nullptr;
     HRESULT hr = device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResource));
     assert(SUCCEEDED(hr));
-    return vertexResource.Get();
+    return vertexResource;
 }
 
 Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
@@ -31,7 +33,7 @@ Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ID3D12Device* 
     DescriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     HRESULT hr = device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&DescriptorHeap));
     assert(SUCCEEDED(hr));
-    return DescriptorHeap.Get();
+    return DescriptorHeap;
 }
 
 Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
@@ -49,7 +51,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* devic
     Microsoft::WRL::ComPtr<ID3D12Resource> resource = nullptr;
     HRESULT hr = device->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&resource));
     assert(SUCCEEDED(hr));
-    return resource.Get();
+    return resource;
 }
 
 Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
@@ -71,25 +73,53 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12D
     Microsoft::WRL::ComPtr<ID3D12Resource> resource = nullptr;
     HRESULT hr = device->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClearValue, IID_PPV_ARGS(&resource));
     assert(SUCCEEDED(hr));
-    return resource.Get();
+    return resource;
 }
 
-Microsoft::WRL::ComPtr<ID3D12Resource> UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages, ID3D12Device* device, ID3D12GraphicsCommandList* commandList)
+Microsoft::WRL::ComPtr<ID3D12Resource> UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages, ID3D12Device* device, ID3D12GraphicsCommandList* /*commandList*/)
 {
     std::vector<D3D12_SUBRESOURCE_DATA> subresources;
     DirectX::PrepareUpload(device, mipImages.GetImages(), mipImages.GetImageCount(), mipImages.GetMetadata(), subresources);
     uint64_t intermediateSize = GetRequiredIntermediateSize(texture, 0, static_cast<UINT>(subresources.size()));
     Microsoft::WRL::ComPtr<ID3D12Resource> intermediate = CreateBufferResource(device, intermediateSize);
-    UpdateSubresources(commandList, texture, intermediate.Get(), 0, 0, static_cast<UINT>(subresources.size()), subresources.data());
+
+    // 一時的なコマンドリストとアロケータを作成して実行する
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> tempAllocator;
+    device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&tempAllocator));
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> tempCommandList;
+    device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, tempAllocator.Get(), nullptr, IID_PPV_ARGS(&tempCommandList));
+
+    UpdateSubresources(tempCommandList.Get(), texture, intermediate.Get(), 0, 0, static_cast<UINT>(subresources.size()), subresources.data());
+
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Transition.pResource = texture;
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    commandList->ResourceBarrier(1, &barrier);
+    tempCommandList->ResourceBarrier(1, &barrier);
+
+    tempCommandList->Close();
+
+    // 実行用キューの取得 (シングルトン経由)
+    ID3D12CommandQueue* commandQueue = DirectXCommon::GetInstance()->GetCommandQueue();
+    ID3D12CommandList* commandLists[] = { tempCommandList.Get() };
+    commandQueue->ExecuteCommandLists(1, commandLists);
+
+    // 完了待機
+    Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+    device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    commandQueue->Signal(fence.Get(), 1);
+    if (fence->GetCompletedValue() < 1) {
+        fence->SetEventOnCompletion(1, fenceEvent);
+        WaitForSingleObject(fenceEvent, INFINITE);
+    }
+    CloseHandle(fenceEvent);
+
     return intermediate;
 }
+
 
 DirectX::ScratchImage LoadTexture(const std::string& filePath)
 {

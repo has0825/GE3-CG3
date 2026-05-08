@@ -95,6 +95,8 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> textIntermediateResource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> gradationTextureResource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> gradationIntermediateResource_;
 
     D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_;
@@ -102,6 +104,7 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE gradationSrvHandleGPU_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> transformResource_;
     TransformationMatrix* transformData_ = nullptr;
@@ -126,8 +129,8 @@ private:
     SoundData bgmData_;
     SoundData jumpSE_;
 
-    bool isCursorLocked_ = false;
-    float modelEnvCoefficient_ = 0.5f;
+    bool isCameraMode_ = false;
+    float modelEnvCoefficient_ = 1.0f;
     float mouseSensitivity_ = 0.005f;
     Vector2 spritePos_ = { 0.0f, 0.0f };
 

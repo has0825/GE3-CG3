@@ -29,6 +29,10 @@ void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath)
     descHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     descHeapDesc.NumDescriptors = 1024;
     device_->CreateDescriptorHeap(&descHeapDesc, IID_PPV_ARGS(&srvHeap_));
+
+    // コマンドリストの初期化
+    device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator_));
+    device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator_.Get(), nullptr, IID_PPV_ARGS(&commandList_));
 }
 
 void TextureManager::LoadTexture(const std::string& fileName) {
@@ -72,40 +76,12 @@ void TextureManager::LoadTexture(const std::string& fileName) {
     }
 
     DirectXCommon* dxCommon = DirectXCommon::GetInstance();
-    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
-
+    
+    // UploadTextureData が内部で自己完結してアップロード・待機まで行う
     Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
-        ::UploadTextureData(textureResource.Get(), mipImages, device_, commandList);
+        ::UploadTextureData(textureResource.Get(), mipImages, device_, nullptr);
 
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier.Transition.pResource = textureResource.Get();
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    commandList->ResourceBarrier(1, &barrier);
 
-    commandList->Close();
-
-    ID3D12CommandQueue* commandQueue = dxCommon->GetCommandQueue();
-    ID3D12CommandList* commandLists[] = { commandList };
-    commandQueue->ExecuteCommandLists(1, commandLists);
-
-    Microsoft::WRL::ComPtr<ID3D12Fence> fence;
-    device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
-    HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-
-    commandQueue->Signal(fence.Get(), 1);
-    if (fence->GetCompletedValue() < 1) {
-        fence->SetEventOnCompletion(1, fenceEvent);
-        WaitForSingleObject(fenceEvent, INFINITE);
-    }
-    CloseHandle(fenceEvent);
-
-    ID3D12CommandAllocator* allocator = dxCommon->GetCommandAllocator();
-    allocator->Reset();
-    commandList->Reset(allocator, nullptr);
 
     D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = GetCPUDescriptorHandle(srvHeap_.Get(), descriptorSizeSRV_, useDescriptorIndex_);
     D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = GetGPUDescriptorHandle(srvHeap_.Get(), descriptorSizeSRV_, useDescriptorIndex_);

@@ -92,6 +92,7 @@ void Sprite::Draw(ID3D12GraphicsCommandList* commandList, const Matrix4x4& viewP
     wvpData_->WVP = Multiply(worldMatrix, viewProjection);
 
     // バッファセット
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(1, wvpResource_->GetGPUVirtualAddress());
@@ -102,4 +103,4 @@ void Sprite::Draw(ID3D12GraphicsCommandList* commandList, const Matrix4x4& viewP
 
     // 6頂点描画
     commandList->DrawInstanced(6, 1, 0, 0);
-}
+}

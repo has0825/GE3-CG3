@@ -40,6 +40,7 @@ void Game::Draw() {
 
 #ifdef USE_IMGUI
     // ImGui描画
+    ImGui::Render();
     ImDrawData* drawData = ImGui::GetDrawData();
     if (drawData) {
         ID3D12DescriptorHeap* descriptorHeaps[] = { imguiDescriptorHeap_.Get() };
@@ -47,6 +48,7 @@ void Game::Draw() {
         ImGui_ImplDX12_RenderDrawData(drawData, dxCommon_->GetCommandList());
     }
 #endif
+
 
     dxCommon_->PostDraw();
 }

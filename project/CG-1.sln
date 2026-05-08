@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.13.35931.197
@@ -25,7 +25,9 @@ Global
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{8927AE99-0F8B-4E50-8B70-7F6F2E8D31C9}.Debug|x64.ActiveCfg = Debug|x64
+		{8927AE99-0F8B-4E50-8B70-7F6F2E8D31C9}.Debug|x64.Build.0 = Debug|x64
 		{8927AE99-0F8B-4E50-8B70-7F6F2E8D31C9}.Development|x64.ActiveCfg = Development|x64
+
 		{8927AE99-0F8B-4E50-8B70-7F6F2E8D31C9}.Development|x64.Build.0 = Development|x64
 		{8927AE99-0F8B-4E50-8B70-7F6F2E8D31C9}.Release|x64.ActiveCfg = Development|x64
 		{8927AE99-0F8B-4E50-8B70-7F6F2E8D31C9}.Release|x64.Build.0 = Development|x64

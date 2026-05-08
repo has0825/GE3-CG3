@@ -98,19 +98,19 @@ public:
     float environmentCoefficient = 0.0f;
     Node rootNode;
 
-private:
-    ModelCommonData* commonData_ = nullptr;
-    std::vector<VertexData> vertices_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
-    D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
-    Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
-
     // スキニング関連
     std::map<std::string, Bone> bones_;
     std::unique_ptr<Animation> animation_;
     float animationTime_ = 0.0f;
     Microsoft::WRL::ComPtr<ID3D12Resource> skinningResource_;
     SkinningPalette* skinningData_ = nullptr;
+
+private:
+    ModelCommonData* commonData_ = nullptr;
+    std::vector<VertexData> vertices_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
+    D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 
     void ReadNodeHierarchy(struct aiNode* node, Node& outNode);
     void ComputeSkinningMatrices(Node& node, const Matrix4x4& parentMatrix);

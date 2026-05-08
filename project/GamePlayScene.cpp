@@ -37,6 +37,8 @@ void GamePlayScene::Initialize() {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
     audio_ = std::make_unique<Audio>();
+
+
     audio_->Initialize();
 
     graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
@@ -190,6 +192,22 @@ void GamePlayScene::Initialize() {
     cylinderInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 6);
     device->CreateShaderResourceView(cylinderInstancingResource_.Get(), &cylinderInstancingSrvDesc, cylinderInstancingSrvHandleCPU);
 
+    // gradationLine.png の読み込みとSRV作成
+    DirectX::ScratchImage gradationMipImages = LoadTexture("resources/gradationLine.png");
+    const DirectX::TexMetadata& gradationMetadata = gradationMipImages.GetMetadata();
+    gradationTextureResource_ = CreateTextureResource(device, gradationMetadata);
+    gradationIntermediateResource_ = UploadTextureData(gradationTextureResource_.Get(), gradationMipImages, device, commandList);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC gradationSrvDesc{};
+    gradationSrvDesc.Format = gradationMetadata.format;
+    gradationSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    gradationSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    gradationSrvDesc.Texture2D.MipLevels = UINT(gradationMetadata.mipLevels);
+
+    D3D12_CPU_DESCRIPTOR_HANDLE gradationSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 7);
+    gradationSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 7);
+    device->CreateShaderResourceView(gradationTextureResource_.Get(), &gradationSrvDesc, gradationSrvHandleCPU);
+
     commandList->Close();
     ID3D12CommandQueue* commandQueue = dxCommon_->GetCommandQueue();
     ID3D12CommandList* ppCommandLists[] = { commandList };
@@ -261,7 +279,7 @@ void GamePlayScene::Initialize() {
         debugTransformData_[i]->World = MakeIdentity4x4();
     }
 
-    isCursorLocked_ = false;
+    isCameraMode_ = false;
 }
 
 void GamePlayScene::Finalize() {
@@ -344,11 +362,18 @@ void GamePlayScene::Update() {
     EulerTransform& camTrans = camera_->GetTransform();
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
 
-    if (input_->IsMousePressed(0)) {
-        if (!isCursorLocked_) {
+    // TABキーでモード切替
+    if (input_->IsKeyTriggered(DIK_TAB)) {
+        isCameraMode_ = !isCameraMode_;
+        if (isCameraMode_) {
             ShowCursor(FALSE);
-            isCursorLocked_ = true;
+        } else {
+            ShowCursor(TRUE);
         }
+    }
+
+    if (isCameraMode_) {
+        // カメラ操作モード: マウス移動で回転（カーソルロック）
         RECT rect;
         GetWindowRect(hwnd, &rect);
         int centerX = rect.left + (rect.right - rect.left) / 2;
@@ -367,10 +392,7 @@ void GamePlayScene::Update() {
         const float pitchLimit = static_cast<float>(M_PI / 2.0 - 0.01);
         camTrans.rotate.x = std::clamp(camTrans.rotate.x, -pitchLimit, pitchLimit);
     } else {
-        if (isCursorLocked_) {
-            ShowCursor(TRUE);
-            isCursorLocked_ = false;
-        }
+        // マウスモード: ImGui操作が可能。カメラは回転しない
     }
 
     if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
@@ -407,18 +429,24 @@ void GamePlayScene::Update() {
     AdvAnim::ApplyAnimation(cubeSkeleton_, cubeAnimation_, cubeAnimationTime_);
     // 2. スケルトンの階層行列を更新
     AdvAnim::Update(cubeSkeleton_);
+    // cubeRenderModel_ のスキニングパレットを更新
+    if (cubeRenderModel_ && cubeRenderModel_->skinningData_) {
+        for (const auto& joint : cubeSkeleton_.joints) {
+            if (cubeRenderModel_->bones_.count(joint.name)) {
+                const auto& bone = cubeRenderModel_->bones_.at(joint.name);
+                cubeRenderModel_->skinningData_->boneMatrices[bone.index] = Multiply(bone.offsetMatrix, joint.skeletonSpaceMatrix);
+            }
+        }
+    }
 
     // 描画用のワールド行列を計算（スケルトン全体を移動させるための行列）
     cubeRenderModel_->transform.translate = Vector3{ 20.0f, 0.0f, 0.0f };
-    cubeRenderModel_->transform.scale = Vector3{ 2.0f, 2.0f, 2.0f }; // 少し小さく表示
+    cubeRenderModel_->transform.scale = Vector3{ 1.0f, 1.0f, 1.0f };
     Matrix4x4 cubeBaseWorldMatrix = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, cubeRenderModel_->transform.translate);
 
-    // ルートジョイントの行列を適用して表示用WVPを更新 (暫定的にルートを表示)
-    if (!cubeSkeleton_.joints.empty()) {
-        const auto& rootJoint = cubeSkeleton_.joints[cubeSkeleton_.root];
-        cubeTransformData_->WVP = Multiply(rootJoint.skeletonSpaceMatrix, Multiply(cubeBaseWorldMatrix, viewProjectionMatrix));
-        cubeTransformData_->World = Multiply(rootJoint.skeletonSpaceMatrix, cubeBaseWorldMatrix);
-    }
+    // 資料の指示により、スキニングモデルのWVPにはルートジョイントの行列を含めない
+    cubeTransformData_->WVP = Multiply(cubeBaseWorldMatrix, viewProjectionMatrix);
+    cubeTransformData_->World = cubeBaseWorldMatrix;
 
     for (uint32_t i = 0; i < kNumInstances; ++i) {
         if (particles_[i].currentTime >= particles_[i].lifeTime) {
@@ -572,16 +600,20 @@ void GamePlayScene::Draw() {
     DrawSkeleton(cubeSkeleton_, debugBaseWorld);
 
     // 2. スカイボックスの描画
+    /*
     if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
         ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
         commandList->SetDescriptorHeaps(1, skyboxHeaps);
         commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         Matrix4x4 skyboxWorld = MakeAffineMatrix(Vector3{ 1000.0f, 1000.0f, 1000.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
         Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
 
         skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
     }
+    */
 
     // 3. パーティクルの描画（半透明なので最後に描画）
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
@@ -598,11 +630,11 @@ void GamePlayScene::Draw() {
                 particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
             }
             if (ringModel_) {
-                ringModel_->Draw(commandList, kRingInstanceCount, TextureManager::GetInstance()->GetSrvHandleGPU("gradationLine.png"), ringInstancingSrvHandleGPU_);
+                ringModel_->Draw(commandList, kRingInstanceCount, gradationSrvHandleGPU_, ringInstancingSrvHandleGPU_);
             }
             if (cylinderModel_) {
                 // シリンダーはポータル風に加算合成で描画する
-                cylinderModel_->Draw(commandList, kCylinderInstanceCount, TextureManager::GetInstance()->GetSrvHandleGPU("gradationLine.png"), cylinderInstancingSrvHandleGPU_);
+                cylinderModel_->Draw(commandList, kCylinderInstanceCount, gradationSrvHandleGPU_, cylinderInstancingSrvHandleGPU_);
             }
         }
 

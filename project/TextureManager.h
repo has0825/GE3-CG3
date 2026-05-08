@@ -38,4 +38,8 @@ private:
     uint32_t useDescriptorIndex_ = 0;
     uint32_t descriptorSizeSRV_ = 0;
     std::unordered_map<std::string, TextureData> textureDatas_;
-};
+
+    // テクスチャ読み込み用コマンドリスト
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> commandAllocator_;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList_;
+};

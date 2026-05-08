@@ -1,4 +1,4 @@
-﻿#include "Game.h"
+#include "Game.h"
 #include <Windows.h>
 #include <dxgidebug.h>
 #include <memory> 
@@ -12,7 +12,7 @@ struct D3DResourceLeakChecker {
     }
 };
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
     D3DResourceLeakChecker leakChecker;
 

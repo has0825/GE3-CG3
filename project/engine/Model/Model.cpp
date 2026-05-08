@@ -482,6 +482,7 @@ void Model::DrawModel(
     }
 
     commandList->IASetVertexBuffers(0, 1, vbView);
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
     commandList->SetGraphicsRootDescriptorTable(3, environmentSrvHandle);
