@@ -257,6 +257,7 @@ void GamePlayScene::Initialize() {
 
     cubeRenderModel_ = std::make_unique<Model>();
     cubeRenderModel_->Initialize(cubeModel_.modelData, device);
+    cubeRenderModel_->bones_ = cubeModel_.bones;
     
     // 定数バッファの生成
     cubeTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));

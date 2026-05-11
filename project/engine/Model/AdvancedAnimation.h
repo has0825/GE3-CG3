@@ -35,6 +35,7 @@ namespace AdvAnim {
     struct AnimatedModel {
         ModelData modelData;
         Node rootNode;
+        std::map<std::string, Bone> bones;
     };
 
     template <typename tValue>

@@ -18,11 +18,7 @@ struct Node {
     std::vector<Node> children;
 };
 
-struct Bone {
-    std::string name;
-    uint32_t index;
-    Matrix4x4 offsetMatrix;
-};
+
 
 struct AnimationKey {
     float time;

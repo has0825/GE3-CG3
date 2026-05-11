@@ -49,6 +49,12 @@ struct MaterialData {
 };
 
 // モデルデータ
+struct Bone {
+	std::string name;
+	uint32_t index;
+	Matrix4x4 offsetMatrix;
+};
+
 struct ModelData {
 	std::vector<VertexData> vertices;
 	std::vector<uint32_t> indices;
