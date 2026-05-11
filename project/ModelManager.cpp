@@ -89,6 +89,9 @@ static ModelData LoadOjFile(const std::string& directoryPath, const std::string&
             modelData.vertices.push_back(triangle[2]);
             modelData.vertices.push_back(triangle[1]);
             modelData.vertices.push_back(triangle[0]);
+            modelData.indices.push_back((uint32_t)modelData.indices.size());
+            modelData.indices.push_back((uint32_t)modelData.indices.size());
+            modelData.indices.push_back((uint32_t)modelData.indices.size());
         } else if (identifier == "mtllib") {
             std::string materialFilename;
             s >> materialFilename;
@@ -118,6 +121,7 @@ void ModelManager::LoadModel(const std::string& directoryPath, const std::string
 
     ModelData rawData = LoadOjFile(directoryPath, filename);
     commonData->vertices = rawData.vertices;
+    commonData->indices = rawData.indices;
     commonData->materialData = rawData.material;
 
     commonData->vertexResource = CreateBufferResource(device_, sizeof(VertexData) * commonData->vertices.size());
@@ -129,6 +133,18 @@ void ModelManager::LoadModel(const std::string& directoryPath, const std::string
     commonData->vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
     std::memcpy(vertexData, commonData->vertices.data(), sizeof(VertexData) * commonData->vertices.size());
     commonData->vertexResource->Unmap(0, nullptr);
+
+    if (!commonData->indices.empty()) {
+        commonData->indexResource = CreateBufferResource(device_, sizeof(uint32_t) * commonData->indices.size());
+        commonData->indexBufferView.BufferLocation = commonData->indexResource->GetGPUVirtualAddress();
+        commonData->indexBufferView.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * commonData->indices.size());
+        commonData->indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+
+        uint32_t* indexData = nullptr;
+        commonData->indexResource->Map(0, nullptr, reinterpret_cast<void**>(&indexData));
+        std::memcpy(indexData, commonData->indices.data(), sizeof(uint32_t) * commonData->indices.size());
+        commonData->indexResource->Unmap(0, nullptr);
+    }
 
     modelDatas_[key] = commonData;
 }

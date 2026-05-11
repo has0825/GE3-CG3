@@ -30,9 +30,8 @@ std::unique_ptr<Model> Model::CreateParticleModel(ID3D12Device* device) {
     modelData.vertices.push_back({ { -1.0f, 1.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
     modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
     modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
-    modelData.vertices.push_back({ { -1.0f, -1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
-    modelData.vertices.push_back({ { 1.0f, 1.0f, 0.0f, 1.0f },  { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } });
     modelData.vertices.push_back({ { 1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } });
+    modelData.indices = { 0, 1, 2, 2, 1, 3 };
 
     model->Initialize(modelData, device);
     return model;
@@ -60,13 +59,19 @@ std::unique_ptr<Model> Model::CreateRingModel(ID3D12Device* device) {
         VertexData v3 = { {-s * kInnerRadius, c * kInnerRadius, 0.0f, 1.0f}, {u, 1.0f}, {0.0f, 0.0f, -1.0f} };
         VertexData v4 = { {-sNext * kInnerRadius, cNext * kInnerRadius, 0.0f, 1.0f}, {uNext, 1.0f}, {0.0f, 0.0f, -1.0f} };
 
-        modelData.vertices.push_back(v3);
+        uint32_t start = (uint32_t)modelData.vertices.size();
         modelData.vertices.push_back(v1);
         modelData.vertices.push_back(v2);
-
         modelData.vertices.push_back(v3);
-        modelData.vertices.push_back(v2);
         modelData.vertices.push_back(v4);
+
+        modelData.indices.push_back(start + 2);
+        modelData.indices.push_back(start + 0);
+        modelData.indices.push_back(start + 1);
+
+        modelData.indices.push_back(start + 2);
+        modelData.indices.push_back(start + 1);
+        modelData.indices.push_back(start + 3);
     }
 
     model->Initialize(modelData, device);
@@ -96,13 +101,19 @@ std::unique_ptr<Model> Model::CreateCylinderModel(ID3D12Device* device) {
         VertexData v3 = { {-s * kBottomRadius, 0.0f, c * kBottomRadius, 1.0f}, {u, 1.0f}, {-s, 0.0f, c} };
         VertexData v4 = { {-sNext * kBottomRadius, 0.0f, cNext * kBottomRadius, 1.0f}, {uNext, 1.0f}, {-sNext, 0.0f, cNext} };
 
-        modelData.vertices.push_back(v3);
+        uint32_t start = (uint32_t)modelData.vertices.size();
         modelData.vertices.push_back(v1);
         modelData.vertices.push_back(v2);
-
         modelData.vertices.push_back(v3);
-        modelData.vertices.push_back(v2);
         modelData.vertices.push_back(v4);
+
+        modelData.indices.push_back(start + 2);
+        modelData.indices.push_back(start + 1);
+        modelData.indices.push_back(start + 0);
+
+        modelData.indices.push_back(start + 2);
+        modelData.indices.push_back(start + 3);
+        modelData.indices.push_back(start + 1);
     }
 
     model->Initialize(modelData, device);
@@ -116,29 +127,22 @@ std::unique_ptr<Model> Model::CreateSphereModel(ID3D12Device* device) {
     const float kLatStep = 3.1415926535f / float(kSubdivision);
     const float kLonStep = 2.0f * 3.1415926535f / float(kSubdivision);
 
+    for (uint32_t lat = 0; lat <= kSubdivision; ++lat) {
+        float phi = lat * kLatStep;
+        for (uint32_t lon = 0; lon <= kSubdivision; ++lon) {
+            float theta = lon * kLonStep;
+            Vector3 p = { std::sin(phi) * std::cos(theta), std::cos(phi), std::sin(phi) * std::sin(theta) };
+            modelData.vertices.push_back({ {p.x, p.y, p.z, 1.0f}, {(float)lon / kSubdivision, (float)lat / kSubdivision}, p });
+        }
+    }
     for (uint32_t lat = 0; lat < kSubdivision; ++lat) {
-        float phi1 = lat * kLatStep;
-        float phi2 = (lat + 1) * kLatStep;
         for (uint32_t lon = 0; lon < kSubdivision; ++lon) {
-            float theta1 = lon * kLonStep;
-            float theta2 = (lon + 1) * kLonStep;
-
-            auto getPos = [](float phi, float theta) -> Vector3 {
-                return { std::sin(phi) * std::cos(theta), std::cos(phi), std::sin(phi) * std::sin(theta) };
-            };
-
-            Vector3 p1 = getPos(phi1, theta1);
-            Vector3 p2 = getPos(phi1, theta2);
-            Vector3 p3 = getPos(phi2, theta1);
-            Vector3 p4 = getPos(phi2, theta2);
-
-            modelData.vertices.push_back({ {p1.x, p1.y, p1.z, 1.0f}, {0,0}, p1 });
-            modelData.vertices.push_back({ {p2.x, p2.y, p2.z, 1.0f}, {0,0}, p2 });
-            modelData.vertices.push_back({ {p3.x, p3.y, p3.z, 1.0f}, {0,0}, p3 });
-
-            modelData.vertices.push_back({ {p3.x, p3.y, p3.z, 1.0f}, {0,0}, p3 });
-            modelData.vertices.push_back({ {p2.x, p2.y, p2.z, 1.0f}, {0,0}, p2 });
-            modelData.vertices.push_back({ {p4.x, p4.y, p4.z, 1.0f}, {0,0}, p4 });
+            uint32_t v1 = lat * (kSubdivision + 1) + lon;
+            uint32_t v2 = v1 + 1;
+            uint32_t v3 = (lat + 1) * (kSubdivision + 1) + lon;
+            uint32_t v4 = v3 + 1;
+            modelData.indices.push_back(v1); modelData.indices.push_back(v2); modelData.indices.push_back(v3);
+            modelData.indices.push_back(v3); modelData.indices.push_back(v2); modelData.indices.push_back(v4);
         }
     }
     model->Initialize(modelData, device);
@@ -157,8 +161,11 @@ std::unique_ptr<Model> Model::CreateBoxModel(ID3D12Device* device) {
         0,2,1, 1,2,3, 4,5,6, 5,7,6, 0,1,4, 1,5,4,
         2,6,3, 3,6,7, 0,4,2, 4,6,2, 1,3,5, 3,7,5
     };
-    for (uint32_t i : indices) {
+    for (int i = 0; i < 8; i++) {
         modelData.vertices.push_back({ {p[i].x, p[i].y, p[i].z, 1.0f}, {0,0}, {0,0,0} });
+    }
+    for (uint32_t i : indices) {
+        modelData.indices.push_back(i);
     }
     model->Initialize(modelData, device);
     return model;
@@ -185,10 +192,12 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
         model->ReadNodeHierarchy(scene->mRootNode, model->rootNode);
     }
 
-    // ボーン情報の読み込み
+    // メッシュの解析
     for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
         aiMesh* mesh = scene->mMeshes[i];
-        
+        assert(mesh->HasNormals());
+        assert(mesh->HasTextureCoords(0));
+
         // 頂点ごとのウェイト情報を一時保存
         struct Weight {
             uint32_t index;
@@ -217,27 +226,36 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
             }
         }
 
+        // 頂点解析
+        modelData.vertices.clear();
+        modelData.vertices.resize(mesh->mNumVertices);
+        for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
+            aiVector3D& position = mesh->mVertices[v];
+            aiVector3D& normal = mesh->mNormals[v];
+            aiVector3D& texcoord = mesh->mTextureCoords[0][v];
+            
+            VertexData& vertex = modelData.vertices[v];
+            vertex = {}; // ゼロ初期化
+
+            // 元の座標系に戻す（Assimpのフラグに任せる）
+            vertex.position = { position.x, position.y, position.z, 1.0f };
+            vertex.normal = { normal.x, normal.y, normal.z };
+            vertex.texcoord = { texcoord.x, texcoord.y };
+
+            // ウェイト情報の書き込み
+            const auto& weights = vertexWeights[v];
+            for (size_t w = 0; w < weights.size() && w < 4; w++) {
+                vertex.jointIndices[w] = weights[w].index;
+                vertex.jointWeights[w] = weights[w].weight;
+            }
+        }
+
+        // インデックス解析
         for (unsigned int j = 0; j < mesh->mNumFaces; j++) {
-            aiFace face = mesh->mFaces[j];
+            aiFace& face = mesh->mFaces[j];
+            assert(face.mNumIndices == 3);
             for (unsigned int k = 0; k < face.mNumIndices; k++) {
-                unsigned int index = face.mIndices[k];
-                VertexData vertex{};
-                vertex.position = { mesh->mVertices[index].x, mesh->mVertices[index].y, mesh->mVertices[index].z, 1.0f };
-
-                if (mesh->HasNormals()) {
-                    vertex.normal = { mesh->mNormals[index].x, mesh->mNormals[index].y, mesh->mNormals[index].z };
-                }
-                if (mesh->mTextureCoords[0]) {
-                    vertex.texcoord = { mesh->mTextureCoords[0][index].x, mesh->mTextureCoords[0][index].y };
-                }
-
-                // ウェイト情報の書き込み
-                const auto& weights = vertexWeights[index];
-                for (size_t w = 0; w < weights.size() && w < 4; w++) {
-                    vertex.jointIndices[w] = weights[w].index;
-                    vertex.jointWeights[w] = weights[w].weight;
-                }
-                modelData.vertices.push_back(vertex);
+                modelData.indices.push_back(face.mIndices[k]);
             }
         }
     }
@@ -294,6 +312,7 @@ void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
 
 void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
     vertices_ = modelData.vertices;
+    indices_ = modelData.indices;
 
     vertexResource_ = CreateBufferResource(device, sizeof(VertexData) * vertices_.size());
     vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
@@ -304,6 +323,18 @@ void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
     vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
     std::memcpy(vertexData, vertices_.data(), sizeof(VertexData) * vertices_.size());
     vertexResource_->Unmap(0, nullptr);
+
+    if (!indices_.empty()) {
+        indexResource_ = CreateBufferResource(device, sizeof(uint32_t) * indices_.size());
+        indexBufferView_.BufferLocation = indexResource_->GetGPUVirtualAddress();
+        indexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * indices_.size());
+        indexBufferView_.Format = DXGI_FORMAT_R32_UINT;
+
+        uint32_t* indexData = nullptr;
+        indexResource_->Map(0, nullptr, reinterpret_cast<void**>(&indexData));
+        std::memcpy(indexData, indices_.data(), sizeof(uint32_t) * indices_.size());
+        indexResource_->Unmap(0, nullptr);
+    }
 
     materialResource_ = CreateBufferResource(device, sizeof(Material));
     Material* materialData = nullptr;
@@ -427,19 +458,23 @@ void Model::SetColor(const Vector4& color) {
 
 void Model::Draw(ID3D12GraphicsCommandList* commandList) {
     D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
-    UINT vertexCount = 0;
+    D3D12_INDEX_BUFFER_VIEW* ibView = nullptr;
+    UINT indexCount = 0;
 
     if (commonData_) {
         vbView = &commonData_->vertexBufferView;
-        vertexCount = (UINT)commonData_->vertices.size();
+        ibView = &commonData_->indexBufferView;
+        indexCount = (UINT)commonData_->indices.size();
     } else {
         vbView = &vertexBufferView_;
-        vertexCount = (UINT)vertices_.size();
+        ibView = &indexBufferView_;
+        indexCount = (UINT)indices_.size();
     }
 
     commandList->IASetVertexBuffers(0, 1, vbView);
+    commandList->IASetIndexBuffer(ibView);
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
-    commandList->DrawInstanced(vertexCount, 1, 0, 0);
+    commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
 }
 
 void Model::Draw(
@@ -449,21 +484,25 @@ void Model::Draw(
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandle) {
 
     D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
-    UINT vertexCount = 0;
+    D3D12_INDEX_BUFFER_VIEW* ibView = nullptr;
+    UINT indexCount = 0;
 
     if (commonData_) {
         vbView = &commonData_->vertexBufferView;
-        vertexCount = (UINT)commonData_->vertices.size();
+        ibView = &commonData_->indexBufferView;
+        indexCount = (UINT)commonData_->indices.size();
     } else {
         vbView = &vertexBufferView_;
-        vertexCount = (UINT)vertices_.size();
+        ibView = &indexBufferView_;
+        indexCount = (UINT)indices_.size();
     }
 
     commandList->IASetVertexBuffers(0, 1, vbView);
+    commandList->IASetIndexBuffer(ibView);
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
     commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandle);
-    commandList->DrawInstanced(vertexCount, instanceCount, 0, 0);
+    commandList->DrawIndexedInstanced(indexCount, instanceCount, 0, 0, 0);
 }
 
 void Model::DrawModel(
@@ -471,17 +510,21 @@ void Model::DrawModel(
     D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
     D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle) {
     D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
-    UINT vertexCount = 0;
+    D3D12_INDEX_BUFFER_VIEW* ibView = nullptr;
+    UINT indexCount = 0;
 
     if (commonData_) {
         vbView = &commonData_->vertexBufferView;
-        vertexCount = (UINT)commonData_->vertices.size();
+        ibView = &commonData_->indexBufferView;
+        indexCount = (UINT)commonData_->indices.size();
     } else {
         vbView = &vertexBufferView_;
-        vertexCount = (UINT)vertices_.size();
+        ibView = &indexBufferView_;
+        indexCount = (UINT)indices_.size();
     }
 
     commandList->IASetVertexBuffers(0, 1, vbView);
+    commandList->IASetIndexBuffer(ibView);
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandle);
@@ -492,5 +535,5 @@ void Model::DrawModel(
         commandList->SetGraphicsRootConstantBufferView(6, skinningResource_->GetGPUVirtualAddress());
     }
 
-    commandList->DrawInstanced(vertexCount, 1, 0, 0);
+    commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
 }

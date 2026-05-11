@@ -55,9 +55,12 @@ struct SkinningPalette {
 
 struct ModelCommonData {
     std::vector<VertexData> vertices;
+    std::vector<uint32_t> indices;
     MaterialData materialData;
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource;
     D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> indexResource;
+    D3D12_INDEX_BUFFER_VIEW indexBufferView{};
 };
 
 class Model {
@@ -108,8 +111,11 @@ public:
 private:
     ModelCommonData* commonData_ = nullptr;
     std::vector<VertexData> vertices_;
+    std::vector<uint32_t> indices_;
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
     D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> indexResource_;
+    D3D12_INDEX_BUFFER_VIEW indexBufferView_{};
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 
     void ReadNodeHierarchy(struct aiNode* node, Node& outNode);
