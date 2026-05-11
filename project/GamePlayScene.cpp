@@ -426,6 +426,7 @@ void GamePlayScene::Update() {
     cubeAnimationTime_ += kDeltaTime;
     cubeAnimationTime_ = std::fmod(cubeAnimationTime_, cubeAnimation_.duration);
 
+    cubeRenderModel_->transform.rotate.y += 0.02f;
     // 1. アニメーションをスケルトンに適用
     AdvAnim::ApplyAnimation(cubeSkeleton_, cubeAnimation_, cubeAnimationTime_);
     // 2. スケルトンの階層行列を更新
