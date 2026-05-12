@@ -39,6 +39,11 @@ public:
 	ID3D12PipelineState* GetSkinningPipelineState() { return skinningPipelineState_.Get(); }
 	ID3D12RootSignature* GetComputeRootSignature() { return computeRootSignature_.Get(); }
 	ID3D12PipelineState* GetSkinningComputePipelineState() { return skinningComputePipelineState_.Get(); }
+	ID3D12RootSignature* GetGpuParticleRootSignature() { return gpuParticleRootSignature_.Get(); }
+	ID3D12PipelineState* GetGpuParticlePipelineState() { return gpuParticlePipelineState_.Get(); }
+	ID3D12RootSignature* GetGpuParticleInitializeRootSignature() { return gpuParticleInitializeRootSignature_.Get(); }
+	ID3D12PipelineState* GetGpuParticleInitializePipelineState() { return gpuParticleInitializePipelineState_.Get(); }
+
 
 private:
     GraphicsPipeline() = default;
@@ -67,6 +72,11 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> computeRootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningComputePipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> gpuParticleRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> gpuParticlePipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> gpuParticleInitializeRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> gpuParticleInitializePipelineState_;
+
 
     std::ofstream logStream_;
 };

@@ -304,6 +304,9 @@ void GamePlayScene::Initialize() {
     }
 
     isCameraMode_ = false;
+
+    gpuParticleManager_ = std::make_unique<GpuParticleManager>();
+    gpuParticleManager_->Initialize(device);
 }
 
 void GamePlayScene::Finalize() {
@@ -579,6 +582,10 @@ void GamePlayScene::Update() {
         spriteInstancingData_[0].WVP = Multiply(worldSprite, viewProjSprite);
         spriteInstancingData_[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
     }
+
+    if (gpuParticleManager_) {
+        gpuParticleManager_->Update(camera_->GetViewProjectionMatrix(), camera_->GetBillboardMatrix());
+    }
 }
 
 void GamePlayScene::Draw() {
@@ -723,6 +730,10 @@ void GamePlayScene::Draw() {
                 particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
             }
         }
+    }
+
+    if (gpuParticleManager_) {
+        gpuParticleManager_->Draw(commandList, textureSrvHandleGPU_);
     }
 }
 

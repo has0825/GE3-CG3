@@ -32,6 +32,8 @@
     <ClCompile Include="Fuga.cpp" />
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="GamePlayScene.cpp" />
+    <ClCompile Include="GpuParticleManager.cpp" />
+
     <ClCompile Include="Hoge.cpp" />
     <ClCompile Include="ImGuiManager.cpp" />
     <ClCompile Include="Input.cpp" />
@@ -121,6 +123,8 @@
     <ClInclude Include="Fuga.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="GamePlayScene.h" />
+    <ClInclude Include="GpuParticle.h" />
+
     <ClInclude Include="Hoge.h" />
     <ClInclude Include="ImGuiManager.h" />
     <ClInclude Include="Input.h" />

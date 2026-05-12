@@ -30,3 +30,15 @@ Begin CompileShader, path:Skinning.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:Skinning.CS.hlsl, profile:cs_6_0
 
+Begin CompileShader, path:InitializeParticle.CS.hlsl, profile:cs_6_0
+
+Compile Succeeded, path:InitializeParticle.CS.hlsl, profile:cs_6_0
+
+Begin CompileShader, path:GpuParticle.VS.hlsl, profile:vs_6_0
+
+Compile Succeeded, path:GpuParticle.VS.hlsl, profile:vs_6_0
+
+Begin CompileShader, path:GpuParticle.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:GpuParticle.PS.hlsl, profile:ps_6_0
+

@@ -9,6 +9,7 @@
 #include "Skybox.h"
 #include "DataTypes.h"
 #include "AdvancedAnimation.h"
+#include "GpuParticle.h"
 #include <vector>
 #include <random>
 #include <memory>
@@ -160,6 +161,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> debugTransformResources_[kMaxDebugInstances];
     TransformationMatrix* debugTransformData_[kMaxDebugInstances] = { nullptr };
     uint32_t debugTransformIndex_ = 0;
+
+    std::unique_ptr<GpuParticleManager> gpuParticleManager_;
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
 };

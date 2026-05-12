@@ -17,6 +17,7 @@ public:
 
 	// --- ゲッター ---
 	const Matrix4x4& GetViewProjectionMatrix() const { return viewProjectionMatrix_; }
+	const Matrix4x4& GetBillboardMatrix() const { return billboardMatrix_; }
 	const Matrix4x4& GetViewMatrix() const { return viewMatrix_; }
 	const Matrix4x4& GetProjectionMatrix() const { return projectionMatrix_; }
 	const Vector3& GetTranslate() const { return transform_.translate; }
@@ -30,6 +31,7 @@ private:
 	Matrix4x4 viewMatrix_;
 	Matrix4x4 projectionMatrix_;
 	Matrix4x4 viewProjectionMatrix_;
+	Matrix4x4 billboardMatrix_;
 
 	float fov_;
 	float aspectRatio_;

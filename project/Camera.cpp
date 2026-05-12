@@ -28,4 +28,10 @@ void Camera::Update() {
 
 	// 4. 合成行列 (ViewProjection) を作成
 	viewProjectionMatrix_ = Multiply(viewMatrix_, projectionMatrix_);
+
+	// 5. ビルボード行列を作成
+	Matrix4x4 rotateX = MakeRotateXMatrix(transform_.rotate.x);
+	Matrix4x4 rotateY = MakeRotateYMatrix(transform_.rotate.y);
+	Matrix4x4 rotateZ = MakeRotateZMatrix(transform_.rotate.z);
+	billboardMatrix_ = Multiply(Multiply(rotateX, rotateY), rotateZ);
 }
