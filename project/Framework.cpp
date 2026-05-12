@@ -1,4 +1,5 @@
 #include "Framework.h"
+#include "SrvManager.h"
 #include <dbghelp.h>
 #include <strsafe.h>
 #include <iostream> // 追加: Log用
@@ -99,13 +100,15 @@ void Framework::Initialize() {
     dxCommon_ = DirectXCommon::GetInstance();
     dxCommon_->Initialize(winApp_);
 
+    SrvManager::GetInstance()->Initialize(dxCommon_);
+
     // COMの初期化（Audio用）
     CoInitializeEx(0, COINIT_MULTITHREADED);
 
     audio_ = std::make_unique<Audio>();
     audio_->Initialize();
-
-    graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
+    
+    graphicsPipeline_ = GraphicsPipeline::GetInstance();
     graphicsPipeline_->Initialize(dxCommon_->GetDevice());
 
     // SRVヒープ作成

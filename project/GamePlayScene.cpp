@@ -5,6 +5,7 @@
 #include "MathUtil.h"
 #include "DataTypes.h"
 #include "TextureManager.h"
+#include "SrvManager.h"
 #include <algorithm>
 
 #ifdef USE_IMGUI
@@ -41,11 +42,11 @@ void GamePlayScene::Initialize() {
 
     audio_->Initialize();
 
-    graphicsPipeline_ = std::make_unique<GraphicsPipeline>();
+    graphicsPipeline_ = GraphicsPipeline::GetInstance();
     graphicsPipeline_->Initialize(device);
 
-    srvDescriptorHeap_ = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
-    descriptorSizeSRV_ = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    srvDescriptorHeap_ = SrvManager::GetInstance()->GetDescriptorHeap();
+    descriptorSizeSRV_ = SrvManager::GetInstance()->GetDescriptorSize();
 
     std::random_device seedGenerator;
     randomEngine_.seed(seedGenerator());
@@ -121,8 +122,9 @@ void GamePlayScene::Initialize() {
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 1);
-    textureSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 1);
+    uint32_t textureSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(textureSrvIndex);
+    textureSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(textureSrvIndex);
     device->CreateShaderResourceView(textureResource_.Get(), &srvDesc, textureSrvHandleCPU);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
@@ -134,8 +136,9 @@ void GamePlayScene::Initialize() {
     instancingSrvDesc.Buffer.NumElements = kNumInstances;
     instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 2);
-    instancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 2);
+    uint32_t instancingSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(instancingSrvIndex);
+    instancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(instancingSrvIndex);
     device->CreateShaderResourceView(instancingResource_.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
     DirectX::ScratchImage textMipImages = LoadTexture("resources/text1.png");
@@ -149,8 +152,9 @@ void GamePlayScene::Initialize() {
     textSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     textSrvDesc.Texture2D.MipLevels = UINT(textMetadata.mipLevels);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE textSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 3);
-    textSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 3);
+    uint32_t textSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE textSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(textSrvIndex);
+    textSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(textSrvIndex);
     device->CreateShaderResourceView(textTextureResource_.Get(), &textSrvDesc, textSrvHandleCPU);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC spriteInstancingSrvDesc{};
@@ -162,8 +166,9 @@ void GamePlayScene::Initialize() {
     spriteInstancingSrvDesc.Buffer.NumElements = kSpriteInstanceCount;
     spriteInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 4);
-    spriteInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 4);
+    uint32_t spriteInstancingSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE spriteInstancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(spriteInstancingSrvIndex);
+    spriteInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(spriteInstancingSrvIndex);
     device->CreateShaderResourceView(spriteInstancingResource_.Get(), &spriteInstancingSrvDesc, spriteInstancingSrvHandleCPU);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC ringInstancingSrvDesc{};
@@ -175,8 +180,9 @@ void GamePlayScene::Initialize() {
     ringInstancingSrvDesc.Buffer.NumElements = kRingInstanceCount;
     ringInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 5);
-    ringInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 5);
+    uint32_t ringInstancingSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(ringInstancingSrvIndex);
+    ringInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(ringInstancingSrvIndex);
     device->CreateShaderResourceView(ringInstancingResource_.Get(), &ringInstancingSrvDesc, ringInstancingSrvHandleCPU);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC cylinderInstancingSrvDesc{};
@@ -188,8 +194,9 @@ void GamePlayScene::Initialize() {
     cylinderInstancingSrvDesc.Buffer.NumElements = kCylinderInstanceCount;
     cylinderInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 6);
-    cylinderInstancingSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 6);
+    uint32_t cylinderInstancingSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(cylinderInstancingSrvIndex);
+    cylinderInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(cylinderInstancingSrvIndex);
     device->CreateShaderResourceView(cylinderInstancingResource_.Get(), &cylinderInstancingSrvDesc, cylinderInstancingSrvHandleCPU);
 
     // gradationLine.png の読み込みとSRV作成
@@ -204,8 +211,9 @@ void GamePlayScene::Initialize() {
     gradationSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     gradationSrvDesc.Texture2D.MipLevels = UINT(gradationMetadata.mipLevels);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE gradationSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 7);
-    gradationSrvHandleGPU_ = GetGPUDescriptorHandle(srvDescriptorHeap_.Get(), descriptorSizeSRV_, 7);
+    uint32_t gradationSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE gradationSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(gradationSrvIndex);
+    gradationSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(gradationSrvIndex);
     device->CreateShaderResourceView(gradationTextureResource_.Get(), &gradationSrvDesc, gradationSrvHandleCPU);
 
     commandList->Close();
@@ -625,7 +633,9 @@ void GamePlayScene::Draw() {
             cubeSkinCluster_,
             TextureManager::GetInstance()->GetSrvHandleGPU("simpleSkin/uvChecker.png"),
             TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"),
-            cubeTransformResource_->GetGPUVirtualAddress()
+            cubeTransformResource_->GetGPUVirtualAddress(),
+            directionalLightResource_->GetGPUVirtualAddress(),
+            cameraResource_->GetGPUVirtualAddress()
         );
     }
 

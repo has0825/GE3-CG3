@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <cstdint>
+
 // 頂点データ
 struct VertexData {
 	Vector4 position;
@@ -13,35 +14,22 @@ struct VertexData {
 	float jointWeights[4];
 };
 
-// マテリアル
-struct Material {
-	Vector4 color;
-	int32_t enableLighting;
-	float padding[3];
-	Matrix4x4 uvTransform;
-
-	// ★以下の2つを追加
-	float shininess;
-	float environmentCoefficient;
+// 頂点データ（スキニング用）
+struct VertexDataSkinning {
+	Vector4 position;
+	Vector2 texcoord;
+	Vector3 normal;
+	float weight[4];
+	uint32_t index[4];
 };
 
-// 座標変換行列
-struct TransformationMatrix {
-	Matrix4x4 WVP;
-	Matrix4x4 World;
-	// ★修正点: カメラ座標をここから削除
+struct VertexInfluence {
+	float weight[4];
+	uint32_t index[4];
 };
 
-// ★修正点: カメラ専用の構造体を追加
-struct CameraForGpu {
-	Vector3 worldPosition;
-};
-
-// 平行光源
-struct DirectionalLight {
-	Vector4 color;
-	Vector3 direction;
-	float intensity;
+struct SkinningInformation {
+	uint32_t numVertices;
 };
 
 struct VertexWeightData {
@@ -54,7 +42,18 @@ struct JointWeightData {
 	std::vector<VertexWeightData> vertexWeights;
 };
 
-// モデルのマテリアル情報
+// マテリアルデータ（Constant Buffer用）
+struct Material {
+	Vector4 color;
+	int32_t enableLighting;
+	float padding[3];
+	Matrix4x4 uvTransform;
+	float shininess;
+	float environmentCoefficient;
+	float padding2[2];
+};
+
+// マテリアルデータ（アプリ管理用）
 struct MaterialData {
 	std::string textureFilePath;
 };
@@ -64,6 +63,8 @@ struct Bone {
 	std::string name;
 	uint32_t index;
 	Matrix4x4 offsetMatrix;
+
+	Bone() : index(0), offsetMatrix({}) {}
 };
 
 struct ModelData {
@@ -74,22 +75,19 @@ struct ModelData {
 };
 
 // シェーダーの struct TransformationMatrix に対応
-struct TransformationMatrixForGPU {
+struct TransformationMatrix {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
 };
 
-// シェーダーの struct Material に対応
-struct MaterialForGPU {
-	Vector4 color;            // 16バイト (float x 4)
-	int32_t enableLighting;   // 4バイト
-	float padding[3];         // 12バイトの余白（※HLSLとのバイト数を合わせるための必須パディングです！）
-	Matrix4x4 uvTransform;    // 64バイト
+// 平行光源
+struct DirectionalLight {
+	Vector4 color;
+	Vector3 direction;
+	float intensity;
 };
 
-// シェーダーの struct DirectionalLight に対応
-struct DirectionalLightForGPU {
-	Vector4 color;            // 16バイト
-	Vector3 direction;        // 12バイト
-	float intensity;          // 4バイト
+// カメラ（CBuffer用）
+struct CameraData {
+	Vector3 worldPosition;
 };

@@ -43,6 +43,8 @@ struct Animation {
     float duration;
     float ticksPerSecond;
     std::vector<AnimationChannel> channels;
+
+    Animation() : duration(0.0f), ticksPerSecond(0.0f) {}
 };
 
 const uint32_t kMaxBones = 128;
@@ -95,7 +97,9 @@ public:
         const AdvAnim::SkinCluster& skinCluster,
         D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
         D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle,
-        D3D12_GPU_VIRTUAL_ADDRESS transformationMatrixAddress);
+        D3D12_GPU_VIRTUAL_ADDRESS transformationMatrixAddress,
+        D3D12_GPU_VIRTUAL_ADDRESS directionalLightAddress,
+        D3D12_GPU_VIRTUAL_ADDRESS cameraAddress);
 
     void SetEnvironmentCoefficient(float coefficient);
     void SetColor(const Vector4& color);

@@ -5,6 +5,8 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include "SrvManager.h"
+#include "GraphicsPipeline.h"
 
 void Model::ReadNodeHierarchy(aiNode* node, Node& outNode) {
     aiMatrix4x4 aiLocalMatrix = node->mTransformation;
@@ -543,35 +545,78 @@ void Model::DrawSkinningModel(
     const AdvAnim::SkinCluster& skinCluster,
     D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
     D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle,
-    D3D12_GPU_VIRTUAL_ADDRESS transformationMatrixAddress) {
+    D3D12_GPU_VIRTUAL_ADDRESS transformationMatrixAddress,
+    D3D12_GPU_VIRTUAL_ADDRESS directionalLightAddress,
+    D3D12_GPU_VIRTUAL_ADDRESS cameraAddress) {
+
+    // --- CSによるスキニング実行 ---
+    SrvManager* srvManager = SrvManager::GetInstance();
+    //srvManager->PreDraw(); // すでにセットされているはず
+
+    // ルートシグネチャとPSOのセット（Compute用）
+    GraphicsPipeline* pipeline = GraphicsPipeline::GetInstance();
+    commandList->SetComputeRootSignature(pipeline->GetComputeRootSignature());
+    commandList->SetPipelineState(pipeline->GetSkinningComputePipelineState());
+
+    // [0] t0, t1, t2 (Descriptor Table)
+    srvManager->SetComputeRootDescriptorTable(0, skinCluster.paletteSrvIndex);
     
-    const D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
+    // [1] u0 (OutputVertices)
+    srvManager->SetComputeRootDescriptorTable(1, skinCluster.outputVertexUavIndex);
+
+    // [2] b0 (SkinningInformation)
+    commandList->SetComputeRootConstantBufferView(2, skinCluster.infoResource->GetGPUVirtualAddress());
+
+    // Dispatch
+    commandList->Dispatch(UINT(vertices_.size() + 1023) / 1024, 1, 1);
+
+    // バリア (UAV -> Vertex Buffer)
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = skinCluster.outputVertexResource.Get();
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrier);
+
+    // --- 描画処理 ---
     const D3D12_INDEX_BUFFER_VIEW* ibView = nullptr;
     UINT indexCount = 0;
 
     if (commonData_) {
-        vbView = &commonData_->vertexBufferView;
         ibView = &commonData_->indexBufferView;
         indexCount = (UINT)commonData_->indices.size();
     } else {
-        vbView = &vertexBufferView_;
         ibView = &indexBufferView_;
         indexCount = (UINT)indices_.size();
     }
 
-    D3D12_VERTEX_BUFFER_VIEW vbvs[2] = {
-        *vbView,
-        skinCluster.influenceBufferView
-    };
-    commandList->IASetVertexBuffers(0, 2, vbvs);
+    // ★ここでグラフィックス用のパイプラインとルートシグネチャを再セットする
+    commandList->SetGraphicsRootSignature(pipeline->GetSkinningRootSignature());
+    commandList->SetPipelineState(pipeline->GetSkinningPipelineState());
+
+    commandList->IASetVertexBuffers(0, 1, &skinCluster.outputVertexBufferView);
     commandList->IASetIndexBuffer(ibView);
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+    // 各種定数バッファとテクスチャの再セット（ルートシグネチャ変更によりクリアされるため）
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixAddress);
-    commandList->SetGraphicsRootDescriptorTable(2, skinCluster.paletteSrvHandle.second);
+    // [2] MatrixPalette (b0, VS) は CSで計算済みのため不要（または空のデスクリプタをセット）
+    // [3] Texture
     commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandle);
+    // [4] Environment Map
     commandList->SetGraphicsRootDescriptorTable(4, environmentSrvHandle);
+    // [5] Directional Light
+    commandList->SetGraphicsRootConstantBufferView(5, directionalLightAddress);
+    // [6] Camera
+    commandList->SetGraphicsRootConstantBufferView(6, cameraAddress);
 
     commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+
+    // バリアを戻す (Vertex Buffer -> UAV) 次回のDispatchのため
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    commandList->ResourceBarrier(1, &barrier);
 }

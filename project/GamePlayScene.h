@@ -62,7 +62,7 @@ private:
     Input* input_ = nullptr;
 
     std::unique_ptr<Audio> audio_;
-    std::unique_ptr<GraphicsPipeline> graphicsPipeline_;
+    GraphicsPipeline* graphicsPipeline_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
 
     std::unique_ptr<Camera> camera_;

@@ -31,7 +31,7 @@ public:
 
     // --- 各シーンからリソースにアクセスするためのゲッターを追加 ---
     Audio* GetAudio() const { return audio_.get(); }
-    GraphicsPipeline* GetGraphicsPipeline() const { return graphicsPipeline_.get(); }
+    GraphicsPipeline* GetGraphicsPipeline() const { return graphicsPipeline_; }
     ID3D12DescriptorHeap* GetSrvDescriptorHeap() const { return srvDescriptorHeap_.Get(); }
     UINT GetDescriptorSizeSRV() const { return descriptorSizeSRV_; }
 
@@ -40,7 +40,7 @@ protected:
     WinApp* winApp_ = nullptr;
     DirectXCommon* dxCommon_ = nullptr;
     std::unique_ptr<Audio> audio_;
-    std::unique_ptr<GraphicsPipeline> graphicsPipeline_;
+    GraphicsPipeline* graphicsPipeline_ = nullptr;
 
     // SRVヒープ（汎用的に使うためここに保持）
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;

@@ -20,6 +20,8 @@ enum BlendMode {
 // グラフィックスパイプライン管理クラス
 class GraphicsPipeline {
 public:
+    static GraphicsPipeline* GetInstance();
+
     // 初期化
     void Initialize(ID3D12Device* device);
 
@@ -32,12 +34,18 @@ public:
 
     // ★追加：Object3d（キャラクターモデル）用のゲッター
     ID3D12RootSignature* GetObject3dRootSignature() const { return object3dRootSignature_.Get(); }
-    ID3D12PipelineState* GetObject3dPipelineState() const { return object3dPipelineState_.Get(); }
-
-    ID3D12RootSignature* GetSkinningRootSignature() const { return skinningRootSignature_.Get(); }
-    ID3D12PipelineState* GetSkinningPipelineState() const { return skinningPipelineState_.Get(); }
+    	ID3D12PipelineState* GetObject3dPipelineState() { return object3dPipelineState_.Get(); }
+	ID3D12RootSignature* GetSkinningRootSignature() { return skinningRootSignature_.Get(); }
+	ID3D12PipelineState* GetSkinningPipelineState() { return skinningPipelineState_.Get(); }
+	ID3D12RootSignature* GetComputeRootSignature() { return computeRootSignature_.Get(); }
+	ID3D12PipelineState* GetSkinningComputePipelineState() { return skinningComputePipelineState_.Get(); }
 
 private:
+    GraphicsPipeline() = default;
+    ~GraphicsPipeline() = default;
+    GraphicsPipeline(const GraphicsPipeline&) = delete;
+    GraphicsPipeline& operator=(const GraphicsPipeline&) = delete;
+
     // シェーダーのコンパイル
     Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
         const std::wstring& filePath,
@@ -54,8 +62,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> object3dRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dPipelineState_;
 
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningRootSignature_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;
+    	Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;
+
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> computeRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningComputePipelineState_;
 
     std::ofstream logStream_;
 };

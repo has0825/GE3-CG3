@@ -4,6 +4,7 @@
 #include <cassert>
 #include <vector>
 #include <Windows.h>
+#include "SrvManager.h"
 
 // stringからwstringへの変換ヘルパー
 static std::wstring ConvertString(const std::string& str) {
@@ -26,11 +27,8 @@ void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath)
     useDescriptorIndex_ = 0;
     textureDatas_.clear();
 
-    D3D12_DESCRIPTOR_HEAP_DESC descHeapDesc = {};
-    descHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    descHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    descHeapDesc.NumDescriptors = 1024;
-    device_->CreateDescriptorHeap(&descHeapDesc, IID_PPV_ARGS(&srvHeap_));
+    // SrvManagerを使用するため、独自のヒープ生成は削除
+    srvHeap_ = SrvManager::GetInstance()->GetDescriptorHeap();
 
     // コマンドリストの初期化
     device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator_));
@@ -38,10 +36,7 @@ void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath)
 }
 
 uint32_t TextureManager::Allocate() {
-    assert(useDescriptorIndex_ < 1024);
-    uint32_t index = useDescriptorIndex_;
-    useDescriptorIndex_++;
-    return index;
+    return SrvManager::GetInstance()->Allocate();
 }
 
 void TextureManager::LoadTexture(const std::string& fileName) {
@@ -92,26 +87,16 @@ void TextureManager::LoadTexture(const std::string& fileName) {
 
 
 
-    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = GetCPUDescriptorHandle(srvHeap_.Get(), descriptorSizeSRV_, useDescriptorIndex_);
-    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = GetGPUDescriptorHandle(srvHeap_.Get(), descriptorSizeSRV_, useDescriptorIndex_);
-    useDescriptorIndex_++;
+    uint32_t srvIndex = Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = SrvManager::GetInstance()->GetCPUDescriptorHandle(srvIndex);
+    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = SrvManager::GetInstance()->GetGPUDescriptorHandle(srvIndex);
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-    srvDesc.Format = metadata.format;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-
-    // Cubemap かどうかでSRVの設定を変える
+    // SrvManagerを使用してSRVを作成
     if (metadata.IsCubemap()) {
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-        srvDesc.TextureCube.MostDetailedMip = 0;
-        srvDesc.TextureCube.MipLevels = UINT_MAX;
-        srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+        SrvManager::GetInstance()->CreateSRVforTextureCube(srvIndex, textureResource.Get(), metadata.format, UINT(metadata.mipLevels));
     } else {
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+        SrvManager::GetInstance()->CreateSRVforTexture2D(srvIndex, textureResource.Get(), metadata.format, UINT(metadata.mipLevels));
     }
-
-    device_->CreateShaderResourceView(textureResource.Get(), &srvDesc, cpuHandle);
 
     TextureData& data = textureDatas_[fileName];
     data.resource = textureResource;

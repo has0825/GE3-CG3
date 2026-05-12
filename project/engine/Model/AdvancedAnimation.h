@@ -47,14 +47,35 @@ namespace AdvAnim {
         Matrix4x4 skeletonSpaceInverseTransposeMatrix;
     };
 
+    struct SkinningInformation {
+        uint32_t numVertices;
+    };
+
     struct SkinCluster {
         std::vector<Matrix4x4> inverseBindPoseMatrices;
         Microsoft::WRL::ComPtr<ID3D12Resource> influenceResource;
         D3D12_VERTEX_BUFFER_VIEW influenceBufferView;
+        std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> influenceSrvHandle;
         std::span<VertexInfluence> mappedInfluence;
         Microsoft::WRL::ComPtr<ID3D12Resource> paletteResource;
         std::span<WellForGPU> mappedPalette;
         std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> paletteSrvHandle;
+
+        // CS用
+        Microsoft::WRL::ComPtr<ID3D12Resource> inputVertexResource;
+        std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> inputVertexSrvHandle;
+
+        Microsoft::WRL::ComPtr<ID3D12Resource> outputVertexResource;
+        D3D12_VERTEX_BUFFER_VIEW outputVertexBufferView;
+        std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> outputVertexUavHandle;
+
+        Microsoft::WRL::ComPtr<ID3D12Resource> infoResource;
+        SkinningInformation* mappedInfo = nullptr;
+
+        uint32_t paletteSrvIndex;
+        uint32_t inputVertexSrvIndex;
+        uint32_t influenceSrvIndex;
+        uint32_t outputVertexUavIndex;
     };
 
     struct AnimatedModel {

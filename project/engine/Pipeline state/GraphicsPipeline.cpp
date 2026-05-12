@@ -8,6 +8,11 @@
 void Log(std::ostream& os, const std::string& message);
 std::string ConvertString(const std::wstring& str);
 
+GraphicsPipeline* GraphicsPipeline::GetInstance() {
+	static GraphicsPipeline instance;
+	return &instance;
+}
+
 void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	logStream_.open("ShaderCompile.log");
 
@@ -417,16 +422,14 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	assert(SUCCEEDED(hr));
 
 	// Skinning用シェーダーのコンパイル
-	Microsoft::WRL::ComPtr<IDxcBlob> skinningVSBlob = CompileShader(L"SkinningObject3d.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	Microsoft::WRL::ComPtr<IDxcBlob> skinningVSBlob = CompileShader(L"SkinningPost.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(skinningVSBlob != nullptr);
 
-	// Skinning用InputLayoutの拡張
-	D3D12_INPUT_ELEMENT_DESC skinningInputElements[5] = {};
+	// Skinning用InputLayoutの拡張 (CSでスキニング済みの頂点を受け取るため、ボーン情報は不要)
+	D3D12_INPUT_ELEMENT_DESC skinningInputElements[3] = {};
 	skinningInputElements[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
 	skinningInputElements[1] = { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
 	skinningInputElements[2] = { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
-	skinningInputElements[3] = { "WEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
-	skinningInputElements[4] = { "INDEX", 0, DXGI_FORMAT_R32G32B32A32_SINT, 1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinningPsoDesc = obj3dPsoDesc; // ベースは同じ
 	skinningPsoDesc.pRootSignature = skinningRootSignature_.Get();
@@ -435,6 +438,67 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	// PSは共通（Object3d.PS.hlsl）
 
 	hr = device->CreateGraphicsPipelineState(&skinningPsoDesc, IID_PPV_ARGS(&skinningPipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// ====================================================================
+	// ★追加部分：Compute Shader（スキニング用）のルートシグネチャ＆パイプライン
+	// ====================================================================
+
+	D3D12_ROOT_PARAMETER computeParams[3] = {};
+
+	// [0] t0, t1, t2 (MatrixPalette, InputVertices, Influences)
+	D3D12_DESCRIPTOR_RANGE computeSrvRanges[1] = {};
+	computeSrvRanges[0].BaseShaderRegister = 0;
+	computeSrvRanges[0].NumDescriptors = 3;
+	computeSrvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	computeSrvRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	computeParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	computeParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	computeParams[0].DescriptorTable.pDescriptorRanges = computeSrvRanges;
+	computeParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [1] u0 (OutputVertices)
+	D3D12_DESCRIPTOR_RANGE computeUavRanges[1] = {};
+	computeUavRanges[0].BaseShaderRegister = 0;
+	computeUavRanges[0].NumDescriptors = 1;
+	computeUavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+	computeUavRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	computeParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	computeParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	computeParams[1].DescriptorTable.pDescriptorRanges = computeUavRanges;
+	computeParams[1].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [2] b0 (SkinningInformation)
+	computeParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	computeParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	computeParams[2].Descriptor.ShaderRegister = 0;
+
+	D3D12_ROOT_SIGNATURE_DESC computeRootDesc{};
+	computeRootDesc.pParameters = computeParams;
+	computeRootDesc.NumParameters = _countof(computeParams);
+	computeRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> computeSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> computeErrorBlob;
+	hr = D3D12SerializeRootSignature(&computeRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &computeSignatureBlob, &computeErrorBlob);
+	if (FAILED(hr)) {
+		Log(logStream_, reinterpret_cast<char*>(computeErrorBlob->GetBufferPointer()));
+		assert(false);
+	}
+	hr = device->CreateRootSignature(0, computeSignatureBlob->GetBufferPointer(), computeSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&computeRootSignature_));
+	assert(SUCCEEDED(hr));
+
+	// CSのコンパイル
+	Microsoft::WRL::ComPtr<IDxcBlob> skinningCSBlob = CompileShader(L"Skinning.CS.hlsl", L"cs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(skinningCSBlob != nullptr);
+
+	D3D12_COMPUTE_PIPELINE_STATE_DESC computePsoDesc{};
+	computePsoDesc.pRootSignature = computeRootSignature_.Get();
+	computePsoDesc.CS = { skinningCSBlob->GetBufferPointer(), skinningCSBlob->GetBufferSize() };
+
+	hr = device->CreateComputePipelineState(&computePsoDesc, IID_PPV_ARGS(&skinningComputePipelineState_));
 	assert(SUCCEEDED(hr));
 }
 

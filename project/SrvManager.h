@@ -21,9 +21,13 @@ public:
 
     // SRV生成（テクスチャ用）
     void CreateSRVforTexture2D(uint32_t srvIndex, ID3D12Resource* pResource, DXGI_FORMAT Format, UINT MipLevels);
+    void CreateSRVforTextureCube(uint32_t srvIndex, ID3D12Resource* pResource, DXGI_FORMAT Format, UINT MipLevels);
 
     // SRV生成（Structured Buffer用）
     void CreateSRVforStructuredBuffer(uint32_t srvIndex, ID3D12Resource* pResource, UINT numElements, UINT structureByteStride);
+
+    // UAV生成（Structured Buffer用）
+    void CreateUAVforStructuredBuffer(uint32_t srvIndex, ID3D12Resource* pResource, UINT numElements, UINT structureByteStride);
 
     // ハンドル取得
     D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(uint32_t index);
@@ -31,8 +35,10 @@ public:
 
     // 描画コマンド発行
     void SetGraphicsRootDescriptorTable(UINT RootParameterIndex, uint32_t srvIndex);
+    void SetComputeRootDescriptorTable(UINT RootParameterIndex, uint32_t srvIndex);
 
     ID3D12DescriptorHeap* GetDescriptorHeap() { return descriptorHeap_.Get(); }
+    uint32_t GetDescriptorSize() const { return descriptorSize_; }
 
     static const uint32_t kMaxSRVCount;
 

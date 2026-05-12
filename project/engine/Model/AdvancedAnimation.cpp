@@ -6,6 +6,7 @@
 #include "D3D12Util.h"
 #include "TextureManager.h"
 #include "MathUtil.h"
+#include "SrvManager.h"
 
 namespace AdvAnim {
 
@@ -242,21 +243,6 @@ namespace AdvAnim {
         skinCluster.paletteResource->Map(0, nullptr, reinterpret_cast<void**>(&mappedPalette));
         skinCluster.mappedPalette = { mappedPalette, skeleton.joints.size() };
 
-        // palette用のSRV作成
-        uint32_t srvIndex = TextureManager::GetInstance()->Allocate();
-        skinCluster.paletteSrvHandle.first = GetCPUDescriptorHandle(descriptorHeap, descriptorSize, srvIndex);
-        skinCluster.paletteSrvHandle.second = GetGPUDescriptorHandle(descriptorHeap, descriptorSize, srvIndex);
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC paletteSrvDesc{};
-        paletteSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
-        paletteSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        paletteSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-        paletteSrvDesc.Buffer.FirstElement = 0;
-        paletteSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-        paletteSrvDesc.Buffer.NumElements = UINT(skeleton.joints.size());
-        paletteSrvDesc.Buffer.StructureByteStride = sizeof(WellForGPU);
-        device->CreateShaderResourceView(skinCluster.paletteResource.Get(), &paletteSrvDesc, skinCluster.paletteSrvHandle.first);
-
         // influence用リソースの確保
         skinCluster.influenceResource = CreateBufferResource(device, sizeof(VertexInfluence) * modelData.vertices.size());
         VertexInfluence* mappedInfluence = nullptr;
@@ -264,10 +250,54 @@ namespace AdvAnim {
         std::memset(mappedInfluence, 0, sizeof(VertexInfluence) * modelData.vertices.size());
         skinCluster.mappedInfluence = { mappedInfluence, modelData.vertices.size() };
 
-        // influence用のVBV作成
-        skinCluster.influenceBufferView.BufferLocation = skinCluster.influenceResource->GetGPUVirtualAddress();
-        skinCluster.influenceBufferView.SizeInBytes = UINT(sizeof(VertexInfluence) * modelData.vertices.size());
-        skinCluster.influenceBufferView.StrideInBytes = sizeof(VertexInfluence);
+        // inputVertex用リソース (モデルの頂点データをSRVとして扱う)
+        skinCluster.inputVertexResource = CreateBufferResource(device, sizeof(VertexData) * modelData.vertices.size());
+        VertexData* mappedInputVertex = nullptr;
+        skinCluster.inputVertexResource->Map(0, nullptr, reinterpret_cast<void**>(&mappedInputVertex));
+        std::memcpy(mappedInputVertex, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size());
+        skinCluster.inputVertexResource->Unmap(0, nullptr);
+
+        // outputVertex用リソース (UAV)
+        skinCluster.outputVertexResource = CreateUAVBufferResource(device, sizeof(VertexData) * modelData.vertices.size());
+
+        // --- ディスクリプタの割当 (t0, t1, t2 の順に連続させる) ---
+        // t0: MatrixPalette
+        uint32_t paletteSrvIndex = SrvManager::GetInstance()->Allocate();
+        skinCluster.paletteSrvIndex = paletteSrvIndex;
+        skinCluster.paletteSrvHandle.first = SrvManager::GetInstance()->GetCPUDescriptorHandle(paletteSrvIndex);
+        skinCluster.paletteSrvHandle.second = SrvManager::GetInstance()->GetGPUDescriptorHandle(paletteSrvIndex);
+        SrvManager::GetInstance()->CreateSRVforStructuredBuffer(paletteSrvIndex, skinCluster.paletteResource.Get(), UINT(skeleton.joints.size()), sizeof(WellForGPU));
+
+        // t1: InputVertex
+        uint32_t inputVertexSrvIndex = SrvManager::GetInstance()->Allocate();
+        skinCluster.inputVertexSrvIndex = inputVertexSrvIndex;
+        skinCluster.inputVertexSrvHandle.first = SrvManager::GetInstance()->GetCPUDescriptorHandle(inputVertexSrvIndex);
+        skinCluster.inputVertexSrvHandle.second = SrvManager::GetInstance()->GetGPUDescriptorHandle(inputVertexSrvIndex);
+        SrvManager::GetInstance()->CreateSRVforStructuredBuffer(inputVertexSrvIndex, skinCluster.inputVertexResource.Get(), UINT(modelData.vertices.size()), sizeof(VertexData));
+
+        // t2: Influence
+        uint32_t influenceSrvIndex = SrvManager::GetInstance()->Allocate();
+        skinCluster.influenceSrvIndex = influenceSrvIndex;
+        skinCluster.influenceSrvHandle.first = SrvManager::GetInstance()->GetCPUDescriptorHandle(influenceSrvIndex);
+        skinCluster.influenceSrvHandle.second = SrvManager::GetInstance()->GetGPUDescriptorHandle(influenceSrvIndex);
+        SrvManager::GetInstance()->CreateSRVforStructuredBuffer(influenceSrvIndex, skinCluster.influenceResource.Get(), UINT(modelData.vertices.size()), sizeof(VertexInfluence));
+
+        // u0: OutputVertex
+        uint32_t outputVertexUavIndex = SrvManager::GetInstance()->Allocate();
+        skinCluster.outputVertexUavIndex = outputVertexUavIndex;
+        skinCluster.outputVertexUavHandle.first = SrvManager::GetInstance()->GetCPUDescriptorHandle(outputVertexUavIndex);
+        skinCluster.outputVertexUavHandle.second = SrvManager::GetInstance()->GetGPUDescriptorHandle(outputVertexUavIndex);
+        SrvManager::GetInstance()->CreateUAVforStructuredBuffer(outputVertexUavIndex, skinCluster.outputVertexResource.Get(), UINT(modelData.vertices.size()), sizeof(VertexData));
+
+        // info用リソース (ConstantBuffer)
+        skinCluster.infoResource = CreateBufferResource(device, sizeof(SkinningInformation));
+        skinCluster.infoResource->Map(0, nullptr, reinterpret_cast<void**>(&skinCluster.mappedInfo));
+        skinCluster.mappedInfo->numVertices = UINT(modelData.vertices.size());
+
+        // outputVertex用のVBV作成
+        skinCluster.outputVertexBufferView.BufferLocation = skinCluster.outputVertexResource->GetGPUVirtualAddress();
+        skinCluster.outputVertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * modelData.vertices.size());
+        skinCluster.outputVertexBufferView.StrideInBytes = sizeof(VertexData);
 
         // InverseBindPoseMatrixの保存領域作成
         skinCluster.inverseBindPoseMatrices.resize(skeleton.joints.size());
