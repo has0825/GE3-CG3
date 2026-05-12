@@ -33,6 +33,7 @@ public:
     D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc() const { return rtvDesc_; }
     UINT GetBackBufferCount() const { return kBackBufferCount_; }
     ID3D12CommandAllocator* GetCommandAllocator() const { return commandAllocator_.Get(); }
+    UINT GetDescriptorSizeSRV() const { return device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV); }
 
     // デスクリプタヒープ生成
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(

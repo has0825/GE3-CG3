@@ -22,3 +22,7 @@ Begin CompileShader, path:Object3d.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Object3d.PS.hlsl, profile:ps_6_0
 
+Begin CompileShader, path:SkinningObject3d.VS.hlsl, profile:vs_6_0
+
+Compile Succeeded, path:SkinningObject3d.VS.hlsl, profile:vs_6_0
+

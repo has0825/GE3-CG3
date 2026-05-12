@@ -3,6 +3,9 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include <cassert>
+#include "D3D12Util.h"
+#include "TextureManager.h"
+#include "MathUtil.h"
 
 namespace AdvAnim {
 
@@ -89,53 +92,10 @@ namespace AdvAnim {
         for (uint32_t i = 0; i < scene->mNumMeshes; ++i) {
             aiMesh* mesh = scene->mMeshes[i];
             
-            // 頂点ごとのウェイトを保持する一時配列
-            struct Weight {
-                int index;
-                float weight;
-            };
-            std::vector<std::vector<Weight>> vertexWeights(mesh->mNumVertices);
-
-            // 1. ボーン情報の読み込み
-            for (unsigned int b = 0; b < mesh->mNumBones; b++) {
-                aiBone* aiBone = mesh->mBones[b];
-                std::string boneName = aiBone->mName.C_Str();
-
-                // モデル全体で一意なボーンとして管理
-                if (model.bones.find(boneName) == model.bones.end()) {
-                    Bone bone;
-                    bone.name = boneName;
-                    bone.index = (uint32_t)model.bones.size();
-
-                    aiMatrix4x4 aiOffset = aiBone->mOffsetMatrix;
-                    aiOffset.Transpose();
-                    for (int r = 0; r < 4; r++)
-                        for (int c = 0; c < 4; c++)
-                            bone.offsetMatrix.m[r][c] = aiOffset[r][c];
-
-                    model.bones[boneName] = bone;
-                }
-
-                uint32_t globalBoneIndex = model.bones[boneName].index;
-
-                for (unsigned int w = 0; w < aiBone->mNumWeights; w++) {
-                    Weight weightInfo;
-                    weightInfo.index = (int)globalBoneIndex;
-                    weightInfo.weight = aiBone->mWeights[w].mWeight;
-                    vertexWeights[aiBone->mWeights[w].mVertexId].push_back(weightInfo);
-                }
-            }
-
-            // 2. 頂点解析
+            // 頂点解析
             uint32_t vertexStart = (uint32_t)model.modelData.vertices.size();
             for (uint32_t v = 0; v < mesh->mNumVertices; ++v) {
                 VertexData vertex{};
-                for (int i = 0; i < 4; i++) {
-                    vertex.jointIndices[i] = 0;
-                    vertex.jointWeights[i] = 0.0f;
-                }
-
-                // 座標変換は Assimp に任せるため、そのまま読み込む
                 vertex.position = { mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z, 1.0f };
                 if (mesh->HasNormals()) {
                     vertex.normal = { mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z };
@@ -147,23 +107,36 @@ namespace AdvAnim {
                 } else {
                     vertex.texcoord = { 0.0f, 0.0f };
                 }
-
-                // ウェイト情報の書き込み
-                const auto& weights = vertexWeights[v];
-                for (size_t w = 0; w < weights.size() && w < 4; w++) {
-                    vertex.jointIndices[w] = weights[w].index;
-                    vertex.jointWeights[w] = weights[w].weight;
-                }
-
                 model.modelData.vertices.push_back(vertex);
             }
 
-            // 3. インデックス解析
+            // インデックス解析
             for (uint32_t j = 0; j < mesh->mNumFaces; ++j) {
                 aiFace& face = mesh->mFaces[j];
                 assert(face.mNumIndices == 3);
                 for (uint32_t k = 0; k < face.mNumIndices; ++k) {
                     model.modelData.indices.push_back(vertexStart + face.mIndices[k]);
+                }
+            }
+
+            // スキニングデータの抽出
+            for (uint32_t boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex) {
+                aiBone* bone = mesh->mBones[boneIndex];
+                std::string jointName = bone->mName.C_Str();
+                JointWeightData& jointWeightData = model.modelData.skinClusterData[jointName];
+
+                aiMatrix4x4 bindPoseMatrixAssimp = bone->mOffsetMatrix.Inverse();
+                aiVector3D scale, translate;
+                aiQuaternion rotate;
+                bindPoseMatrixAssimp.Decompose(scale, rotate, translate);
+                Matrix4x4 bindPoseMatrix = MakeAffineMatrix(
+                    { scale.x, scale.y, scale.z }, 
+                    { rotate.x, -rotate.y, -rotate.z, rotate.w }, 
+                    { -translate.x, translate.y, translate.z });
+                jointWeightData.inverseBindPoseMatrix = Inverse(bindPoseMatrix);
+
+                for (uint32_t weightIndex = 0; weightIndex < bone->mNumWeights; ++weightIndex) {
+                    jointWeightData.vertexWeights.push_back({ bone->mWeights[weightIndex].mWeight, vertexStart + bone->mWeights[weightIndex].mVertexId });
                 }
             }
         }
@@ -252,6 +225,87 @@ namespace AdvAnim {
             }
         }
         return (*keyframes.rbegin()).value;
+    }
+
+    SkinCluster CreateSkinCluster(
+        ID3D12Device* device,
+        const Skeleton& skeleton,
+        const ModelData& modelData,
+        ID3D12DescriptorHeap* descriptorHeap,
+        uint32_t descriptorSize) {
+        
+        SkinCluster skinCluster;
+
+        // palette用リソースの確保
+        skinCluster.paletteResource = CreateBufferResource(device, sizeof(WellForGPU) * skeleton.joints.size());
+        WellForGPU* mappedPalette = nullptr;
+        skinCluster.paletteResource->Map(0, nullptr, reinterpret_cast<void**>(&mappedPalette));
+        skinCluster.mappedPalette = { mappedPalette, skeleton.joints.size() };
+
+        // palette用のSRV作成
+        uint32_t srvIndex = TextureManager::GetInstance()->Allocate();
+        skinCluster.paletteSrvHandle.first = GetCPUDescriptorHandle(descriptorHeap, descriptorSize, srvIndex);
+        skinCluster.paletteSrvHandle.second = GetGPUDescriptorHandle(descriptorHeap, descriptorSize, srvIndex);
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC paletteSrvDesc{};
+        paletteSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+        paletteSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        paletteSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        paletteSrvDesc.Buffer.FirstElement = 0;
+        paletteSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+        paletteSrvDesc.Buffer.NumElements = UINT(skeleton.joints.size());
+        paletteSrvDesc.Buffer.StructureByteStride = sizeof(WellForGPU);
+        device->CreateShaderResourceView(skinCluster.paletteResource.Get(), &paletteSrvDesc, skinCluster.paletteSrvHandle.first);
+
+        // influence用リソースの確保
+        skinCluster.influenceResource = CreateBufferResource(device, sizeof(VertexInfluence) * modelData.vertices.size());
+        VertexInfluence* mappedInfluence = nullptr;
+        skinCluster.influenceResource->Map(0, nullptr, reinterpret_cast<void**>(&mappedInfluence));
+        std::memset(mappedInfluence, 0, sizeof(VertexInfluence) * modelData.vertices.size());
+        skinCluster.mappedInfluence = { mappedInfluence, modelData.vertices.size() };
+
+        // influence用のVBV作成
+        skinCluster.influenceBufferView.BufferLocation = skinCluster.influenceResource->GetGPUVirtualAddress();
+        skinCluster.influenceBufferView.SizeInBytes = UINT(sizeof(VertexInfluence) * modelData.vertices.size());
+        skinCluster.influenceBufferView.StrideInBytes = sizeof(VertexInfluence);
+
+        // InverseBindPoseMatrixの保存領域作成
+        skinCluster.inverseBindPoseMatrices.resize(skeleton.joints.size());
+        for (auto& matrix : skinCluster.inverseBindPoseMatrices) {
+            matrix = MakeIdentity4x4();
+        }
+
+        // ModelDataのSkinCluster情報を解析してInfluenceの中身を埋める
+        for (const auto& jointWeight : modelData.skinClusterData) {
+            auto it = skeleton.jointMap.find(jointWeight.first);
+            if (it == skeleton.jointMap.end()) {
+                continue;
+            }
+            
+            skinCluster.inverseBindPoseMatrices[it->second] = jointWeight.second.inverseBindPoseMatrix;
+            for (const auto& vertexWeight : jointWeight.second.vertexWeights) {
+                auto& currentInfluence = skinCluster.mappedInfluence[vertexWeight.vertexIndex];
+                for (uint32_t index = 0; index < kNumMaxInfluence; ++index) {
+                    if (currentInfluence.weights[index] == 0.0f) {
+                        currentInfluence.weights[index] = vertexWeight.weight;
+                        currentInfluence.jointIndices[index] = it->second;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return skinCluster;
+    }
+
+    void Update(SkinCluster& skinCluster, const Skeleton& skeleton) {
+        for (size_t jointIndex = 0; jointIndex < skeleton.joints.size(); ++jointIndex) {
+            assert(jointIndex < skinCluster.inverseBindPoseMatrices.size());
+            skinCluster.mappedPalette[jointIndex].skeletonSpaceMatrix =
+                Multiply(skinCluster.inverseBindPoseMatrices[jointIndex], skeleton.joints[jointIndex].skeletonSpaceMatrix);
+            skinCluster.mappedPalette[jointIndex].skeletonSpaceInverseTransposeMatrix =
+                Transpose(Inverse(skinCluster.mappedPalette[jointIndex].skeletonSpaceMatrix));
+        }
     }
 
 } // namespace AdvAnim

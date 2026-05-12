@@ -537,3 +537,41 @@ void Model::DrawModel(
 
     commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
 }
+
+void Model::DrawSkinningModel(
+    ID3D12GraphicsCommandList* commandList,
+    const AdvAnim::SkinCluster& skinCluster,
+    D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
+    D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle,
+    D3D12_GPU_VIRTUAL_ADDRESS transformationMatrixAddress) {
+    
+    const D3D12_VERTEX_BUFFER_VIEW* vbView = nullptr;
+    const D3D12_INDEX_BUFFER_VIEW* ibView = nullptr;
+    UINT indexCount = 0;
+
+    if (commonData_) {
+        vbView = &commonData_->vertexBufferView;
+        ibView = &commonData_->indexBufferView;
+        indexCount = (UINT)commonData_->indices.size();
+    } else {
+        vbView = &vertexBufferView_;
+        ibView = &indexBufferView_;
+        indexCount = (UINT)indices_.size();
+    }
+
+    D3D12_VERTEX_BUFFER_VIEW vbvs[2] = {
+        *vbView,
+        skinCluster.influenceBufferView
+    };
+    commandList->IASetVertexBuffers(0, 2, vbvs);
+    commandList->IASetIndexBuffer(ibView);
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixAddress);
+    commandList->SetGraphicsRootDescriptorTable(2, skinCluster.paletteSrvHandle.second);
+    commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandle);
+    commandList->SetGraphicsRootDescriptorTable(4, environmentSrvHandle);
+
+    commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+}

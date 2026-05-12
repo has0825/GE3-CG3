@@ -23,6 +23,8 @@ void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath)
     device_ = device;
     directoryPath_ = directoryPath;
     descriptorSizeSRV_ = device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    useDescriptorIndex_ = 0;
+    textureDatas_.clear();
 
     D3D12_DESCRIPTOR_HEAP_DESC descHeapDesc = {};
     descHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -33,6 +35,13 @@ void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath)
     // コマンドリストの初期化
     device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator_));
     device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator_.Get(), nullptr, IID_PPV_ARGS(&commandList_));
+}
+
+uint32_t TextureManager::Allocate() {
+    assert(useDescriptorIndex_ < 1024);
+    uint32_t index = useDescriptorIndex_;
+    useDescriptorIndex_++;
+    return index;
 }
 
 void TextureManager::LoadTexture(const std::string& fileName) {

@@ -11,6 +11,7 @@ public:
     static TextureManager* GetInstance();
 
     void Initialize(ID3D12Device* device, std::string directoryPath = "resources/");
+    uint32_t Allocate();
 
     void LoadTexture(const std::string& fileName);
     D3D12_GPU_DESCRIPTOR_HANDLE GetSrvHandleGPU(const std::string& fileName);

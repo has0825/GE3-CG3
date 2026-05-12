@@ -9,6 +9,7 @@
 #include "DataTypes.h"
 #include "MathUtil.h"
 #include "Camera.h"
+#include "AdvancedAnimation.h"
 
 struct aiNode;
 
@@ -88,6 +89,13 @@ public:
         ID3D12GraphicsCommandList* commandList,
         D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
         D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle);
+
+    void DrawSkinningModel(
+        ID3D12GraphicsCommandList* commandList,
+        const AdvAnim::SkinCluster& skinCluster,
+        D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE environmentSrvHandle,
+        D3D12_GPU_VIRTUAL_ADDRESS transformationMatrixAddress);
 
     void SetEnvironmentCoefficient(float coefficient);
     void SetColor(const Vector4& color);

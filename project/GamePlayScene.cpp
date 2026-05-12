@@ -232,7 +232,7 @@ void GamePlayScene::Initialize() {
     jumpSE_ = audio_->LoadAudio("resources/damage.mp3");
     audio_->PlayWave(bgmData_, true, 0.5f);
 
-    TextureManager::GetInstance()->Initialize(device, "resources/");
+    TextureManager::GetInstance()->Initialize(device, "Resources/");
     TextureManager::GetInstance()->LoadTexture("test.dds");
     TextureManager::GetInstance()->LoadTexture("circle2.png");
     TextureManager::GetInstance()->LoadTexture("gradationLine.png");
@@ -250,10 +250,11 @@ void GamePlayScene::Initialize() {
     playerModel_->transform.rotate = { 0.0f, 0.0f, 0.0f };
     playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
 
-    // AnimatedCubeの初期化 (資料の再現)
-    cubeModel_ = AdvAnim::LoadModelFile("Resources/AnimatedCube", "AnimatedCube.gltf");
-    cubeAnimation_ = AdvAnim::LoadAnimationFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    // simpleSkinの初期化
+    cubeModel_ = AdvAnim::LoadModelFile("Resources/simpleSkin", "simpleSkin.gltf");
+    cubeAnimation_ = AdvAnim::LoadAnimationFile("Resources/simpleSkin", "simpleSkin.gltf");
     cubeSkeleton_ = AdvAnim::CreateSkeleton(cubeModel_.rootNode);
+    cubeSkinCluster_ = AdvAnim::CreateSkinCluster(device, cubeSkeleton_, cubeModel_.modelData, TextureManager::GetInstance()->GetSrvHeap(), dxCommon_->GetDescriptorSizeSRV());
 
     cubeRenderModel_ = std::make_unique<Model>();
     cubeRenderModel_->Initialize(cubeModel_.modelData, device);
@@ -264,6 +265,20 @@ void GamePlayScene::Initialize() {
     cubeTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&cubeTransformData_));
     cubeTransformData_->WVP = MakeIdentity4x4();
     cubeTransformData_->World = MakeIdentity4x4();
+
+    // AnimatedCubeの初期化
+    animatedCubeModel_ = AdvAnim::LoadModelFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    animatedCubeAnimation_ = AdvAnim::LoadAnimationFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    animatedCubeSkeleton_ = AdvAnim::CreateSkeleton(animatedCubeModel_.rootNode);
+
+    animatedCubeRenderModel_ = std::make_unique<Model>();
+    animatedCubeRenderModel_->Initialize(animatedCubeModel_.modelData, device);
+    animatedCubeRenderModel_->bones_ = animatedCubeModel_.bones;
+    
+    animatedCubeTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    animatedCubeTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&animatedCubeTransformData_));
+    animatedCubeTransformData_->WVP = MakeIdentity4x4();
+    animatedCubeTransformData_->World = MakeIdentity4x4();
 
     // テクスチャの読み込み
     TextureManager::GetInstance()->LoadTexture("AnimatedCube/AnimatedCube_BaseColor.png");
@@ -422,24 +437,16 @@ void GamePlayScene::Update() {
         }
     }
 
-    // AnimatedCubeのスケルトンアニメーション更新 (資料の再現)
+    // simpleSkinのスケルトンアニメーション更新
     cubeAnimationTime_ += kDeltaTime;
     cubeAnimationTime_ = std::fmod(cubeAnimationTime_, cubeAnimation_.duration);
 
-    cubeRenderModel_->transform.rotate.y += 0.02f;
     // 1. アニメーションをスケルトンに適用
     AdvAnim::ApplyAnimation(cubeSkeleton_, cubeAnimation_, cubeAnimationTime_);
     // 2. スケルトンの階層行列を更新
     AdvAnim::Update(cubeSkeleton_);
-    // cubeRenderModel_ のスキニングパレットを更新
-    if (cubeRenderModel_ && cubeRenderModel_->skinningData_) {
-        for (const auto& joint : cubeSkeleton_.joints) {
-            if (cubeRenderModel_->bones_.count(joint.name)) {
-                const auto& bone = cubeRenderModel_->bones_.at(joint.name);
-                cubeRenderModel_->skinningData_->boneMatrices[bone.index] = Multiply(bone.offsetMatrix, joint.skeletonSpaceMatrix);
-            }
-        }
-    }
+    // 3. スキニングクラスターを更新
+    AdvAnim::Update(cubeSkinCluster_, cubeSkeleton_);
 
     // 描画用のワールド行列を計算（スケルトン全体を移動させるための行列）
     cubeRenderModel_->transform.translate = Vector3{ 20.0f, 0.0f, 0.0f };
@@ -449,6 +456,30 @@ void GamePlayScene::Update() {
     // 資料の指示により、スキニングモデルのWVPにはルートジョイントの行列を含めない
     cubeTransformData_->WVP = Multiply(cubeBaseWorldMatrix, viewProjectionMatrix);
     cubeTransformData_->World = cubeBaseWorldMatrix;
+
+    // AnimatedCubeのアニメーション更新
+    animatedCubeAnimationTime_ += kDeltaTime;
+    animatedCubeAnimationTime_ = std::fmod(animatedCubeAnimationTime_, animatedCubeAnimation_.duration);
+
+    animatedCubeRenderModel_->transform.rotate.y += 0.02f;
+    AdvAnim::ApplyAnimation(animatedCubeSkeleton_, animatedCubeAnimation_, animatedCubeAnimationTime_);
+    AdvAnim::Update(animatedCubeSkeleton_);
+
+    if (animatedCubeRenderModel_ && animatedCubeRenderModel_->skinningData_) {
+        for (const auto& joint : animatedCubeSkeleton_.joints) {
+            if (animatedCubeRenderModel_->bones_.count(joint.name)) {
+                const auto& bone = animatedCubeRenderModel_->bones_.at(joint.name);
+                animatedCubeRenderModel_->skinningData_->boneMatrices[bone.index] = Multiply(bone.offsetMatrix, joint.skeletonSpaceMatrix);
+            }
+        }
+    }
+
+    animatedCubeRenderModel_->transform.translate = Vector3{ -20.0f, 0.0f, 0.0f }; // 左側にずらす
+    animatedCubeRenderModel_->transform.scale = Vector3{ 1.0f, 1.0f, 1.0f };
+    Matrix4x4 animatedCubeBaseWorldMatrix = MakeAffineMatrix(animatedCubeRenderModel_->transform.scale, animatedCubeRenderModel_->transform.rotate, animatedCubeRenderModel_->transform.translate);
+
+    animatedCubeTransformData_->WVP = Multiply(animatedCubeBaseWorldMatrix, viewProjectionMatrix);
+    animatedCubeTransformData_->World = animatedCubeBaseWorldMatrix;
 
     for (uint32_t i = 0; i < kNumInstances; ++i) {
         if (particles_[i].currentTime >= particles_[i].lifeTime) {
@@ -574,13 +605,37 @@ void GamePlayScene::Draw() {
         }
     }
 
-    // AnimatedCubeの描画
-    if (cubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
-        commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
-        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+    // simpleSkinの描画
+    if (cubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetSkinningPipelineState()) {
+        commandList->SetPipelineState(graphicsPipeline_->GetSkinningPipelineState());
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetSkinningRootSignature());
 
         if (cubeTransformResource_) {
             commandList->SetGraphicsRootConstantBufferView(1, cubeTransformResource_->GetGPUVirtualAddress());
+        }
+        if (directionalLightResource_) {
+            commandList->SetGraphicsRootConstantBufferView(5, directionalLightResource_->GetGPUVirtualAddress());
+        }
+        if (cameraResource_) {
+            commandList->SetGraphicsRootConstantBufferView(6, cameraResource_->GetGPUVirtualAddress());
+        }
+
+        cubeRenderModel_->DrawSkinningModel(
+            commandList,
+            cubeSkinCluster_,
+            TextureManager::GetInstance()->GetSrvHandleGPU("simpleSkin/uvChecker.png"),
+            TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"),
+            cubeTransformResource_->GetGPUVirtualAddress()
+        );
+    }
+
+    // AnimatedCubeの描画
+    if (animatedCubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
+        commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+
+        if (animatedCubeTransformResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, animatedCubeTransformResource_->GetGPUVirtualAddress());
         }
         if (directionalLightResource_) {
             commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
@@ -589,7 +644,7 @@ void GamePlayScene::Draw() {
             commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
         }
 
-        cubeRenderModel_->DrawModel(
+        animatedCubeRenderModel_->DrawModel(
             commandList,
             TextureManager::GetInstance()->GetSrvHandleGPU("AnimatedCube/AnimatedCube_BaseColor.png"),
             TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
@@ -597,6 +652,18 @@ void GamePlayScene::Draw() {
     }
 
     // --- スケルトンのデバッグ描画 ---
+    // SkinningRootSignatureのまま DrawModel() を呼ぶと Root Parameter[2] の型不一致 (BUFFER vs TEXTURE2D)
+    // でGPUバリデーションエラーになるため、Object3d パイプラインに切り替えてから描画する
+    if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
+        commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+        if (directionalLightResource_) {
+            commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+        }
+        if (cameraResource_) {
+            commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+        }
+    }
     // モデルと重ならないように、右側にずらして描画する (X=40)
     Matrix4x4 debugBaseWorld = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, { 40.0f, 0.0f, 0.0f });
     DrawSkeleton(cubeSkeleton_, debugBaseWorld);
@@ -797,7 +864,7 @@ void GamePlayScene::DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix
         debugTransformIndex_++;
 
         // ボーン（線）の描画
-        if (joint.parent && debugTransformIndex_ < kMaxDebugInstances) {
+        if (joint.parent.has_value() && debugTransformIndex_ < kMaxDebugInstances) {
             const auto& parentJoint = skeleton.joints[*joint.parent];
             Vector3 p1 = { parentJoint.skeletonSpaceMatrix.m[3][0], parentJoint.skeletonSpaceMatrix.m[3][1], parentJoint.skeletonSpaceMatrix.m[3][2] };
             Vector3 p2 = { joint.skeletonSpaceMatrix.m[3][0], joint.skeletonSpaceMatrix.m[3][1], joint.skeletonSpaceMatrix.m[3][2] };

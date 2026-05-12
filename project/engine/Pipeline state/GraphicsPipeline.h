@@ -34,6 +34,9 @@ public:
     ID3D12RootSignature* GetObject3dRootSignature() const { return object3dRootSignature_.Get(); }
     ID3D12PipelineState* GetObject3dPipelineState() const { return object3dPipelineState_.Get(); }
 
+    ID3D12RootSignature* GetSkinningRootSignature() const { return skinningRootSignature_.Get(); }
+    ID3D12PipelineState* GetSkinningPipelineState() const { return skinningPipelineState_.Get(); }
+
 private:
     // シェーダーのコンパイル
     Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
@@ -50,6 +53,9 @@ private:
     // ★追加：Object3d（キャラクターモデル）用のメンバ変数
     Microsoft::WRL::ComPtr<ID3D12RootSignature> object3dRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dPipelineState_;
+
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningRootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;
 
     std::ofstream logStream_;
 };

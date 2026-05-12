@@ -23,3 +23,4 @@ Matrix4x4 MakeScaleMatrix(const Vector3& s);
 Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t);
 Quaternion Slerp(const Quaternion& q0, const Quaternion& q1, float t);
 Matrix4x4 MakeRotateMatrixFromQuaternion(const Quaternion& q);
+Matrix4x4 Transpose(const Matrix4x4& m);

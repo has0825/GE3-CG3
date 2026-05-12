@@ -2,6 +2,7 @@
 #include "engine/Math/MathTypes.h"
 #include <string>
 #include <vector>
+#include <map>
 #include <cstdint>
 // 頂点データ
 struct VertexData {
@@ -43,6 +44,16 @@ struct DirectionalLight {
 	float intensity;
 };
 
+struct VertexWeightData {
+	float weight;
+	uint32_t vertexIndex;
+};
+
+struct JointWeightData {
+	Matrix4x4 inverseBindPoseMatrix;
+	std::vector<VertexWeightData> vertexWeights;
+};
+
 // モデルのマテリアル情報
 struct MaterialData {
 	std::string textureFilePath;
@@ -59,6 +70,7 @@ struct ModelData {
 	std::vector<VertexData> vertices;
 	std::vector<uint32_t> indices;
 	MaterialData material;
+	std::map<std::string, JointWeightData> skinClusterData;
 };
 
 // シェーダーの struct TransformationMatrix に対応

@@ -134,14 +134,24 @@ private:
     float mouseSensitivity_ = 0.005f;
     Vector2 spritePos_ = { 0.0f, 0.0f };
 
-    // AnimatedCube
+    // simpleSkin
     AdvAnim::AnimatedModel cubeModel_;
     AdvAnim::Animation cubeAnimation_;
     AdvAnim::Skeleton cubeSkeleton_;
+    AdvAnim::SkinCluster cubeSkinCluster_;
     float cubeAnimationTime_ = 0.0f;
     std::unique_ptr<Model> cubeRenderModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> cubeTransformResource_;
     TransformationMatrix* cubeTransformData_ = nullptr;
+
+    // AnimatedCube
+    AdvAnim::AnimatedModel animatedCubeModel_;
+    AdvAnim::Animation animatedCubeAnimation_;
+    AdvAnim::Skeleton animatedCubeSkeleton_;
+    float animatedCubeAnimationTime_ = 0.0f;
+    std::unique_ptr<Model> animatedCubeRenderModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> animatedCubeTransformResource_;
+    TransformationMatrix* animatedCubeTransformData_ = nullptr;
 
     // デバッグ描画用
     std::unique_ptr<Model> debugSphereModel_;

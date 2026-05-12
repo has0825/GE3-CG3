@@ -348,6 +348,94 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 		assert(false);
 	}
 	assert(SUCCEEDED(hr));
+
+	// --- Skinning用パイプラインの作成 ---
+	D3D12_ROOT_SIGNATURE_DESC skinningRootDesc{};
+	skinningRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+	D3D12_ROOT_PARAMETER skinningParams[7] = {};
+	// [0] Material (b0, PS)
+	skinningParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	skinningParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	skinningParams[0].Descriptor.ShaderRegister = 0;
+	// [1] TransformationMatrix (b0, VS)
+	skinningParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	skinningParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	skinningParams[1].Descriptor.ShaderRegister = 0;
+	// [2] MatrixPalette (t0, VS)
+	static D3D12_DESCRIPTOR_RANGE paletteRange[1] = {};
+	paletteRange[0].BaseShaderRegister = 0;
+	paletteRange[0].NumDescriptors = 1;
+	paletteRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	paletteRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	skinningParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	skinningParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	skinningParams[2].DescriptorTable.pDescriptorRanges = paletteRange;
+	skinningParams[2].DescriptorTable.NumDescriptorRanges = 1;
+	// [3] Texture (t0, PS)
+	static D3D12_DESCRIPTOR_RANGE skinningTexRange[1] = {};
+	skinningTexRange[0].BaseShaderRegister = 0;
+	skinningTexRange[0].NumDescriptors = 1;
+	skinningTexRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	skinningTexRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	skinningParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	skinningParams[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	skinningParams[3].DescriptorTable.pDescriptorRanges = skinningTexRange;
+	skinningParams[3].DescriptorTable.NumDescriptorRanges = 1;
+	// [4] Environment Map (t1, PS)
+	static D3D12_DESCRIPTOR_RANGE skinningEnvRange[1] = {};
+	skinningEnvRange[0].BaseShaderRegister = 1;
+	skinningEnvRange[0].NumDescriptors = 1;
+	skinningEnvRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	skinningEnvRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	skinningParams[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	skinningParams[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	skinningParams[4].DescriptorTable.pDescriptorRanges = skinningEnvRange;
+	skinningParams[4].DescriptorTable.NumDescriptorRanges = 1;
+	// [5] DirectionalLight (b2, PS)
+	skinningParams[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	skinningParams[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	skinningParams[5].Descriptor.ShaderRegister = 2;
+	// [6] Camera (b3, PS)
+	skinningParams[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	skinningParams[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	skinningParams[6].Descriptor.ShaderRegister = 3;
+
+	skinningRootDesc.pParameters = skinningParams;
+	skinningRootDesc.NumParameters = _countof(skinningParams);
+	skinningRootDesc.pStaticSamplers = staticSamplers;
+	skinningRootDesc.NumStaticSamplers = 1;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> skinningSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> skinningErrorBlob;
+	hr = D3D12SerializeRootSignature(&skinningRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &skinningSignatureBlob, &skinningErrorBlob);
+	if (FAILED(hr)) {
+		Log(logStream_, reinterpret_cast<char*>(skinningErrorBlob->GetBufferPointer()));
+		assert(false);
+	}
+	hr = device->CreateRootSignature(0, skinningSignatureBlob->GetBufferPointer(), skinningSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&skinningRootSignature_));
+	assert(SUCCEEDED(hr));
+
+	// Skinning用シェーダーのコンパイル
+	Microsoft::WRL::ComPtr<IDxcBlob> skinningVSBlob = CompileShader(L"SkinningObject3d.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(skinningVSBlob != nullptr);
+
+	// Skinning用InputLayoutの拡張
+	D3D12_INPUT_ELEMENT_DESC skinningInputElements[5] = {};
+	skinningInputElements[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
+	skinningInputElements[1] = { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
+	skinningInputElements[2] = { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
+	skinningInputElements[3] = { "WEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
+	skinningInputElements[4] = { "INDEX", 0, DXGI_FORMAT_R32G32B32A32_SINT, 1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinningPsoDesc = obj3dPsoDesc; // ベースは同じ
+	skinningPsoDesc.pRootSignature = skinningRootSignature_.Get();
+	skinningPsoDesc.InputLayout = { skinningInputElements, _countof(skinningInputElements) };
+	skinningPsoDesc.VS = { skinningVSBlob->GetBufferPointer(), skinningVSBlob->GetBufferSize() };
+	// PSは共通（Object3d.PS.hlsl）
+
+	hr = device->CreateGraphicsPipelineState(&skinningPsoDesc, IID_PPV_ARGS(&skinningPipelineState_));
+	assert(SUCCEEDED(hr));
 }
 
 Microsoft::WRL::ComPtr<IDxcBlob> GraphicsPipeline::CompileShader(
