@@ -10,6 +10,7 @@ struct Particle {
 };
 
 RWStructuredBuffer<Particle> gParticles : register(u0);
+RWStructuredBuffer<int32_t> gFreeCounter : register(u1);
 
 [numthreads(1024, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -21,5 +22,10 @@ void main(uint3 DTid : SV_DispatchThreadID) {
         // 資料に基づき、確認用に初期値を設定
         gParticles[particleIndex].scale = float3(0.5f, 0.5f, 0.5f);
         gParticles[particleIndex].color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    
+    // カウンタの初期化
+    if (particleIndex == 0) {
+        gFreeCounter[0] = 0;
     }
 }

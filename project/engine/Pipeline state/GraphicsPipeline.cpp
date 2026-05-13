@@ -506,10 +506,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	// ====================================================================
 
 	D3D12_ROOT_PARAMETER gpuParticleInitParams[1] = {};
-	// [0] u0 (gParticles)
+	// [0] u0 (gParticles), u1 (gFreeCounter)
 	D3D12_DESCRIPTOR_RANGE gpuParticleInitUavRange[1] = {};
 	gpuParticleInitUavRange[0].BaseShaderRegister = 0;
-	gpuParticleInitUavRange[0].NumDescriptors = 1;
+	gpuParticleInitUavRange[0].NumDescriptors = 2;
 	gpuParticleInitUavRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 	gpuParticleInitUavRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
@@ -610,18 +610,18 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	gpuParticleInputElements[1] = { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
 	gpuParticlePsoDesc.InputLayout = { gpuParticleInputElements, _countof(gpuParticleInputElements) };
 
-	// Use Normal blend state
+	// Use Additive blend state
 	{
-		D3D12_BLEND_DESC normalBlendDesc{};
-		normalBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-		normalBlendDesc.RenderTarget[0].BlendEnable = TRUE;
-		normalBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-		normalBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		normalBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-		normalBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-		normalBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-		normalBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-		gpuParticlePsoDesc.BlendState = normalBlendDesc;
+		D3D12_BLEND_DESC additiveBlendDesc{};
+		additiveBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+		additiveBlendDesc.RenderTarget[0].BlendEnable = TRUE;
+		additiveBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+		additiveBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		additiveBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+		additiveBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+		additiveBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+		additiveBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+		gpuParticlePsoDesc.BlendState = additiveBlendDesc;
 	}
 
 	gpuParticlePsoDesc.RasterizerState = rasterizerDesc;
@@ -634,6 +634,95 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	gpuParticlePsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
 	hr = device->CreateGraphicsPipelineState(&gpuParticlePsoDesc, IID_PPV_ARGS(&gpuParticlePipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// ====================================================================
+	// ★追加部分：GPU Particle（射出用）のルートシグネチャ＆パイプライン
+	// ====================================================================
+
+	D3D12_ROOT_PARAMETER emitParams[3] = {};
+	// [0] u0 (gParticles), u1 (gFreeCounter)
+	D3D12_DESCRIPTOR_RANGE emitUavRange[1] = {};
+	emitUavRange[0].BaseShaderRegister = 0;
+	emitUavRange[0].NumDescriptors = 2;
+	emitUavRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+	emitUavRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	emitParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	emitParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	emitParams[0].DescriptorTable.pDescriptorRanges = emitUavRange;
+	emitParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [1] b0 (gEmitter)
+	emitParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	emitParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	emitParams[1].Descriptor.ShaderRegister = 0;
+
+	// [2] b1 (gPerFrame)
+	emitParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	emitParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	emitParams[2].Descriptor.ShaderRegister = 1;
+
+	D3D12_ROOT_SIGNATURE_DESC emitRootDesc{};
+	emitRootDesc.pParameters = emitParams;
+	emitRootDesc.NumParameters = _countof(emitParams);
+	emitRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> emitSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> emitErrorBlob;
+	hr = D3D12SerializeRootSignature(&emitRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &emitSignatureBlob, &emitErrorBlob);
+	assert(SUCCEEDED(hr));
+	hr = device->CreateRootSignature(0, emitSignatureBlob->GetBufferPointer(), emitSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&gpuParticleEmitRootSignature_));
+	assert(SUCCEEDED(hr));
+
+	Microsoft::WRL::ComPtr<IDxcBlob> emitCSBlob = CompileShader(L"EmitParticle.CS.hlsl", L"cs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(emitCSBlob != nullptr);
+
+	D3D12_COMPUTE_PIPELINE_STATE_DESC emitPsoDesc{};
+	emitPsoDesc.pRootSignature = gpuParticleEmitRootSignature_.Get();
+	emitPsoDesc.CS = { emitCSBlob->GetBufferPointer(), emitCSBlob->GetBufferSize() };
+	hr = device->CreateComputePipelineState(&emitPsoDesc, IID_PPV_ARGS(&gpuParticleEmitPipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// ====================================================================
+	// ★追加部分：GPU Particle（更新用）のルートシグネチャ＆パイプライン
+	// ====================================================================
+
+	D3D12_ROOT_PARAMETER updateParams[2] = {};
+	// [0] u0 (gParticles)
+	D3D12_DESCRIPTOR_RANGE updateUavRange[1] = {};
+	updateUavRange[0].BaseShaderRegister = 0;
+	updateUavRange[0].NumDescriptors = 1;
+	updateUavRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+	updateUavRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	updateParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	updateParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	updateParams[0].DescriptorTable.pDescriptorRanges = updateUavRange;
+	updateParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [1] b0 (gPerFrame)
+	updateParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	updateParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	updateParams[1].Descriptor.ShaderRegister = 0;
+
+	D3D12_ROOT_SIGNATURE_DESC updateRootDesc{};
+	updateRootDesc.pParameters = updateParams;
+	updateRootDesc.NumParameters = _countof(updateParams);
+	updateRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> updateSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> updateErrorBlob;
+	hr = D3D12SerializeRootSignature(&updateRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &updateSignatureBlob, &updateErrorBlob);
+	assert(SUCCEEDED(hr));
+	hr = device->CreateRootSignature(0, updateSignatureBlob->GetBufferPointer(), updateSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&gpuParticleUpdateRootSignature_));
+	assert(SUCCEEDED(hr));
+
+	Microsoft::WRL::ComPtr<IDxcBlob> updateCSBlob = CompileShader(L"UpdateParticle.CS.hlsl", L"cs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(updateCSBlob != nullptr);
+
+	D3D12_COMPUTE_PIPELINE_STATE_DESC updatePsoDesc{};
+	updatePsoDesc.pRootSignature = gpuParticleUpdateRootSignature_.Get();
+	updatePsoDesc.CS = { updateCSBlob->GetBufferPointer(), updateCSBlob->GetBufferSize() };
+	hr = device->CreateComputePipelineState(&updatePsoDesc, IID_PPV_ARGS(&gpuParticleUpdatePipelineState_));
 	assert(SUCCEEDED(hr));
 }
 

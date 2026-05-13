@@ -307,6 +307,7 @@ void GamePlayScene::Initialize() {
 
     gpuParticleManager_ = std::make_unique<GpuParticleManager>();
     gpuParticleManager_->Initialize(device);
+    gpuParticleManager_->SetTranslate({ -10.0f, 0.0f, 0.0f });
 }
 
 void GamePlayScene::Finalize() {
@@ -317,11 +318,15 @@ void GamePlayScene::Finalize() {
 
 void GamePlayScene::Update() {
 #ifdef USE_IMGUI
-    ImGui::SetNextWindowSize(ImVec2(500, 100));
-    ImGui::Begin("Sprite Control");
-    ImGui::DragFloat2("Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
+    ImGui::SetNextWindowSize(ImVec2(500, 150));
+    ImGui::Begin("Particle Control");
+    ImGui::DragFloat2("Sprite Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
     if (ImGui::SliderFloat("Model Reflection", &modelEnvCoefficient_, 0.0f, 1.0f)) {
         if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
+    }
+    static Vector3 gpuParticlePos = { -10.0f, 0.0f, 0.0f };
+    if (ImGui::DragFloat3("GPU Particle Position", &gpuParticlePos.x, 0.1f)) {
+        if (gpuParticleManager_) gpuParticleManager_->SetTranslate(gpuParticlePos);
     }
     ImGui::End();
 #endif
@@ -584,7 +589,7 @@ void GamePlayScene::Update() {
     }
 
     if (gpuParticleManager_) {
-        gpuParticleManager_->Update(camera_->GetViewProjectionMatrix(), camera_->GetBillboardMatrix());
+        gpuParticleManager_->Update(camera_->GetViewProjectionMatrix(), camera_->GetBillboardMatrix(), kDeltaTime);
     }
 }
 
@@ -730,6 +735,11 @@ void GamePlayScene::Draw() {
                 particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
             }
         }
+    }
+
+    if (gpuParticleManager_) {
+        gpuParticleManager_->Emit();
+        gpuParticleManager_->UpdateCS();
     }
 
     if (gpuParticleManager_) {
