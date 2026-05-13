@@ -506,10 +506,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	// ====================================================================
 
 	D3D12_ROOT_PARAMETER gpuParticleInitParams[1] = {};
-	// [0] u0 (gParticles), u1 (gFreeCounter)
+	// [0] u0 (gParticles), u1 (gFreeListIndex), u2 (gFreeList)
 	D3D12_DESCRIPTOR_RANGE gpuParticleInitUavRange[1] = {};
 	gpuParticleInitUavRange[0].BaseShaderRegister = 0;
-	gpuParticleInitUavRange[0].NumDescriptors = 2;
+	gpuParticleInitUavRange[0].NumDescriptors = 3;
 	gpuParticleInitUavRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 	gpuParticleInitUavRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
@@ -641,10 +641,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	// ====================================================================
 
 	D3D12_ROOT_PARAMETER emitParams[3] = {};
-	// [0] u0 (gParticles), u1 (gFreeCounter)
+	// [0] u0 (gParticles), u1 (gFreeListIndex), u2 (gFreeList)
 	D3D12_DESCRIPTOR_RANGE emitUavRange[1] = {};
 	emitUavRange[0].BaseShaderRegister = 0;
-	emitUavRange[0].NumDescriptors = 2;
+	emitUavRange[0].NumDescriptors = 3;
 	emitUavRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 	emitUavRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 	emitParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -688,10 +688,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	// ====================================================================
 
 	D3D12_ROOT_PARAMETER updateParams[2] = {};
-	// [0] u0 (gParticles)
+	// [0] u0 (gParticles), u1 (gFreeListIndex), u2 (gFreeList)
 	D3D12_DESCRIPTOR_RANGE updateUavRange[1] = {};
 	updateUavRange[0].BaseShaderRegister = 0;
-	updateUavRange[0].NumDescriptors = 1;
+	updateUavRange[0].NumDescriptors = 3;
 	updateUavRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 	updateUavRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 	updateParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;

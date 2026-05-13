@@ -17,7 +17,7 @@ void GpuParticleManager::Initialize(ID3D12Device* device) {
     commandList->SetComputeRootSignature(graphicsPipeline->GetGpuParticleInitializeRootSignature());
     commandList->SetPipelineState(graphicsPipeline->GetGpuParticleInitializePipelineState());
 
-    // UAVデスクリプタテーブルをセット (u0: particles, u1: counter)
+    // UAVデスクリプタテーブルをセット (u0: particles, u1: freeListIndex, u2: freeList)
     SrvManager::GetInstance()->PreDraw();
     SrvManager::GetInstance()->SetComputeRootDescriptorTable(0, uavIndex_);
 
@@ -25,11 +25,13 @@ void GpuParticleManager::Initialize(ID3D12Device* device) {
     commandList->Dispatch(1, 1, 1);
 
     // UAVバリア
-    D3D12_RESOURCE_BARRIER barriers[2] = {};
+    D3D12_RESOURCE_BARRIER barriers[3] = {};
     barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     barriers[0].UAV.pResource = particleResource_.Get();
     barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barriers[1].UAV.pResource = freeCounterResource_.Get();
+    barriers[1].UAV.pResource = freeListIndexResource_.Get();
+    barriers[2].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[2].UAV.pResource = freeListResource_.Get();
     commandList->ResourceBarrier(_countof(barriers), barriers);
 }
 
@@ -70,11 +72,13 @@ void GpuParticleManager::Emit() {
     commandList->Dispatch(1, 1, 1);
 
     // UAVバリア (資料に基づき、次のUpdateCSで確実に読み込めるようにする)
-    D3D12_RESOURCE_BARRIER barriers[2] = {};
+    D3D12_RESOURCE_BARRIER barriers[3] = {};
     barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     barriers[0].UAV.pResource = particleResource_.Get();
     barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barriers[1].UAV.pResource = freeCounterResource_.Get();
+    barriers[1].UAV.pResource = freeListIndexResource_.Get();
+    barriers[2].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[2].UAV.pResource = freeListResource_.Get();
     commandList->ResourceBarrier(_countof(barriers), barriers);
 }
 
@@ -94,10 +98,14 @@ void GpuParticleManager::UpdateCS() {
     commandList->Dispatch(1, 1, 1);
 
     // UAVバリア
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barrier.UAV.pResource = particleResource_.Get();
-    commandList->ResourceBarrier(1, &barrier);
+    D3D12_RESOURCE_BARRIER barriers[3] = {};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[0].UAV.pResource = particleResource_.Get();
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[1].UAV.pResource = freeListIndexResource_.Get();
+    barriers[2].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[2].UAV.pResource = freeListResource_.Get();
+    commandList->ResourceBarrier(_countof(barriers), barriers);
 }
 
 void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_DESCRIPTOR_HANDLE textureHandle) {
@@ -137,8 +145,11 @@ void GpuParticleManager::CreateResource() {
     // パーティクルリソース (DEFAULT heap)
     particleResource_ = CreateUAVBufferResource(device_, sizeof(ParticleCS) * kMaxParticles);
     
-    // カウンタリソース (DEFAULT heap)
-    freeCounterResource_ = CreateUAVBufferResource(device_, sizeof(int32_t));
+    // FreeListIndexリソース (DEFAULT heap)
+    freeListIndexResource_ = CreateUAVBufferResource(device_, sizeof(int32_t));
+
+    // FreeListリソース (DEFAULT heap)
+    freeListResource_ = CreateUAVBufferResource(device_, sizeof(uint32_t) * kMaxParticles);
 
     // PerViewリソース (UPLOAD heap)
     perViewResource_ = CreateBufferResource(device_, sizeof(PerView));
@@ -168,13 +179,16 @@ void GpuParticleManager::CreateSrvUav() {
     srvManager->CreateSRVforStructuredBuffer(srvIndex_, particleResource_.Get(), kMaxParticles, sizeof(ParticleCS));
     srvHandleGPU_ = srvManager->GetGPUDescriptorHandle(srvIndex_);
 
-    // UAV確保 (Particle と Counter を連続させてテーブル化しやすくする)
+    // UAV確保 (Particle と FreeListIndex と FreeList を連続させてテーブル化する)
     uavIndex_ = srvManager->Allocate();
-    counterUavIndex_ = srvManager->Allocate();
+    freeListIndexUavIndex_ = srvManager->Allocate();
+    freeListUavIndex_ = srvManager->Allocate();
     
     srvManager->CreateUAVforStructuredBuffer(uavIndex_, particleResource_.Get(), kMaxParticles, sizeof(ParticleCS));
-    srvManager->CreateUAVforStructuredBuffer(counterUavIndex_, freeCounterResource_.Get(), 1, sizeof(int32_t));
+    srvManager->CreateUAVforStructuredBuffer(freeListIndexUavIndex_, freeListIndexResource_.Get(), 1, sizeof(int32_t));
+    srvManager->CreateUAVforStructuredBuffer(freeListUavIndex_, freeListResource_.Get(), kMaxParticles, sizeof(uint32_t));
     
     uavHandleGPU_ = srvManager->GetGPUDescriptorHandle(uavIndex_);
-    counterUavHandleGPU_ = srvManager->GetGPUDescriptorHandle(counterUavIndex_);
+    freeListIndexUavHandleGPU_ = srvManager->GetGPUDescriptorHandle(freeListIndexUavIndex_);
+    freeListUavHandleGPU_ = srvManager->GetGPUDescriptorHandle(freeListUavIndex_);
 }

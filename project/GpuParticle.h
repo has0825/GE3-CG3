@@ -62,13 +62,10 @@ private:
     // パーティクルリソース (DEFAULT heap)
     Microsoft::WRL::ComPtr<ID3D12Resource> particleResource_;
     
-    // カウンタリソース (DEFAULT heap)
-    Microsoft::WRL::ComPtr<ID3D12Resource> freeCounterResource_;
-
-    // PerViewリソース (UPLOAD heap)
-    Microsoft::WRL::ComPtr<ID3D12Resource> perViewResource_;
-    PerView* perViewData_ = nullptr;
-
+    // FreeListリソース (DEFAULT heap)
+    Microsoft::WRL::ComPtr<ID3D12Resource> freeListIndexResource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> freeListResource_;
+    
     // Emitterリソース (UPLOAD heap)
     Microsoft::WRL::ComPtr<ID3D12Resource> emitterResource_;
     EmitterSphere* emitterData_ = nullptr;
@@ -77,14 +74,20 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> perFrameResource_;
     PerFrame* perFrameData_ = nullptr;
 
+    // PerViewリソース (UPLOAD heap)
+    Microsoft::WRL::ComPtr<ID3D12Resource> perViewResource_;
+    PerView* perViewData_ = nullptr;
+
     // デスクリプタ
-    uint32_t srvIndex_ = 0;
-    uint32_t uavIndex_ = 0; // Particle UAV
-    uint32_t counterUavIndex_ = 0; // Counter UAV
+    uint32_t srvIndex_;
+    uint32_t uavIndex_;
+    uint32_t freeListIndexUavIndex_;
+    uint32_t freeListUavIndex_;
     
     D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE uavHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE counterUavHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE freeListIndexUavHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE freeListUavHandleGPU_;
 
     float time_ = 0.0f;
 };

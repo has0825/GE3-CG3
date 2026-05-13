@@ -24,7 +24,8 @@ struct PerFrame {
 };
 
 RWStructuredBuffer<Particle> gParticles : register(u0);
-RWStructuredBuffer<int32_t> gFreeCounter : register(u1);
+RWStructuredBuffer<int32_t> gFreeListIndex : register(u1);
+RWStructuredBuffer<uint32_t> gFreeList : register(u2);
 ConstantBuffer<EmitterSphere> gEmitter : register(b0);
 ConstantBuffer<PerFrame> gPerFrame : register(b1);
 
@@ -62,11 +63,12 @@ void main(uint3 DTid : SV_DispatchThreadID) {
         generator.seed = (DTid + gPerFrame.time) * gPerFrame.time;
 
         for (uint32_t i = 0; i < gEmitter.count; ++i) {
-            int32_t originalIndex;
-            InterlockedAdd(gFreeCounter[0], 1, originalIndex);
-            int32_t particleIndex = originalIndex % kMaxParticles;
+            int32_t freeListIndex;
+            InterlockedAdd(gFreeListIndex[0], -1, freeListIndex);
 
-            if (particleIndex < kMaxParticles) {
+            if (0 <= freeListIndex && freeListIndex < kMaxParticles) {
+                uint32_t particleIndex = gFreeList[freeListIndex];
+                
                 // スケールを資料に合わせて小さく、密度の高い見た目に
                 float s = generator.Generate1d() * 0.8f + 0.2f;
                 gParticles[particleIndex].scale = float3(s, s, s);
@@ -93,6 +95,9 @@ void main(uint3 DTid : SV_DispatchThreadID) {
                 // 寿命
                 gParticles[particleIndex].lifeTime = 1.0f + generator.Generate1d() * 2.0f;
                 gParticles[particleIndex].currentTime = 0.0f;
+            } else {
+                InterlockedAdd(gFreeListIndex[0], 1);
+                break;
             }
         }
     }

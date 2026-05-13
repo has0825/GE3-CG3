@@ -10,22 +10,22 @@ struct Particle {
 };
 
 RWStructuredBuffer<Particle> gParticles : register(u0);
-RWStructuredBuffer<int32_t> gFreeCounter : register(u1);
+RWStructuredBuffer<int32_t> gFreeListIndex : register(u1);
+RWStructuredBuffer<uint32_t> gFreeList : register(u2);
 
 [numthreads(1024, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
     uint particleIndex = DTid.x;
     if (particleIndex < kMaxParticles) {
-        // 全要素を0で埋める
+        // パーティクルの初期化
         gParticles[particleIndex] = (Particle)0;
         
-        // 資料に基づき、確認用に初期値を設定
-        gParticles[particleIndex].scale = float3(0.5f, 0.5f, 0.5f);
-        gParticles[particleIndex].color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+        // FreeListを連番で初期化
+        gFreeList[particleIndex] = particleIndex;
     }
-    
-    // カウンタの初期化
+
     if (particleIndex == 0) {
-        gFreeCounter[0] = 0;
+        // Indexが末尾を指すようにする
+        gFreeListIndex[0] = kMaxParticles - 1;
     }
 }
