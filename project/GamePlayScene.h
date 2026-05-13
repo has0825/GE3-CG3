@@ -162,9 +162,17 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> debugTransformResources_[kMaxDebugInstances];
     TransformationMatrix* debugTransformData_[kMaxDebugInstances] = { nullptr };
     uint32_t debugTransformIndex_ = 0;
+    
+    // ポストプロセスの種類
+    enum PostProcessType {
+        kNone,
+        kGrayscale,
+        kSepia,
+    };
+    PostProcessType activePostProcess_ = kNone;
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
     std::unique_ptr<PostProcess> postProcess_;
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
-};
+};

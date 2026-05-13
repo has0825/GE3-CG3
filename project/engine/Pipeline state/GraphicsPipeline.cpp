@@ -765,14 +765,16 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	hr = device->CreateRootSignature(0, copySignatureBlob->GetBufferPointer(), copySignatureBlob->GetBufferSize(), IID_PPV_ARGS(&copyImageRootSignature_));
 	assert(SUCCEEDED(hr));
 
-	Microsoft::WRL::ComPtr<IDxcBlob> copyVSBlob = CompileShader(L"CopyImage.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
-	assert(copyVSBlob != nullptr);
-	Microsoft::WRL::ComPtr<IDxcBlob> copyPSBlob = CompileShader(L"CopyImage.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	Microsoft::WRL::ComPtr<IDxcBlob> fullscreenVSBlob = CompileShader(L"Fullscreen.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(fullscreenVSBlob != nullptr);
+	
+    // CopyImage (Normal)
+    Microsoft::WRL::ComPtr<IDxcBlob> copyPSBlob = CompileShader(L"CopyImage.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(copyPSBlob != nullptr);
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC copyPsoDesc{};
 	copyPsoDesc.pRootSignature = copyImageRootSignature_.Get();
-	copyPsoDesc.VS = { copyVSBlob->GetBufferPointer(), copyVSBlob->GetBufferSize() };
+	copyPsoDesc.VS = { fullscreenVSBlob->GetBufferPointer(), fullscreenVSBlob->GetBufferSize() };
 	copyPsoDesc.PS = { copyPSBlob->GetBufferPointer(), copyPSBlob->GetBufferSize() };
 	
 	// InputLayoutは利用しない
@@ -784,7 +786,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	copyBlendDesc.RenderTarget[0].BlendEnable = FALSE;
 	copyPsoDesc.BlendState = copyBlendDesc;
 
-	// RasterizerState: 裏面も描画するようにカリングなし（念のため）
+	// RasterizerState: 裏面も描画するようにカリングなし
 	D3D12_RASTERIZER_DESC copyRasterizerDesc{};
 	copyRasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
 	copyRasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -804,6 +806,20 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 
 	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&copyImagePipelineState_));
 	assert(SUCCEEDED(hr));
+
+    // Grayscale
+    Microsoft::WRL::ComPtr<IDxcBlob> grayscalePSBlob = CompileShader(L"Grayscale.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    assert(grayscalePSBlob != nullptr);
+    copyPsoDesc.PS = { grayscalePSBlob->GetBufferPointer(), grayscalePSBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&grayscalePipelineState_));
+    assert(SUCCEEDED(hr));
+
+    // Sepia
+    Microsoft::WRL::ComPtr<IDxcBlob> sepiaPSBlob = CompileShader(L"Sepia.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    assert(sepiaPSBlob != nullptr);
+    copyPsoDesc.PS = { sepiaPSBlob->GetBufferPointer(), sepiaPSBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&sepiaPipelineState_));
+    assert(SUCCEEDED(hr));
 }
 
 

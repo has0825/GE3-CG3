@@ -50,11 +50,19 @@ Begin CompileShader, path:UpdateParticle.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:UpdateParticle.CS.hlsl, profile:cs_6_0
 
-Begin CompileShader, path:CopyImage.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Fullscreen.VS.hlsl, profile:vs_6_0
 
-Compile Succeeded, path:CopyImage.VS.hlsl, profile:vs_6_0
+Compile Succeeded, path:Fullscreen.VS.hlsl, profile:vs_6_0
 
 Begin CompileShader, path:CopyImage.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:CopyImage.PS.hlsl, profile:ps_6_0
+
+Begin CompileShader, path:Grayscale.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:Grayscale.PS.hlsl, profile:ps_6_0
+
+Begin CompileShader, path:Sepia.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:Sepia.PS.hlsl, profile:ps_6_0
 

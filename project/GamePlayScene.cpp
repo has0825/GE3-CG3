@@ -595,6 +595,16 @@ void GamePlayScene::Update() {
     if (gpuParticleManager_) {
         gpuParticleManager_->Update(camera_->GetViewProjectionMatrix(), camera_->GetBillboardMatrix(), kDeltaTime);
     }
+
+#ifdef USE_IMGUI
+    ImGui::Begin("PostProcess");
+    const char* items[] = { "None", "Grayscale", "Sepia" };
+    int currentItem = static_cast<int>(activePostProcess_);
+    if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
+        activePostProcess_ = static_cast<PostProcessType>(currentItem);
+    }
+    ImGui::End();
+#endif
 }
 
 void GamePlayScene::Draw() {
@@ -738,9 +748,24 @@ void GamePlayScene::Draw() {
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dxCommon_->GetDsvHandle();
     commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
 
-    // CopyImageパイプラインで描画
-    commandList->SetPipelineState(graphicsPipeline_->GetCopyImagePipelineState());
-    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetCopyImageRootSignature());
+    // 適切なパイプラインを選択
+    ID3D12PipelineState* pso = nullptr;
+    switch (activePostProcess_) {
+    case kNone:
+    default:
+        pso = graphicsPipeline_->GetFullscreenPipelineState();
+        break;
+    case kGrayscale:
+        pso = graphicsPipeline_->GetGrayscalePipelineState();
+        break;
+    case kSepia:
+        pso = graphicsPipeline_->GetSepiaPipelineState();
+        break;
+    }
+
+    // Fullscreenパイプラインで描画
+    commandList->SetPipelineState(pso);
+    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetFullscreenRootSignature());
     SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->DrawInstanced(3, 1, 0, 0);
