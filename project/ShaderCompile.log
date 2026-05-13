@@ -50,3 +50,11 @@ Begin CompileShader, path:UpdateParticle.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:UpdateParticle.CS.hlsl, profile:cs_6_0
 
+Begin CompileShader, path:CopyImage.VS.hlsl, profile:vs_6_0
+
+Compile Succeeded, path:CopyImage.VS.hlsl, profile:vs_6_0
+
+Begin CompileShader, path:CopyImage.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:CopyImage.PS.hlsl, profile:ps_6_0
+

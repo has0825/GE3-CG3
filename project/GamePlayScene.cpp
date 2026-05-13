@@ -307,6 +307,10 @@ void GamePlayScene::Initialize() {
 
     gpuParticleManager_ = std::make_unique<GpuParticleManager>();
     gpuParticleManager_->Initialize(device);
+
+    postProcess_ = std::make_unique<PostProcess>();
+    postProcess_->Initialize(dxCommon_, WinApp::kClientWidth, WinApp::kClientHeight);
+
     gpuParticleManager_->SetTranslate({ -10.0f, 0.0f, 0.0f });
 }
 
@@ -596,6 +600,9 @@ void GamePlayScene::Update() {
 void GamePlayScene::Draw() {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
+    // --- 1. RenderTextureへの描画開始 ---
+    postProcess_->PreDraw();
+
     // 1. キャラクターモデルの描画
     if (playerModel_) {
         ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
@@ -674,8 +681,6 @@ void GamePlayScene::Draw() {
     }
 
     // --- スケルトンのデバッグ描画 ---
-    // SkinningRootSignatureのまま DrawModel() を呼ぶと Root Parameter[2] の型不一致 (BUFFER vs TEXTURE2D)
-    // でGPUバリデーションエラーになるため、Object3d パイプラインに切り替えてから描画する
     if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
         commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
@@ -686,25 +691,8 @@ void GamePlayScene::Draw() {
             commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
         }
     }
-    // モデルと重ならないように、右側にずらして描画する (X=40)
     Matrix4x4 debugBaseWorld = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, { 40.0f, 0.0f, 0.0f });
     DrawSkeleton(cubeSkeleton_, debugBaseWorld);
-
-    // 2. スカイボックスの描画
-    /*
-    if (skybox_ && graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && camera_) {
-        ID3D12DescriptorHeap* skyboxHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
-        commandList->SetDescriptorHeaps(1, skyboxHeaps);
-        commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
-        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        Matrix4x4 skyboxWorld = MakeAffineMatrix(Vector3{ 1000.0f, 1000.0f, 1000.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, camera_->GetTransform().translate);
-        Matrix4x4 skyboxWVP = Multiply(skyboxWorld, camera_->GetViewProjectionMatrix());
-
-        skybox_->Draw(commandList, skyboxWVP, TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
-    }
-    */
 
     // 3. パーティクルの描画（半透明なので最後に描画）
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
@@ -724,7 +712,6 @@ void GamePlayScene::Draw() {
                 ringModel_->Draw(commandList, kRingInstanceCount, gradationSrvHandleGPU_, ringInstancingSrvHandleGPU_);
             }
             if (cylinderModel_) {
-                // シリンダーはポータル風に加算合成で描画する
                 cylinderModel_->Draw(commandList, kCylinderInstanceCount, gradationSrvHandleGPU_, cylinderInstancingSrvHandleGPU_);
             }
         }
@@ -740,11 +727,23 @@ void GamePlayScene::Draw() {
     if (gpuParticleManager_) {
         gpuParticleManager_->Emit();
         gpuParticleManager_->UpdateCS();
-    }
-
-    if (gpuParticleManager_) {
         gpuParticleManager_->Draw(commandList, textureSrvHandleGPU_);
     }
+
+    // --- 2. RenderTextureから画面（Swapchain）へのコピー ---
+    postProcess_->PostDraw();
+
+    // 描画先をバックバッファに戻す
+    D3D12_CPU_DESCRIPTOR_HANDLE backBufferHandle = dxCommon_->GetCurrentBackBufferRtvHandle();
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dxCommon_->GetDsvHandle();
+    commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
+
+    // CopyImageパイプラインで描画
+    commandList->SetPipelineState(graphicsPipeline_->GetCopyImagePipelineState());
+    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetCopyImageRootSignature());
+    SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    commandList->DrawInstanced(3, 1, 0, 0);
 }
 
 Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {

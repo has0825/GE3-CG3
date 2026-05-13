@@ -31,9 +31,13 @@ public:
     IDXGISwapChain4* GetSwapChain() const { return swapChain_.Get(); }
     ID3D12DescriptorHeap* GetRtvDescriptorHeap() const { return rtvDescriptorHeap_.Get(); }
     D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc() const { return rtvDesc_; }
+    D3D12_CPU_DESCRIPTOR_HANDLE GetDsvHandle() const { return dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(); }
     UINT GetBackBufferCount() const { return kBackBufferCount_; }
     ID3D12CommandAllocator* GetCommandAllocator() const { return commandAllocator_.Get(); }
+    D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentBackBufferRtvHandle() const { return rtvHandles_[swapChain_->GetCurrentBackBufferIndex()]; }
     UINT GetDescriptorSizeSRV() const { return device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV); }
+    UINT GetDescriptorSizeRTV() const { return device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV); }
+    D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTextureRtvHandle() const { return rtvHandles_[2]; }
 
     // デスクリプタヒープ生成
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
@@ -64,8 +68,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilResource_;
 
     static const UINT kBackBufferCount_ = 2;
+    static const UINT kRtvDescriptorCount = 3; // 2 for swapchain, 1 for render texture
     Microsoft::WRL::ComPtr<ID3D12Resource> backBuffers_[kBackBufferCount_];
-    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles_[kBackBufferCount_];
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles_[kRtvDescriptorCount];
     D3D12_RENDER_TARGET_VIEW_DESC rtvDesc_{};
 
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;

@@ -47,6 +47,8 @@ public:
 	ID3D12PipelineState* GetGpuParticleEmitPipelineState() { return gpuParticleEmitPipelineState_.Get(); }
 	ID3D12RootSignature* GetGpuParticleUpdateRootSignature() { return gpuParticleUpdateRootSignature_.Get(); }
 	ID3D12PipelineState* GetGpuParticleUpdatePipelineState() { return gpuParticleUpdatePipelineState_.Get(); }
+	ID3D12RootSignature* GetCopyImageRootSignature() { return copyImageRootSignature_.Get(); }
+	ID3D12PipelineState* GetCopyImagePipelineState() { return copyImagePipelineState_.Get(); }
 
 
 private:
@@ -84,6 +86,8 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> gpuParticleEmitPipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> gpuParticleUpdateRootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> gpuParticleUpdatePipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> copyImageRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> copyImagePipelineState_;
 
 
     std::ofstream logStream_;

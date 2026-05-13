@@ -12,8 +12,9 @@
 #include "GpuParticle.h"
 #include <vector>
 #include <random>
+#include "PostProcess.h"
 #include <memory>
-#include <d3d12.h>
+#include <vector>
 #include <wrl.h>
 #include <windows.h>
 
@@ -163,6 +164,7 @@ private:
     uint32_t debugTransformIndex_ = 0;
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
+    std::unique_ptr<PostProcess> postProcess_;
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
 };

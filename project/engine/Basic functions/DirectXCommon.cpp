@@ -204,7 +204,7 @@ void DirectXCommon::CreateSwapChain(WinApp* winApp) {
 }
 
 void DirectXCommon::CreateRenderTarget() {
-    rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kBackBufferCount_, false);
+    rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kRtvDescriptorCount, false);
 
     rtvDesc_.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     rtvDesc_.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -219,6 +219,9 @@ void DirectXCommon::CreateRenderTarget() {
         rtvHandles_[i].ptr = rtvStartHandle.ptr + (static_cast<UINT64>(descriptorSize) * i);
         device_->CreateRenderTargetView(backBuffers_[i].Get(), &rtvDesc_, rtvHandles_[i]);
     }
+
+    // RenderTexture用のハンドルもあらかじめ計算しておく（リソース自体は後で作成）
+    rtvHandles_[2].ptr = rtvStartHandle.ptr + (static_cast<UINT64>(descriptorSize) * 2);
 }
 
 void DirectXCommon::CreateDepthBuffer(WinApp* winApp) {

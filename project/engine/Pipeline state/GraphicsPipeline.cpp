@@ -724,6 +724,86 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	updatePsoDesc.CS = { updateCSBlob->GetBufferPointer(), updateCSBlob->GetBufferSize() };
 	hr = device->CreateComputePipelineState(&updatePsoDesc, IID_PPV_ARGS(&gpuParticleUpdatePipelineState_));
 	assert(SUCCEEDED(hr));
+
+	// ====================================================================
+	// ★追加部分：CopyImage（フルスクリーン三角形コピー）用のルートシグネチャ＆パイプライン
+	// ====================================================================
+
+	D3D12_ROOT_PARAMETER copyImageParams[1] = {};
+	D3D12_DESCRIPTOR_RANGE copyImageRange[1] = {};
+	copyImageRange[0].BaseShaderRegister = 0;
+	copyImageRange[0].NumDescriptors = 1;
+	copyImageRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	copyImageRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	copyImageParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	copyImageParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	copyImageParams[0].DescriptorTable.pDescriptorRanges = copyImageRange;
+	copyImageParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	D3D12_STATIC_SAMPLER_DESC copySamplerDesc{};
+	copySamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	copySamplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	copySamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	copySamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	copySamplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	copySamplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+	copySamplerDesc.ShaderRegister = 0;
+	copySamplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	D3D12_ROOT_SIGNATURE_DESC copyRootDesc{};
+	copyRootDesc.pParameters = copyImageParams;
+	copyRootDesc.NumParameters = _countof(copyImageParams);
+	copyRootDesc.pStaticSamplers = &copySamplerDesc;
+	copyRootDesc.NumStaticSamplers = 1;
+	copyRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> copySignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> copyErrorBlob;
+	hr = D3D12SerializeRootSignature(&copyRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &copySignatureBlob, &copyErrorBlob);
+	assert(SUCCEEDED(hr));
+	hr = device->CreateRootSignature(0, copySignatureBlob->GetBufferPointer(), copySignatureBlob->GetBufferSize(), IID_PPV_ARGS(&copyImageRootSignature_));
+	assert(SUCCEEDED(hr));
+
+	Microsoft::WRL::ComPtr<IDxcBlob> copyVSBlob = CompileShader(L"CopyImage.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(copyVSBlob != nullptr);
+	Microsoft::WRL::ComPtr<IDxcBlob> copyPSBlob = CompileShader(L"CopyImage.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(copyPSBlob != nullptr);
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC copyPsoDesc{};
+	copyPsoDesc.pRootSignature = copyImageRootSignature_.Get();
+	copyPsoDesc.VS = { copyVSBlob->GetBufferPointer(), copyVSBlob->GetBufferSize() };
+	copyPsoDesc.PS = { copyPSBlob->GetBufferPointer(), copyPSBlob->GetBufferSize() };
+	
+	// InputLayoutは利用しない
+	copyPsoDesc.InputLayout = { nullptr, 0 };
+
+	// BlendState: 無し
+	D3D12_BLEND_DESC copyBlendDesc{};
+	copyBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	copyBlendDesc.RenderTarget[0].BlendEnable = FALSE;
+	copyPsoDesc.BlendState = copyBlendDesc;
+
+	// RasterizerState: 裏面も描画するようにカリングなし（念のため）
+	D3D12_RASTERIZER_DESC copyRasterizerDesc{};
+	copyRasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
+	copyRasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+	copyPsoDesc.RasterizerState = copyRasterizerDesc;
+
+	// DepthStencilState: 深度テストなし
+	D3D12_DEPTH_STENCIL_DESC copyDepthDesc{};
+	copyDepthDesc.DepthEnable = FALSE;
+	copyPsoDesc.DepthStencilState = copyDepthDesc;
+
+	copyPsoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	copyPsoDesc.NumRenderTargets = 1;
+	copyPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; // スワップチェーン（RTV）に合わせてSRGBあり
+	copyPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	copyPsoDesc.SampleDesc.Count = 1;
+	copyPsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&copyImagePipelineState_));
+	assert(SUCCEEDED(hr));
 }
 
 
