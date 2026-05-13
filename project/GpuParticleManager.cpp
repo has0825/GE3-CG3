@@ -63,16 +63,19 @@ void GpuParticleManager::Emit() {
     SrvManager::GetInstance()->SetComputeRootDescriptorTable(0, uavIndex_);
     // [1] b0 (Emitter)
     commandList->SetComputeRootConstantBufferView(1, emitterResource_->GetGPUVirtualAddress());
+    // 実行前にUAV状態であることを保証（本来は状態管理が必要だが、簡易的に）
     // [2] b1 (PerFrame)
     commandList->SetComputeRootConstantBufferView(2, perFrameResource_->GetGPUVirtualAddress());
 
     commandList->Dispatch(1, 1, 1);
 
-    // UAVバリア
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barrier.UAV.pResource = particleResource_.Get();
-    commandList->ResourceBarrier(1, &barrier);
+    // UAVバリア (資料に基づき、次のUpdateCSで確実に読み込めるようにする)
+    D3D12_RESOURCE_BARRIER barriers[2] = {};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[0].UAV.pResource = particleResource_.Get();
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barriers[1].UAV.pResource = freeCounterResource_.Get();
+    commandList->ResourceBarrier(_countof(barriers), barriers);
 }
 
 void GpuParticleManager::UpdateCS() {
@@ -98,6 +101,15 @@ void GpuParticleManager::UpdateCS() {
 }
 
 void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_DESCRIPTOR_HANDLE textureHandle) {
+    // 描画前に UAV -> SRV へ遷移させる
+    D3D12_RESOURCE_BARRIER transitionBarrier{};
+    transitionBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    transitionBarrier.Transition.pResource = particleResource_.Get();
+    transitionBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    transitionBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    transitionBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &transitionBarrier);
+
     GraphicsPipeline* graphicsPipeline = GraphicsPipeline::GetInstance();
 
     commandList->SetGraphicsRootSignature(graphicsPipeline->GetGpuParticleRootSignature());
@@ -114,6 +126,11 @@ void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_
 
     // 描画コマンド (板ポリゴン 6頂点, 1024インスタンス)
     commandList->DrawInstanced(6, kMaxParticles, 0, 0);
+
+    // 次フレームのために SRV -> UAV へ戻しておく
+    transitionBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    transitionBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    commandList->ResourceBarrier(1, &transitionBarrier);
 }
 
 void GpuParticleManager::CreateResource() {
