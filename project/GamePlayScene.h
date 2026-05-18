@@ -46,7 +46,8 @@ enum ParticleType {
     kTypeRain,
     kTypeHit,
     kTypeRing,
-    kTypeCylinder
+    kTypeCylinder,
+    kTypeJetExhaust
 };
 
 enum class SceneMode {

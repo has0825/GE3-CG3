@@ -683,9 +683,30 @@ void GamePlayScene::Update() {
     animatedCubeTransformData_->WVP = Multiply(animatedCubeBaseWorldMatrix, viewProjectionMatrix);
     animatedCubeTransformData_->World = animatedCubeBaseWorldMatrix;
 
+    // 戦闘機モードの場合のジェット噴射エミッター位置の計算
+    Vector3 leftJetPos = { 0.0f, 0.0f, 0.0f };
+    Vector3 rightJetPos = { 0.0f, 0.0f, 0.0f };
+    if (sceneMode_ == SceneMode::kFighter) {
+        EulerTransform& camTrans = camera_->GetTransform();
+        Vector3 fighterWorldPos = {
+            camTrans.translate.x + fighterModel_->transform.translate.x,
+            camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+            camTrans.translate.z + 65.0f
+        };
+        // 左右のジェットエンジンノズル（位置を少し上に調整し、機体中心からX方向に±0.8f、後方Z方向に-3.0f）
+        leftJetPos = { fighterWorldPos.x - 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
+        rightJetPos = { fighterWorldPos.x + 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
+    }
+
     for (uint32_t i = 0; i < kNumInstances; ++i) {
         if (particles_[i].currentTime >= particles_[i].lifeTime) {
-            particles_[i] = MakeNewParticle(currentEffect_, emitterPos_);
+            if (sceneMode_ == SceneMode::kFighter) {
+                // 偶数は左、奇数は右のエンジンノズルから噴射
+                Vector3 jetPos = (i % 2 == 0) ? leftJetPos : rightJetPos;
+                particles_[i] = MakeNewParticle(kTypeJetExhaust, jetPos);
+            } else {
+                particles_[i] = MakeNewParticle(currentEffect_, emitterPos_);
+            }
         }
         if (useGravity_) {
             particles_[i].velocity.y -= 9.8f * kDeltaTime * 0.5f;
@@ -1103,6 +1124,48 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
         particle.velocity = { 0.0f, 0.0f, 0.0f };
         particle.color = { 0.2f, 0.4f, 1.0f, 1.0f }; // 青っぽいポータル色
         particle.lifeTime = 2.0f; // 少し長め
+        break;
+    }
+    case kTypeJetExhaust:
+    {
+        // ジェット噴射の演出
+        // エミッター位置の周辺にランダムに少しばらつかせる
+        std::uniform_real_distribution<float> distSpread(-0.1f, 0.1f);
+        particle.transform.translate = {
+            emitterPos.x + distSpread(randomEngine_),
+            emitterPos.y + distSpread(randomEngine_),
+            emitterPos.z + distSpread(randomEngine_)
+        };
+
+        // 速度: カメラ/戦闘機の進行速度(z軸+30.0f)より後ろに行くように設定
+        // z速度を+5.0f〜+15.0f程度にすることで、機体の後ろへと綺麗に流れる（相対的に後方へ動く）
+        std::uniform_real_distribution<float> distVelZ(5.0f, 15.0f);
+        std::uniform_real_distribution<float> distVelSpread(-0.8f, 0.8f);
+        particle.velocity = {
+            distVelSpread(randomEngine_),
+            distVelSpread(randomEngine_),
+            distVelZ(randomEngine_)
+        };
+
+        // サイズ: 徐々に小さく見せるために、初期サイズをほどよい大きさに
+        std::uniform_real_distribution<float> distScale(0.3f, 0.6f);
+        float sc = distScale(randomEngine_);
+        particle.transform.scale = { sc, sc, sc };
+
+        // 寿命: 短めにして、噴射口のすぐ後ろで消えるようにする
+        std::uniform_real_distribution<float> distLife(0.2f, 0.5f);
+        particle.lifeTime = distLife(randomEngine_);
+
+        // 色: レッド/オレンジ/ホワイトの美しい超高温プラズマ・バーナー炎のグラデーション
+        std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+        float colorSelect = distColor(randomEngine_);
+        if (colorSelect < 0.5f) {
+            particle.color = { 1.0f, 0.1f, 0.0f, 1.0f }; // 熱いレッド
+        } else if (colorSelect < 0.8f) {
+            particle.color = { 1.0f, 0.5f, 0.0f, 1.0f }; // 鮮やかなオレンジ
+        } else {
+            particle.color = { 1.0f, 1.0f, 0.8f, 1.0f }; // ホワイト（コアの超高温部）
+        }
         break;
     }
     }
