@@ -245,11 +245,59 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->LoadTexture("circle2.png");
     TextureManager::GetInstance()->LoadTexture("gradationLine.png");
     TextureManager::GetInstance()->LoadTexture("human/white.png");
+    TextureManager::GetInstance()->LoadTexture("aiming.png");
+    TextureManager::GetInstance()->LoadTexture("Player2/Player_basecolor.JPEG");
 
     skybox_ = std::make_unique<Skybox>();
     skybox_->Initialize(device);
 
     playerModel_ = Model::LoadGLTF("Resources/human/walk.gltf", device);
+    fighterModel_ = Model::LoadGLTF("Resources/Player2/Player.obj", device);
+    if (fighterModel_) {
+        fighterModel_->transform.scale = { 10.0f, 10.0f, 10.0f };
+    }
+    
+    // 戦闘機用トランスフォーム
+    fighterTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    fighterTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&fighterTransformData_));
+    fighterTransformData_->WVP = MakeIdentity4x4();
+    fighterTransformData_->World = MakeIdentity4x4();
+
+    // 弾用トランスフォーム
+    playerBullets_.resize(kMaxBullets);
+    for (uint32_t i = 0; i < kMaxBullets; ++i) {
+        bulletTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
+        bulletTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&bulletTransformData_[i]));
+        bulletTransformData_[i]->WVP = MakeIdentity4x4();
+        bulletTransformData_[i]->World = MakeIdentity4x4();
+    }
+
+    // レティクル(エイミング)用バッファ
+    aimingInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU));
+    aimingInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&aimingInstancingData_));
+    aimingInstancingData_->WVP = MakeIdentity4x4();
+    aimingInstancingData_->World = MakeIdentity4x4();
+    aimingInstancingData_->uvTransform = MakeIdentity4x4();
+    aimingInstancingData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    
+    D3D12_SHADER_RESOURCE_VIEW_DESC aimingInstancingSrvDesc{};
+    aimingInstancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    aimingInstancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    aimingInstancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    aimingInstancingSrvDesc.Buffer.FirstElement = 0;
+    aimingInstancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    aimingInstancingSrvDesc.Buffer.NumElements = 1;
+    aimingInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+
+    uint32_t aimingInstancingSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE aimingInstancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(aimingInstancingSrvIndex);
+    aimingInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(aimingInstancingSrvIndex);
+    device->CreateShaderResourceView(aimingInstancingResource_.Get(), &aimingInstancingSrvDesc, aimingInstancingSrvHandleCPU);
+    
+    reticleMaterialResource_ = CreateBufferResource(device, sizeof(Material));
+    reticleMaterialResource_->Map(0, nullptr, reinterpret_cast<void**>(&reticleMaterialData_));
+    reticleMaterialData_->color = {1.0f, 1.0f, 1.0f, 1.0f};
+    reticleMaterialData_->uvTransform = MakeIdentity4x4();
 
     // 【重要】モデルのスケール・座標設定
     // ※もし画面に見えない場合は、ここ(scale)を 10.0f や 100.0f など大きくしてみてください。
@@ -293,7 +341,7 @@ void GamePlayScene::Initialize() {
 
     // デバッグ描画用の初期化
     debugSphereModel_ = Model::CreateSphereModel(device);
-    debugSphereModel_->SetColor({ 1.0f, 0.0f, 0.0f, 1.0f }); // 赤色
+    debugSphereModel_->SetColor({ 0.0f, 1.0f, 1.0f, 1.0f }); // ネオンシアン (高視認性)
     debugBoxModel_ = Model::CreateBoxModel(device);
     debugBoxModel_->SetColor({ 0.0f, 0.0f, 1.0f, 1.0f }); // 青色
     for (uint32_t i = 0; i < kMaxDebugInstances; ++i) {
@@ -303,7 +351,7 @@ void GamePlayScene::Initialize() {
         debugTransformData_[i]->World = MakeIdentity4x4();
     }
 
-    isCameraMode_ = false;
+    // removed isCameraMode_ = false;
 
     gpuParticleManager_ = std::make_unique<GpuParticleManager>();
     gpuParticleManager_->Initialize(device);
@@ -322,8 +370,12 @@ void GamePlayScene::Finalize() {
 
 void GamePlayScene::Update() {
 #ifdef USE_IMGUI
-    ImGui::SetNextWindowSize(ImVec2(500, 150));
-    ImGui::Begin("Particle Control");
+    ImGui::SetNextWindowSize(ImVec2(500, 200));
+    ImGui::Begin("GamePlay Control");
+    ImGui::Checkbox("Show SimpleSkin", &showSimpleSkin_);
+    ImGui::Checkbox("Show AnimatedCube", &showAnimatedCube_);
+    ImGui::Checkbox("Show Particles", &showParticles_);
+    ImGui::Checkbox("Show Skybox", &showSkybox_);
     ImGui::DragFloat2("Sprite Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
     if (ImGui::SliderFloat("Model Reflection", &modelEnvCoefficient_, 0.0f, 1.0f)) {
         if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
@@ -332,6 +384,16 @@ void GamePlayScene::Update() {
     if (ImGui::DragFloat3("GPU Particle Position", &gpuParticlePos.x, 0.1f)) {
         if (gpuParticleManager_) gpuParticleManager_->SetTranslate(gpuParticlePos);
     }
+
+    if (fighterModel_) {
+        if (ImGui::DragFloat("Fighter Model Scale", &fighterModel_->transform.scale.x, 0.1f, 0.1f, 100.0f, "%.1f")) {
+            fighterModel_->transform.scale.y = fighterModel_->transform.scale.x;
+            fighterModel_->transform.scale.z = fighterModel_->transform.scale.x;
+        }
+    }
+    
+    ImGui::Text("TAB Key: Switch Scene Mode");
+    ImGui::Text("Current Mode: %s", (sceneMode_ == SceneMode::kMouse ? "Mouse" : (sceneMode_ == SceneMode::kCamera ? "Camera" : "Fighter")));
     ImGui::End();
 #endif
 
@@ -384,31 +446,25 @@ void GamePlayScene::Update() {
         audio_->PlayWave(jumpSE_, false, 1.0f);
     }
 
-    Vector3 moveDir = { 0.0f, 0.0f, 0.0f };
-    if (input_->IsKeyPressed(DIK_W)) moveDir.z += 1.0f;
-    if (input_->IsKeyPressed(DIK_S)) moveDir.z -= 1.0f;
-    if (input_->IsKeyPressed(DIK_D)) moveDir.x += 1.0f;
-    if (input_->IsKeyPressed(DIK_A)) moveDir.x -= 1.0f;
-    if (input_->IsKeyPressed(DIK_E)) moveDir.y += 1.0f;
-    if (input_->IsKeyPressed(DIK_Q)) moveDir.y -= 1.0f;
-
-    float cameraSpeed = 5.0f;
     const float kDeltaTime = 1.0f / 60.0f;
-
     EulerTransform& camTrans = camera_->GetTransform();
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
 
     // TABキーでモード切替
     if (input_->IsKeyTriggered(DIK_TAB)) {
-        isCameraMode_ = !isCameraMode_;
-        if (isCameraMode_) {
+        if (sceneMode_ == SceneMode::kMouse) {
+            sceneMode_ = SceneMode::kCamera;
+            ShowCursor(FALSE);
+        } else if (sceneMode_ == SceneMode::kCamera) {
+            sceneMode_ = SceneMode::kFighter;
             ShowCursor(FALSE);
         } else {
+            sceneMode_ = SceneMode::kMouse;
             ShowCursor(TRUE);
         }
     }
 
-    if (isCameraMode_) {
+    if (sceneMode_ == SceneMode::kCamera) {
         // カメラ操作モード: マウス移動で回転（カーソルロック）
         RECT rect;
         GetWindowRect(hwnd, &rect);
@@ -427,19 +483,145 @@ void GamePlayScene::Update() {
 
         const float pitchLimit = static_cast<float>(M_PI / 2.0 - 0.01);
         camTrans.rotate.x = std::clamp(camTrans.rotate.x, -pitchLimit, pitchLimit);
-    } else {
-        // マウスモード: ImGui操作が可能。カメラは回転しない
-    }
+        
+        Vector3 moveDir = { 0.0f, 0.0f, 0.0f };
+        if (input_->IsKeyPressed(DIK_W)) moveDir.z += 1.0f;
+        if (input_->IsKeyPressed(DIK_S)) moveDir.z -= 1.0f;
+        if (input_->IsKeyPressed(DIK_D)) moveDir.x += 1.0f;
+        if (input_->IsKeyPressed(DIK_A)) moveDir.x -= 1.0f;
+        if (input_->IsKeyPressed(DIK_E)) moveDir.y += 1.0f;
+        if (input_->IsKeyPressed(DIK_Q)) moveDir.y -= 1.0f;
+        
+        if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
+            float cameraSpeed = 5.0f;
+            Matrix4x4 cameraRotY = MakeRotateYMatrix(camTrans.rotate.y);
+            Vector3 rotatedMoveDir = TransformNormal(moveDir, cameraRotY);
+            rotatedMoveDir = Normalize(rotatedMoveDir);
+            rotatedMoveDir = Scale(rotatedMoveDir, cameraSpeed * kDeltaTime);
+            camTrans.translate = Add(camTrans.translate, rotatedMoveDir);
+        }
+    } else if (sceneMode_ == SceneMode::kFighter) {
+        // --- 戦闘機（レールシューター）モード ---
+        // 1. カメラは常に前進
+        float forwardSpeed = 30.0f;
+        camTrans.translate.z += forwardSpeed * kDeltaTime;
+        
+        // 2. 自機のローカル移動（カメラからの相対位置）
+        if (fighterModel_) {
+            Vector3 inputDir = {0,0,0};
+            if (input_->IsKeyPressed(DIK_W)) inputDir.y += 1.0f;
+            if (input_->IsKeyPressed(DIK_S)) inputDir.y -= 1.0f;
+            if (input_->IsKeyPressed(DIK_A)) inputDir.x -= 1.0f;
+            if (input_->IsKeyPressed(DIK_D)) inputDir.x += 1.0f;
+            
+            if (inputDir.x != 0 || inputDir.y != 0) {
+                inputDir = Normalize(inputDir);
+                fighterModel_->transform.translate.x += inputDir.x * 25.0f * kDeltaTime;
+                fighterModel_->transform.translate.y += inputDir.y * 20.0f * kDeltaTime;
+            }
+            
+            // 画面外に出ないように制限 (距離が遠くなったため範囲を広げて調整)
+            fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -35.0f, 35.0f);
+            fighterModel_->transform.translate.y = std::clamp(fighterModel_->transform.translate.y, -25.0f, 25.0f);
+            
+            // スターフォックス風の緩やかなカメラ追従 (X, Y 補間)
+            float cameraLag = 0.08f;
+            float targetCamX = fighterModel_->transform.translate.x * 0.5f;
+            float targetCamY = fighterModel_->transform.translate.y * 0.5f;
+            camTrans.translate.x = std::lerp(camTrans.translate.x, targetCamX, cameraLag);
+            camTrans.translate.y = std::lerp(camTrans.translate.y, targetCamY, cameraLag);
 
-    if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
-        Matrix4x4 cameraRotY = MakeRotateYMatrix(camTrans.rotate.y);
-        Vector3 rotatedMoveDir = TransformNormal(moveDir, cameraRotY);
-        rotatedMoveDir = Normalize(rotatedMoveDir);
-        rotatedMoveDir = Scale(rotatedMoveDir, cameraSpeed * kDeltaTime);
-        camTrans.translate = Add(camTrans.translate, rotatedMoveDir);
+            // ワールド座標の計算 (Star Fox風にカメラから離す)
+            Vector3 fighterWorldPos = {
+                camTrans.translate.x + fighterModel_->transform.translate.x,
+                camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+                camTrans.translate.z + 65.0f
+            };
+            
+            // 機体の傾き（ロール、ピッチ）
+            float targetRoll = inputDir.x * -0.6f;
+            float targetPitch = inputDir.y * 0.4f;
+            playerRotationRoll_ = std::lerp(playerRotationRoll_, targetRoll, 0.1f);
+            playerRotationPitch_ = std::lerp(playerRotationPitch_, targetPitch, 0.1f);
+            
+            fighterModel_->transform.rotate.z = playerRotationRoll_;
+            fighterModel_->transform.rotate.x = playerRotationPitch_;
+            
+            fighterTransformData_->World = MakeAffineMatrix(fighterModel_->transform.scale, fighterModel_->transform.rotate, fighterWorldPos);
+            
+            // --- 弾の発射と更新 ---
+            Vector3 reticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f }; // 遠くにレティクル
+            if (input_->IsKeyTriggered(DIK_SPACE)) {
+                // 左翼と右翼から発射 (拡大モデルの翼に合わせる)
+                Vector3 leftWing = { fighterWorldPos.x - 5.0f, fighterWorldPos.y, fighterWorldPos.z + 5.0f };
+                Vector3 rightWing = { fighterWorldPos.x + 5.0f, fighterWorldPos.y, fighterWorldPos.z + 5.0f };
+                
+                Vector3 dirLeft = { reticlePos.x - leftWing.x, reticlePos.y - leftWing.y, reticlePos.z - leftWing.z };
+                dirLeft = Normalize(dirLeft);
+                Vector3 dirRight = { reticlePos.x - rightWing.x, reticlePos.y - rightWing.y, reticlePos.z - rightWing.z };
+                dirRight = Normalize(dirRight);
+                float bulletSpeed = 150.0f; // 前進速度が上がったため弾速も少しアップ！
+                
+                for (auto& b : playerBullets_) {
+                    if (b.currentTime >= b.lifeTime) {
+                        b.position = leftWing;
+                        b.velocity = Scale(dirLeft, bulletSpeed);
+                        b.lifeTime = 2.0f;
+                        b.currentTime = 0.0f;
+                        break;
+                    }
+                }
+                for (auto& b : playerBullets_) {
+                    if (b.currentTime >= b.lifeTime) {
+                        b.position = rightWing;
+                        b.velocity = Scale(dirRight, bulletSpeed);
+                        b.lifeTime = 2.0f;
+                        b.currentTime = 0.0f;
+                        break;
+                    }
+                }
+                audio_->PlayWave(jumpSE_, false, 1.0f);
+            }
+            
+            // エイミング(レティクル)の更新 (距離があるため大きめに描画)
+            Matrix4x4 reticleWorld = MakeAffineMatrix(Vector3{8.0f, 8.0f, 8.0f}, Vector3{0.0f, 0.0f, 0.0f}, reticlePos);
+            aimingInstancingData_->World = reticleWorld;
+        }
+    }
+    
+    // 弾の更新（全モード共通）
+    for (int i = 0; i < kMaxBullets; ++i) {
+        if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
+            playerBullets_[i].position = Add(playerBullets_[i].position, Scale(playerBullets_[i].velocity, kDeltaTime));
+            playerBullets_[i].currentTime += kDeltaTime;
+        }
     }
     camera_->Update();
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
+
+    // 戦闘機とエイミングのWVPの更新
+    if (sceneMode_ == SceneMode::kFighter) {
+        if (fighterModel_ && fighterTransformData_) {
+            fighterTransformData_->WVP = Multiply(fighterTransformData_->World, viewProjectionMatrix);
+        }
+        if (aimingInstancingData_) {
+            aimingInstancingData_->WVP = Multiply(aimingInstancingData_->World, viewProjectionMatrix);
+            aimingInstancingData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+            aimingInstancingData_->uvTransform = MakeIdentity4x4();
+        }
+    }
+
+    // 弾の描画用行列の更新
+    for (int i = 0; i < kMaxBullets; ++i) {
+        if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
+            Matrix4x4 bulletWorld = MakeAffineMatrix(Vector3{ 0.5f, 0.5f, 0.5f }, Vector3{ 0.0f, 0.0f, 0.0f }, playerBullets_[i].position);
+            bulletTransformData_[i]->World = bulletWorld;
+            bulletTransformData_[i]->WVP = Multiply(bulletWorld, viewProjectionMatrix);
+        } else {
+            bulletTransformData_[i]->World = MakeIdentity4x4();
+            bulletTransformData_[i]->WVP = MakeIdentity4x4();
+        }
+    }
 
     if (playerModel_) {
         // アニメーションの更新 (DeltaTimeは固定60fpsとする)
@@ -613,8 +795,8 @@ void GamePlayScene::Draw() {
     // --- 1. RenderTextureへの描画開始 ---
     postProcess_->PreDraw();
 
-    // 1. キャラクターモデルの描画
-    if (playerModel_) {
+    // 1. キャラクターモデルの描画 (playerModel_)
+    if (showSimpleSkin_ && playerModel_) {
         ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
         commandList->SetDescriptorHeaps(1, modelHeaps);
 
@@ -624,15 +806,9 @@ void GamePlayScene::Draw() {
             commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
 
             // 行列、ライト、カメラの定数バッファをセット
-            if (transformResource_) {
-                commandList->SetGraphicsRootConstantBufferView(1, transformResource_->GetGPUVirtualAddress());
-            }
-            if (directionalLightResource_) {
-                commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
-            }
-            if (cameraResource_) {
-                commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-            }
+            if (transformResource_) commandList->SetGraphicsRootConstantBufferView(1, transformResource_->GetGPUVirtualAddress());
+            if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+            if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
 
             playerModel_->DrawModel(
                 commandList,
@@ -642,20 +818,56 @@ void GamePlayScene::Draw() {
         }
     }
 
+    // --- 戦闘機モードの描画 ---
+    if (sceneMode_ == SceneMode::kFighter) {
+        ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, modelHeaps);
+        if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
+            commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+
+            // 自機(Fighter)描画
+            if (fighterModel_) {
+                if (fighterTransformResource_) commandList->SetGraphicsRootConstantBufferView(1, fighterTransformResource_->GetGPUVirtualAddress());
+                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+                fighterModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player2/Player_basecolor.JPEG"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+            }
+
+            // 弾の描画
+            if (debugSphereModel_) {
+                for (int i = 0; i < kMaxBullets; ++i) {
+                    if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
+                        commandList->SetGraphicsRootConstantBufferView(1, bulletTransformResources_[i]->GetGPUVirtualAddress());
+                        debugSphereModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                    }
+                }
+            }
+        }
+        
+        // エイミング(レティクル)の描画
+        if (graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+            commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+                commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+                if (particleModel_) {
+                    particleModel_->Draw(commandList, 1, TextureManager::GetInstance()->GetSrvHandleGPU("aiming.png"), aimingInstancingSrvHandleGPU_);
+                }
+            }
+        }
+    }
+
     // simpleSkinの描画
-    if (cubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetSkinningPipelineState()) {
+    if (showSimpleSkin_ && cubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetSkinningPipelineState()) {
+        ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, modelHeaps);
         commandList->SetPipelineState(graphicsPipeline_->GetSkinningPipelineState());
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetSkinningRootSignature());
 
-        if (cubeTransformResource_) {
-            commandList->SetGraphicsRootConstantBufferView(1, cubeTransformResource_->GetGPUVirtualAddress());
-        }
-        if (directionalLightResource_) {
-            commandList->SetGraphicsRootConstantBufferView(5, directionalLightResource_->GetGPUVirtualAddress());
-        }
-        if (cameraResource_) {
-            commandList->SetGraphicsRootConstantBufferView(6, cameraResource_->GetGPUVirtualAddress());
-        }
+        if (cubeTransformResource_) commandList->SetGraphicsRootConstantBufferView(1, cubeTransformResource_->GetGPUVirtualAddress());
+        if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(5, directionalLightResource_->GetGPUVirtualAddress());
+        if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(6, cameraResource_->GetGPUVirtualAddress());
 
         cubeRenderModel_->DrawSkinningModel(
             commandList,
@@ -669,19 +881,15 @@ void GamePlayScene::Draw() {
     }
 
     // AnimatedCubeの描画
-    if (animatedCubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
+    if (showAnimatedCube_ && animatedCubeRenderModel_ && graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
+        ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, modelHeaps);
         commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
 
-        if (animatedCubeTransformResource_) {
-            commandList->SetGraphicsRootConstantBufferView(1, animatedCubeTransformResource_->GetGPUVirtualAddress());
-        }
-        if (directionalLightResource_) {
-            commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
-        }
-        if (cameraResource_) {
-            commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-        }
+        if (animatedCubeTransformResource_) commandList->SetGraphicsRootConstantBufferView(1, animatedCubeTransformResource_->GetGPUVirtualAddress());
+        if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+        if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
 
         animatedCubeRenderModel_->DrawModel(
             commandList,
@@ -691,29 +899,26 @@ void GamePlayScene::Draw() {
     }
 
     // --- スケルトンのデバッグ描画 ---
-    if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
+    if (showSimpleSkin_ && graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
         commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
-        if (directionalLightResource_) {
-            commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
-        }
-        if (cameraResource_) {
-            commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-        }
+        if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+        if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+        Matrix4x4 debugBaseWorld = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, { 40.0f, 0.0f, 0.0f });
+        DrawSkeleton(cubeSkeleton_, debugBaseWorld);
     }
-    Matrix4x4 debugBaseWorld = MakeAffineMatrix(cubeRenderModel_->transform.scale, cubeRenderModel_->transform.rotate, { 40.0f, 0.0f, 0.0f });
-    DrawSkeleton(cubeSkeleton_, debugBaseWorld);
 
     // 3. パーティクルの描画（半透明なので最後に描画）
-    ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
-    commandList->SetDescriptorHeaps(1, descriptorHeaps);
+    if (showParticles_) {
+        ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
+        commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
-    if (graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
-        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        if (graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+            commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
-        if (graphicsPipeline_->GetPipelineState(blendMode)) {
+            BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
+            if (graphicsPipeline_->GetPipelineState(blendMode)) {
             commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
             if (particleModel_) {
                 particleModel_->Draw(commandList, kNumInstances, textureSrvHandleGPU_, instancingSrvHandleGPU_);
@@ -735,10 +940,12 @@ void GamePlayScene::Draw() {
     }
 
     if (gpuParticleManager_) {
+        SrvManager::GetInstance()->PreDraw();
         gpuParticleManager_->Emit();
         gpuParticleManager_->UpdateCS();
         gpuParticleManager_->Draw(commandList, textureSrvHandleGPU_);
     }
+    } // End of if (showParticles_)
 
     // --- 2. RenderTextureから画面（Swapchain）へのコピー ---
     postProcess_->PostDraw();
@@ -747,6 +954,9 @@ void GamePlayScene::Draw() {
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferHandle = dxCommon_->GetCurrentBackBufferRtvHandle();
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dxCommon_->GetDsvHandle();
     commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
+
+    // SrvManagerのデスクリプタヒープをセット
+    SrvManager::GetInstance()->PreDraw();
 
     // 適切なパイプラインを選択
     ID3D12PipelineState* pso = nullptr;

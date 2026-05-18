@@ -49,6 +49,19 @@ enum ParticleType {
     kTypeCylinder
 };
 
+enum class SceneMode {
+    kMouse,
+    kCamera,
+    kFighter
+};
+
+struct Bullet {
+    Vector3 position;
+    Vector3 velocity;
+    float lifeTime;
+    float currentTime;
+};
+
 class GamePlayScene : public BaseScene {
 public:
     void Initialize() override;
@@ -73,6 +86,7 @@ private:
     std::unique_ptr<Model> cylinderModel_;
 
     std::unique_ptr<Model> playerModel_;
+    std::unique_ptr<Model> fighterModel_;
     std::unique_ptr<Skybox> skybox_;
 
     std::mt19937 randomEngine_;
@@ -107,6 +121,18 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleGPU_;
     D3D12_GPU_DESCRIPTOR_HANDLE gradationSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE aimingSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE aimingInstancingSrvHandleGPU_;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> aimingInstancingResource_;
+    ParticleForGPU* aimingInstancingData_ = nullptr;
+    
+    struct Material {
+        Vector4 color;
+        Matrix4x4 uvTransform;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> reticleMaterialResource_;
+    Material* reticleMaterialData_ = nullptr;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> transformResource_;
     TransformationMatrix* transformData_ = nullptr;
@@ -131,10 +157,15 @@ private:
     SoundData bgmData_;
     SoundData jumpSE_;
 
-    bool isCameraMode_ = false;
+    SceneMode sceneMode_ = SceneMode::kFighter;
     float modelEnvCoefficient_ = 1.0f;
     float mouseSensitivity_ = 0.005f;
     Vector2 spritePos_ = { 0.0f, 0.0f };
+
+    bool showSimpleSkin_ = false;
+    bool showAnimatedCube_ = false;
+    bool showParticles_ = false;
+    bool showSkybox_ = true;
 
     // simpleSkin
     AdvAnim::AnimatedModel cubeModel_;
@@ -175,4 +206,16 @@ private:
     std::unique_ptr<PostProcess> postProcess_;
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
+    
+    // プレイヤーの戦闘機用
+    float playerRotationRoll_ = 0.0f;
+    float playerRotationPitch_ = 0.0f;
+    Microsoft::WRL::ComPtr<ID3D12Resource> fighterTransformResource_;
+    TransformationMatrix* fighterTransformData_ = nullptr;
+
+    // 弾管理
+    static const uint32_t kMaxBullets = 60;
+    std::vector<Bullet> playerBullets_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> bulletTransformResources_[kMaxBullets];
+    TransformationMatrix* bulletTransformData_[kMaxBullets] = { nullptr };
 };

@@ -197,8 +197,10 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
     // メッシュの解析
     for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
         aiMesh* mesh = scene->mMeshes[i];
-        assert(mesh->HasNormals());
-        assert(mesh->HasTextureCoords(0));
+        
+        // アサーションを削除し、UVや法線がない場合はデフォルト値を使う
+        // assert(mesh->HasNormals());
+        // assert(mesh->HasTextureCoords(0));
 
         // 頂点ごとのウェイト情報を一時保存
         struct Weight {
@@ -233,8 +235,10 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
         modelData.vertices.resize(mesh->mNumVertices);
         for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
             aiVector3D& position = mesh->mVertices[v];
-            aiVector3D& normal = mesh->mNormals[v];
-            aiVector3D& texcoord = mesh->mTextureCoords[0][v];
+            
+            // 法線とUVの存在チェックとデフォルト値
+            aiVector3D normal = mesh->HasNormals() ? mesh->mNormals[v] : aiVector3D(0.0f, 1.0f, 0.0f);
+            aiVector3D texcoord = mesh->HasTextureCoords(0) ? mesh->mTextureCoords[0][v] : aiVector3D(0.0f, 0.0f, 0.0f);
             
             VertexData& vertex = modelData.vertices[v];
             vertex = {}; // ゼロ初期化
