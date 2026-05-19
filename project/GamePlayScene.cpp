@@ -20,6 +20,12 @@
 static Vector3 Add(const Vector3& v1, const Vector3& v2) {
     return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
 }
+static Vector3 Subtract(const Vector3& v1, const Vector3& v2) {
+    return { v1.x - v2.x, v1.y - v2.y, v1.z - v2.z };
+}
+static float Length(const Vector3& v) {
+    return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
 static Vector3 Scale(const Vector3& v, float s) {
     return { v.x * s, v.y * s, v.z * s };
 }
@@ -272,6 +278,31 @@ void GamePlayScene::Initialize() {
         bulletTransformData_[i]->World = MakeIdentity4x4();
     }
 
+    // 敵用リソース生成（ウェーブ式出現：最初は5体だけ出現）
+
+    enemies_.clear();
+    for (int i = 0; i < kMaxEnemies; ++i) {
+        enemyTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
+        enemyTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&enemyTransformData_[i]));
+        enemyTransformData_[i]->WVP = MakeIdentity4x4();
+        enemyTransformData_[i]->World = MakeIdentity4x4();
+
+        Enemy enemy;
+        // Z方向に150刻みで配置 (Z = 150 から 2250 まで)
+        enemy.position = {
+            (float)((i % 3) - 1) * 20.0f,
+            (float)(((i + 1) % 2) - 0.5f) * 10.0f,
+            150.0f + (float)i * 150.0f
+        };
+        enemy.scale = { 2.5f, 2.5f, 2.5f };
+        enemy.rotate = { 0.0f, 0.0f, 0.0f }; // モデルの向きを180度反転して修正
+        // 最初のkInitialEnemies体だけをアクティブにする
+        enemy.isAlive = (i < kInitialEnemies);
+        enemy.radius = 3.5f;
+        enemies_.push_back(enemy);
+    }
+    nextEnemyIndex_ = kInitialEnemies;
+
     // レティクル(エイミング)用バッファ
     aimingInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU));
     aimingInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&aimingInstancingData_));
@@ -376,6 +407,7 @@ void GamePlayScene::Update() {
     ImGui::Checkbox("Show AnimatedCube", &showAnimatedCube_);
     ImGui::Checkbox("Show Particles", &showParticles_);
     ImGui::Checkbox("Show Skybox", &showSkybox_);
+    ImGui::Checkbox("Show Enemies", &showEnemies_);
     ImGui::DragFloat2("Sprite Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
     if (ImGui::SliderFloat("Model Reflection", &modelEnvCoefficient_, 0.0f, 1.0f)) {
         if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
@@ -552,9 +584,10 @@ void GamePlayScene::Update() {
             // --- 弾の発射と更新 ---
             Vector3 reticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f }; // 遠くにレティクル
             if (input_->IsKeyTriggered(DIK_SPACE)) {
-                // 左翼と右翼から発射 (拡大モデルの翼に合わせる)
-                Vector3 leftWing = { fighterWorldPos.x - 5.0f, fighterWorldPos.y, fighterWorldPos.z + 5.0f };
-                Vector3 rightWing = { fighterWorldPos.x + 5.0f, fighterWorldPos.y, fighterWorldPos.z + 5.0f };
+                // 左翼と右翼から発射 (高さを少し上に調整して拡大モデルの翼にピッタリ合わせる)
+                // 近すぎると弾が当たらない対策として、発射位置を少し内側に寄せる
+                Vector3 leftWing = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z + 5.0f };
+                Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z + 5.0f };
                 
                 Vector3 dirLeft = { reticlePos.x - leftWing.x, reticlePos.y - leftWing.y, reticlePos.z - leftWing.z };
                 dirLeft = Normalize(dirLeft);
@@ -589,15 +622,98 @@ void GamePlayScene::Update() {
         }
     }
     
-    // 弾の更新（全モード共通）
+    // 弾の更新（全モード共通）と敵との衝突判定
     for (int i = 0; i < kMaxBullets; ++i) {
         if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
             playerBullets_[i].position = Add(playerBullets_[i].position, Scale(playerBullets_[i].velocity, kDeltaTime));
             playerBullets_[i].currentTime += kDeltaTime;
+
+            // 敵との当たり判定 (球衝突判定)
+            for (auto& enemy : enemies_) {
+                if (!enemy.isAlive) continue;
+
+                Vector3 diff = Subtract(playerBullets_[i].position, enemy.position);
+                float dist = Length(diff);
+                // 弾の当たり判定半径を広げて（0.5f -> 2.5f）、すり抜けや近距離で当たらない現象を緩和
+                if (dist <= (enemy.radius + 2.5f)) {
+                    // 弾を消去
+                    playerBullets_[i].currentTime = playerBullets_[i].lifeTime;
+                    // 敵を撃破
+                    enemy.isAlive = false;
+
+                    // ★ 次の敵を1体出現させる（ウェーブ式） ★
+                    if (nextEnemyIndex_ < kMaxEnemies) {
+                        enemies_[nextEnemyIndex_].isAlive = true;
+                        nextEnemyIndex_++;
+                    }
+
+                    // ★★★ 超ド派手爆破エフェクト！ ★★★
+                    // 1. 火花スパーク (kTypeHit) 40発
+                    int sparkCount = 40;
+                    for (uint32_t p = 0; p < kNumInstances && sparkCount > 0; ++p) {
+                        if (particles_[p].currentTime >= particles_[p].lifeTime) {
+                            particles_[p] = MakeNewParticle(kTypeHit, enemy.position);
+                            sparkCount--;
+                        }
+                    }
+
+                    // 2. 衝撃波リング (kTypeRing) 2枚
+                    int ringCount = 2;
+                    for (uint32_t r = 0; r < kRingInstanceCount && ringCount > 0; ++r) {
+                        if (ringParticles_[r].currentTime >= ringParticles_[r].lifeTime) {
+                            ringParticles_[r] = MakeNewParticle(kTypeRing, enemy.position);
+                            ringCount--;
+                        }
+                    }
+
+                    // 3. 閃光シリンダー (kTypeCylinder) 1本
+                    int cylinderCount = 1;
+                    for (uint32_t c = 0; c < kCylinderInstanceCount && cylinderCount > 0; ++c) {
+                        if (cylinderParticles_[c].currentTime >= cylinderParticles_[c].lifeTime) {
+                            cylinderParticles_[c] = MakeNewParticle(kTypeCylinder, enemy.position);
+                            cylinderCount--;
+                        }
+                    }
+
+                    // 爆破音を再生
+                    audio_->PlayWave(jumpSE_, false, 1.5f);
+                    break;
+                }
+            }
         }
     }
     camera_->Update();
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
+
+    // 敵キャラのワールド行列・WVPの更新
+    EulerTransform& camTransForEnemy = camera_->GetTransform();
+    for (int i = 0; i < kMaxEnemies; ++i) {
+        if (enemies_[i].isAlive) {
+            // カメラ（プレイヤー）より後ろに行った敵は画面外 → 死亡扱い
+            if (enemies_[i].position.z < camTransForEnemy.translate.z - 20.0f) {
+                enemies_[i].isAlive = false;
+                // 次の敵を出現させる
+                if (nextEnemyIndex_ < kMaxEnemies) {
+                    enemies_[nextEnemyIndex_].isAlive = true;
+                    nextEnemyIndex_++;
+                }
+                enemyTransformData_[i]->World = MakeIdentity4x4();
+                enemyTransformData_[i]->WVP = MakeIdentity4x4();
+                continue;
+            }
+
+            // ゆっくりY軸回転させて3D感を演出（回転しないようにコメントアウト）
+            // enemies_[i].rotate.y += 1.0f * kDeltaTime;
+
+            Matrix4x4 worldMatrix = MakeAffineMatrix(enemies_[i].scale, enemies_[i].rotate, enemies_[i].position);
+            enemyTransformData_[i]->World = worldMatrix;
+            enemyTransformData_[i]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
+        } else {
+            // 撃破された敵は非表示にする
+            enemyTransformData_[i]->World = MakeIdentity4x4();
+            enemyTransformData_[i]->WVP = MakeIdentity4x4();
+        }
+    }
 
     // 戦闘機とエイミングのWVPの更新
     if (sceneMode_ == SceneMode::kFighter) {
@@ -864,6 +980,16 @@ void GamePlayScene::Draw() {
                     }
                 }
             }
+
+            // 敵の描画（プレイヤーと同じ戦闘機モデルを使用）
+            if (fighterModel_ && showEnemies_) {
+                for (int i = 0; i < kMaxEnemies; ++i) {
+                    if (enemies_[i].isAlive) {
+                        commandList->SetGraphicsRootConstantBufferView(1, enemyTransformResources_[i]->GetGPUVirtualAddress());
+                        fighterModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player2/Player_basecolor.JPEG"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                    }
+                }
+            }
         }
         
         // エイミング(レティクル)の描画
@@ -1063,67 +1189,104 @@ Particle GamePlayScene::MakeNewParticle(int type, const Vector3& emitterPos) {
         break;
     case kTypeHit:
     {
-        // ヒットエフェクト用のスケールランダム値
-        std::uniform_real_distribution<float> distScale(0.4f, 1.5f);
+        // ★超ド派手スパーク★ 大きく・速く・鮮やかに！
+        std::uniform_real_distribution<float> distScale(0.5f, 2.0f);
         std::uniform_real_distribution<float> distRotate(-(float)M_PI, (float)M_PI);
+        std::uniform_real_distribution<float> distSparkVel(-15.0f, 15.0f);
 
-        particle.transform.scale = { 0.1f, distScale(randomEngine_) * 2.0f, 1.0f };
+        float sc = distScale(randomEngine_);
+        particle.transform.scale = { sc * 0.5f, sc * 0.5f, sc * 0.5f };
+        particle.transform.rotate = { distRotate(randomEngine_), distRotate(randomEngine_), distRotate(randomEngine_) };
 
-        // カメラの情報を取得
-        EulerTransform& camTrans = camera_->GetTransform();
+        // 爆発中心からランダムにばらつかせる
+        particle.transform.translate = {
+            emitterPos.x + distPos(randomEngine_) * 3.0f,
+            emitterPos.y + distPos(randomEngine_) * 3.0f,
+            emitterPos.z + distPos(randomEngine_) * 3.0f
+        };
 
-        // エフェクトの平面がカメラを向くように、カメラのXY回転を適用し、Z回転をランダムにする
-        particle.transform.rotate = { camTrans.rotate.x, camTrans.rotate.y, distRotate(randomEngine_) };
+        // 超高速で全方向に飛び散る！
+        particle.velocity = {
+            distSparkVel(randomEngine_),
+            distSparkVel(randomEngine_),
+            distSparkVel(randomEngine_)
+        };
 
-        // カメラの前方向ベクトルを計算
-        Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
-        Matrix4x4 rotY = MakeRotateYMatrix(camTrans.rotate.y);
-        Matrix4x4 camRot = Multiply(rotX, rotY);
-        Vector3 forward = TransformNormal({ 0.0f, 0.0f, 1.0f }, camRot);
-
-        // 画面を覆いすぎないようカメラから 5.0f 前方に発生させる
-        particle.transform.translate = Add(camTrans.translate, Scale(forward, 5.0f));
-
-        particle.velocity = { 0.0f, 0.0f, 0.0f };
-        particle.color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        // 短い時間で消滅させる
-        particle.lifeTime = 0.5f;
+        // 火花色：白熱コア → 黄金 → 深紅 → 深いオレンジのグラデーション
+        float colorSelect = distColor(randomEngine_);
+        if (colorSelect < 0.2f) {
+            particle.color = { 1.0f, 1.0f, 0.9f, 1.0f }; // 白熱コア（超高温部）
+        } else if (colorSelect < 0.45f) {
+            particle.color = { 1.0f, 0.9f, 0.2f, 1.0f }; // 黄金の輝き
+        } else if (colorSelect < 0.7f) {
+            particle.color = { 1.0f, 0.5f, 0.0f, 1.0f }; // 鮮やかオレンジ
+        } else if (colorSelect < 0.85f) {
+            particle.color = { 1.0f, 0.2f, 0.0f, 1.0f }; // 深紅の炎
+        } else {
+            particle.color = { 0.8f, 0.1f, 0.0f, 1.0f }; // ダークレッド（残り火）
+        }
+        particle.lifeTime = 0.3f + distColor(randomEngine_) * 0.7f;
         break;
     }
     case kTypeRing:
     {
-        particle.transform.scale = { 0.1f, 0.1f, 1.0f };
+        // ★衝撃波リング★ 大きく広がる！
+        std::uniform_real_distribution<float> distRingScale(0.3f, 1.0f);
+        float ringInitScale = distRingScale(randomEngine_);
+        particle.transform.scale = { ringInitScale, ringInitScale, 1.0f };
+        // カメラの向きに合わせてリングをビルボード化
         EulerTransform& camTrans = camera_->GetTransform();
-        particle.transform.rotate = { camTrans.rotate.x, camTrans.rotate.y, 0.0f };
+        std::uniform_real_distribution<float> distRingRot(-(float)M_PI * 0.3f, (float)M_PI * 0.3f);
+        particle.transform.rotate = {
+            camTrans.rotate.x + distRingRot(randomEngine_),
+            camTrans.rotate.y + distRingRot(randomEngine_),
+            distRingRot(randomEngine_)
+        };
 
-        Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
-        Matrix4x4 rotY = MakeRotateYMatrix(camTrans.rotate.y);
-        Matrix4x4 camRot = Multiply(rotX, rotY);
-        Vector3 forward = TransformNormal({ 0.0f, 0.0f, 1.0f }, camRot);
-
-        particle.transform.translate = Add(camTrans.translate, Scale(forward, 5.0f));
+        // 爆発位置に配置
+        particle.transform.translate = emitterPos;
 
         particle.velocity = { 0.0f, 0.0f, 0.0f };
-        particle.color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        particle.lifeTime = 0.5f;
+        // 各リングでランダムに色を変えて、より豪華に
+        float ringColor = distColor(randomEngine_);
+        if (ringColor < 0.5f) {
+            particle.color = { 1.0f, 0.7f, 0.1f, 1.0f }; // ゴールデンオレンジ
+        } else {
+            particle.color = { 1.0f, 0.3f, 0.05f, 1.0f }; // ディープレッド
+        }
+        particle.lifeTime = 0.5f + distColor(randomEngine_) * 0.5f;
         break;
     }
     case kTypeCylinder:
     {
-        particle.transform.scale = { 1.0f, 1.0f, 1.0f };
-        EulerTransform& camTrans = camera_->GetTransform();
-        particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+        // ★閃光シリンダー★ ランダム方向に回転して噴き出す！
+        std::uniform_real_distribution<float> distCylScale(1.5f, 4.0f);
+        std::uniform_real_distribution<float> distCylRot(-(float)M_PI, (float)M_PI);
+        std::uniform_real_distribution<float> distCylVel(-5.0f, 5.0f);
+        float cylSc = distCylScale(randomEngine_);
+        particle.transform.scale = { cylSc, cylSc, cylSc };
+        particle.transform.rotate = {
+            distCylRot(randomEngine_),
+            distCylRot(randomEngine_),
+            distCylRot(randomEngine_)
+        };
 
-        Matrix4x4 rotX = MakeRotateXMatrix(camTrans.rotate.x);
-        Matrix4x4 rotY = MakeRotateYMatrix(camTrans.rotate.y);
-        Matrix4x4 camRot = Multiply(rotX, rotY);
-        Vector3 forward = TransformNormal({ 0.0f, 0.0f, 1.0f }, camRot);
+        // 爆発位置に配置
+        particle.transform.translate = emitterPos;
 
-        particle.transform.translate = Add(camTrans.translate, Scale(forward, 5.0f));
-
-        particle.velocity = { 0.0f, 0.0f, 0.0f };
-        particle.color = { 0.2f, 0.4f, 1.0f, 1.0f }; // 青っぽいポータル色
-        particle.lifeTime = 2.0f; // 少し長め
+        // ランダムな方向に上昇・拡散する閃光柱
+        particle.velocity = {
+            distCylVel(randomEngine_),
+            2.0f + std::abs(distCylVel(randomEngine_)),
+            distCylVel(randomEngine_)
+        };
+        float cylColor = distColor(randomEngine_);
+        if (cylColor < 0.5f) {
+            particle.color = { 1.0f, 0.5f, 0.05f, 1.0f }; // 炎のオレンジ
+        } else {
+            particle.color = { 1.0f, 0.8f, 0.3f, 1.0f }; // 黄金色の閃光
+        }
+        particle.lifeTime = 0.6f + distColor(randomEngine_) * 0.6f;
         break;
     }
     case kTypeJetExhaust:

@@ -167,6 +167,7 @@ private:
     bool showAnimatedCube_ = false;
     bool showParticles_ = false;
     bool showSkybox_ = true;
+    bool showEnemies_ = false;
 
     // simpleSkin
     AdvAnim::AnimatedModel cubeModel_;
@@ -205,6 +206,20 @@ private:
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
     std::unique_ptr<PostProcess> postProcess_;
+
+    struct Enemy {
+        Vector3 position;
+        Vector3 scale;
+        Vector3 rotate;
+        bool isAlive;
+        float radius;
+    };
+    static const int kMaxEnemies = 15;
+    static const int kInitialEnemies = 1; // 最初に出現する敵の数
+    int nextEnemyIndex_ = kInitialEnemies; // 次に出現させる敵のインデックス
+    std::vector<Enemy> enemies_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> enemyTransformResources_[kMaxEnemies];
+    TransformationMatrix* enemyTransformData_[kMaxEnemies] = { nullptr };
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
     
