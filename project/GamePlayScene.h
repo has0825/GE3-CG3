@@ -202,6 +202,7 @@ private:
         kGrayscale,
         kSepia,
         kVignette,
+        kBoxFilter,
     };
     PostProcessType activePostProcess_ = kNone;
 
@@ -211,6 +212,12 @@ private:
     };
     Microsoft::WRL::ComPtr<ID3D12Resource> vignetteParamResource_;
     VignetteParameter* vignetteParamData_ = nullptr;
+
+    struct BoxFilterParameter {
+        int32_t kernelSize;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> boxFilterParamResource_;
+    BoxFilterParameter* boxFilterParamData_ = nullptr;
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
     std::unique_ptr<PostProcess> postProcess_;

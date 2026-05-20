@@ -108,6 +108,10 @@ void GamePlayScene::Initialize() {
     vignetteParamData_->scale = 16.0f;
     vignetteParamData_->power = 0.8f;
 
+    boxFilterParamResource_ = CreateBufferResource(device, sizeof(BoxFilterParameter));
+    boxFilterParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&boxFilterParamData_));
+    boxFilterParamData_->kernelSize = 2; // 5x5 default
+
     particles_.resize(kNumInstances);
     for (UINT i = 0; i < kNumInstances; ++i) {
         particles_[i] = MakeNewParticle(currentEffect_, emitterPos_);
@@ -947,7 +951,7 @@ void GamePlayScene::Update() {
 
 #ifdef USE_IMGUI
     ImGui::Begin("PostProcess");
-    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette" };
+    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter" };
     int currentItem = static_cast<int>(activePostProcess_);
     if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
         activePostProcess_ = static_cast<PostProcessType>(currentItem);
@@ -955,6 +959,9 @@ void GamePlayScene::Update() {
     if (activePostProcess_ == kVignette) {
         ImGui::SliderFloat("Vignette Scale", &vignetteParamData_->scale, 0.0f, 32.0f);
         ImGui::SliderFloat("Vignette Power", &vignetteParamData_->power, 0.0f, 5.0f);
+    }
+    if (activePostProcess_ == kBoxFilter) {
+        ImGui::SliderInt("Kernel Size (k)", &boxFilterParamData_->kernelSize, 1, 10);
     }
     ImGui::End();
 #endif
@@ -1155,6 +1162,9 @@ void GamePlayScene::Draw() {
     case kVignette:
         pso = graphicsPipeline_->GetVignettePipelineState();
         break;
+    case kBoxFilter:
+        pso = graphicsPipeline_->GetBoxFilterPipelineState();
+        break;
     }
 
     // Fullscreenパイプラインで描画
@@ -1163,6 +1173,8 @@ void GamePlayScene::Draw() {
     SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
     if (activePostProcess_ == kVignette && vignetteParamResource_) {
         commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
+    } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
+        commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
     }
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->DrawInstanced(3, 1, 0, 0);

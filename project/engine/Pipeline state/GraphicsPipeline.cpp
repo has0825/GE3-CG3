@@ -831,6 +831,13 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     copyPsoDesc.PS = { vignettePSBlob->GetBufferPointer(), vignettePSBlob->GetBufferSize() };
     hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&vignettePipelineState_));
     assert(SUCCEEDED(hr));
+
+    // BoxFilter
+    Microsoft::WRL::ComPtr<IDxcBlob> boxFilterPSBlob = CompileShader(L"BoxFilter.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    assert(boxFilterPSBlob != nullptr);
+    copyPsoDesc.PS = { boxFilterPSBlob->GetBufferPointer(), boxFilterPSBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&boxFilterPipelineState_));
+    assert(SUCCEEDED(hr));
 }
 
 

@@ -51,6 +51,7 @@ public:
     ID3D12PipelineState* GetGrayscalePipelineState() const { return grayscalePipelineState_.Get(); }
     ID3D12PipelineState* GetSepiaPipelineState() const { return sepiaPipelineState_.Get(); }
     ID3D12PipelineState* GetVignettePipelineState() const { return vignettePipelineState_.Get(); }
+    ID3D12PipelineState* GetBoxFilterPipelineState() const { return boxFilterPipelineState_.Get(); }
     ID3D12RootSignature* GetFullscreenRootSignature() const { return copyImageRootSignature_.Get(); }
 
 
@@ -94,6 +95,7 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> grayscalePipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> sepiaPipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> vignettePipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> boxFilterPipelineState_;
 
 
     std::ofstream logStream_;
