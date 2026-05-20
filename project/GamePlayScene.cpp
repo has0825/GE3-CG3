@@ -951,7 +951,7 @@ void GamePlayScene::Update() {
 
 #ifdef USE_IMGUI
     ImGui::Begin("PostProcess");
-    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter" };
+    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "Outline" };
     int currentItem = static_cast<int>(activePostProcess_);
     if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
         activePostProcess_ = static_cast<PostProcessType>(currentItem);
@@ -1164,6 +1164,9 @@ void GamePlayScene::Draw() {
         break;
     case kBoxFilter:
         pso = graphicsPipeline_->GetBoxFilterPipelineState();
+        break;
+    case kOutline:
+        pso = graphicsPipeline_->GetLuminanceOutlinePipelineState();
         break;
     }
 

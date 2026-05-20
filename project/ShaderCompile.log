@@ -74,3 +74,7 @@ Begin CompileShader, path:BoxFilter.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:BoxFilter.PS.hlsl, profile:ps_6_0
 
+Begin CompileShader, path:LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
+

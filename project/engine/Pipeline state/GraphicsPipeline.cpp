@@ -838,6 +838,13 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     copyPsoDesc.PS = { boxFilterPSBlob->GetBufferPointer(), boxFilterPSBlob->GetBufferSize() };
     hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&boxFilterPipelineState_));
     assert(SUCCEEDED(hr));
+
+    // LuminanceBasedOutline
+    Microsoft::WRL::ComPtr<IDxcBlob> outlinePSBlob = CompileShader(L"LuminanceBasedOutline.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    assert(outlinePSBlob != nullptr);
+    copyPsoDesc.PS = { outlinePSBlob->GetBufferPointer(), outlinePSBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&luminanceOutlinePipelineState_));
+    assert(SUCCEEDED(hr));
 }
 
 

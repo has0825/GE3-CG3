@@ -203,6 +203,7 @@ private:
         kSepia,
         kVignette,
         kBoxFilter,
+        kOutline,
     };
     PostProcessType activePostProcess_ = kNone;
 
