@@ -204,6 +204,7 @@ private:
         kVignette,
         kBoxFilter,
         kOutline,
+        kRadialBlur,
     };
     PostProcessType activePostProcess_ = kNone;
 
@@ -219,6 +220,13 @@ private:
     };
     Microsoft::WRL::ComPtr<ID3D12Resource> boxFilterParamResource_;
     BoxFilterParameter* boxFilterParamData_ = nullptr;
+
+    struct RadialBlurParameter {
+        Vector2 center;
+        float blurWidth;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> radialBlurParamResource_;
+    RadialBlurParameter* radialBlurParamData_ = nullptr;
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
     std::unique_ptr<PostProcess> postProcess_;

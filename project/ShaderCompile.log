@@ -78,3 +78,7 @@ Begin CompileShader, path:LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
 
+Begin CompileShader, path:RadialBlur.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:RadialBlur.PS.hlsl, profile:ps_6_0
+

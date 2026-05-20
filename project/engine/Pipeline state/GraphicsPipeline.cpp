@@ -845,6 +845,13 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     copyPsoDesc.PS = { outlinePSBlob->GetBufferPointer(), outlinePSBlob->GetBufferSize() };
     hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&luminanceOutlinePipelineState_));
     assert(SUCCEEDED(hr));
+
+    // RadialBlur
+    Microsoft::WRL::ComPtr<IDxcBlob> radialBlurPSBlob = CompileShader(L"RadialBlur.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    assert(radialBlurPSBlob != nullptr);
+    copyPsoDesc.PS = { radialBlurPSBlob->GetBufferPointer(), radialBlurPSBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&radialBlurPipelineState_));
+    assert(SUCCEEDED(hr));
 }
 
 

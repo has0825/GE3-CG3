@@ -112,6 +112,11 @@ void GamePlayScene::Initialize() {
     boxFilterParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&boxFilterParamData_));
     boxFilterParamData_->kernelSize = 2; // 5x5 default
 
+    radialBlurParamResource_ = CreateBufferResource(device, sizeof(RadialBlurParameter));
+    radialBlurParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&radialBlurParamData_));
+    radialBlurParamData_->center = { 0.5f, 0.5f };
+    radialBlurParamData_->blurWidth = 0.01f;
+
     particles_.resize(kNumInstances);
     for (UINT i = 0; i < kNumInstances; ++i) {
         particles_[i] = MakeNewParticle(currentEffect_, emitterPos_);
@@ -951,7 +956,7 @@ void GamePlayScene::Update() {
 
 #ifdef USE_IMGUI
     ImGui::Begin("PostProcess");
-    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "Outline" };
+    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "Outline", "RadialBlur" };
     int currentItem = static_cast<int>(activePostProcess_);
     if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
         activePostProcess_ = static_cast<PostProcessType>(currentItem);
@@ -962,6 +967,10 @@ void GamePlayScene::Update() {
     }
     if (activePostProcess_ == kBoxFilter) {
         ImGui::SliderInt("Kernel Size (k)", &boxFilterParamData_->kernelSize, 1, 10);
+    }
+    if (activePostProcess_ == kRadialBlur) {
+        ImGui::SliderFloat2("Center", &radialBlurParamData_->center.x, 0.0f, 1.0f);
+        ImGui::SliderFloat("Blur Width", &radialBlurParamData_->blurWidth, 0.0f, 0.1f);
     }
     ImGui::End();
 #endif
@@ -1168,6 +1177,9 @@ void GamePlayScene::Draw() {
     case kOutline:
         pso = graphicsPipeline_->GetLuminanceOutlinePipelineState();
         break;
+    case kRadialBlur:
+        pso = graphicsPipeline_->GetRadialBlurPipelineState();
+        break;
     }
 
     // Fullscreenパイプラインで描画
@@ -1178,6 +1190,8 @@ void GamePlayScene::Draw() {
         commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
     } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
         commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
+    } else if (activePostProcess_ == kRadialBlur && radialBlurParamResource_) {
+        commandList->SetGraphicsRootConstantBufferView(1, radialBlurParamResource_->GetGPUVirtualAddress());
     }
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->DrawInstanced(3, 1, 0, 0);
