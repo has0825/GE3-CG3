@@ -82,3 +82,11 @@ Begin CompileShader, path:RadialBlur.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:RadialBlur.PS.hlsl, profile:ps_6_0
 
+Begin CompileShader, path:Dissolve.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:Dissolve.PS.hlsl, profile:ps_6_0
+
+Begin CompileShader, path:Random.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:Random.PS.hlsl, profile:ps_6_0
+

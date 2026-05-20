@@ -136,6 +136,48 @@ void GamePlayScene::Initialize() {
     textureResource_ = CreateTextureResource(device, metadata);
     intermediateResource_ = UploadTextureData(textureResource_.Get(), mipImages, device, commandList);
 
+    DirectX::ScratchImage noiseImages = LoadTexture("resources/noise1.png");
+    const DirectX::TexMetadata& noiseMetadata = noiseImages.GetMetadata();
+    noise1Resource_ = CreateTextureResource(device, noiseMetadata);
+    noise1IntermediateResource_ = UploadTextureData(noise1Resource_.Get(), noiseImages, device, commandList);
+    noise1SrvIndex_ = SrvManager::GetInstance()->Allocate();
+    SrvManager::GetInstance()->CreateSRVforTexture2D(noise1SrvIndex_, noise1Resource_.Get(), noiseMetadata.format, 1);
+
+    DirectX::ScratchImage noise0Images = LoadTexture("resources/noise0.png");
+    const DirectX::TexMetadata& noise0Metadata = noise0Images.GetMetadata();
+    noise0Resource_ = CreateTextureResource(device, noise0Metadata);
+    noise0IntermediateResource_ = UploadTextureData(noise0Resource_.Get(), noise0Images, device, commandList);
+    noise0SrvIndex_ = SrvManager::GetInstance()->Allocate();
+    SrvManager::GetInstance()->CreateSRVforTexture2D(noise0SrvIndex_, noise0Resource_.Get(), noise0Metadata.format, 1);
+
+    // 初期は noise1 を使用
+    activeNoiseSrvIndex_ = noise1SrvIndex_;
+    selectedNoiseIndex_ = 1;
+
+    dissolveParamResource_ = CreateBufferResource(device, sizeof(DissolveParameter));
+    dissolveParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&dissolveParamData_));
+    dissolveParamData_->threshold = 1.0f;
+    dissolveParamData_->edgeColor = { 1.0f, 0.4f, 0.3f };
+    dissolveParamData_->edgeRange = 0.03f;
+
+    randomParamResource_ = CreateBufferResource(device, sizeof(RandomParameter));
+    randomParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&randomParamData_));
+    randomParamData_->time = 0.0f;
+    randomParamData_->noiseScale = 100.0f;
+    randomParamData_->noiseStrength = 1.0f;
+    randomParamData_->isColorNoise = 0.0f;
+    randomParamData_->isMultiplyNoise = 0.0f;
+    randomEffectTime_ = 0.0f;
+    randomNoiseScale_ = 100.0f;
+    randomNoiseStrength_ = 1.0f;
+    randomSpeed_ = 1.0f;
+    randomIsColorNoise_ = false;
+    randomNoiseType_ = 0;
+    
+    isTransitioning_ = true;
+    transitionThreshold_ = 1.0f;
+    activePostProcess_ = kDissolve;
+
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
     srvDesc.Format = metadata.format;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -414,6 +456,27 @@ void GamePlayScene::Finalize() {
 }
 
 void GamePlayScene::Update() {
+    float kDeltaTime = 1.0f / 60.0f;
+
+    randomEffectTime_ += kDeltaTime * randomSpeed_;
+    if (randomParamData_) {
+        randomParamData_->time = randomEffectTime_;
+        randomParamData_->noiseScale = randomNoiseScale_;
+        randomParamData_->noiseStrength = randomNoiseStrength_;
+        randomParamData_->isColorNoise = randomIsColorNoise_ ? 1.0f : 0.0f;
+        randomParamData_->isMultiplyNoise = (randomNoiseType_ == 1) ? 1.0f : 0.0f;
+    }
+
+    if (isTransitioning_) {
+        transitionThreshold_ -= kDeltaTime * 0.5f; // Fade in over 2 seconds
+        if (transitionThreshold_ <= 0.0f) {
+            transitionThreshold_ = 0.0f;
+            isTransitioning_ = false;
+            activePostProcess_ = kNone;
+        }
+        dissolveParamData_->threshold = transitionThreshold_;
+    }
+
 #ifdef USE_IMGUI
     ImGui::SetNextWindowSize(ImVec2(500, 200));
     ImGui::Begin("GamePlay Control");
@@ -491,8 +554,6 @@ void GamePlayScene::Update() {
     if (input_->IsKeyTriggered(DIK_SPACE)) {
         audio_->PlayWave(jumpSE_, false, 1.0f);
     }
-
-    const float kDeltaTime = 1.0f / 60.0f;
     EulerTransform& camTrans = camera_->GetTransform();
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
 
@@ -956,10 +1017,21 @@ void GamePlayScene::Update() {
 
 #ifdef USE_IMGUI
     ImGui::Begin("PostProcess");
-    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "Outline", "RadialBlur" };
+    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "Outline", "RadialBlur", "Dissolve", "Random" };
     int currentItem = static_cast<int>(activePostProcess_);
     if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
         activePostProcess_ = static_cast<PostProcessType>(currentItem);
+    }
+    if (activePostProcess_ == kRandom) {
+        ImGui::SliderFloat("Noise Scale", &randomNoiseScale_, 1.0f, 1000.0f);
+        ImGui::SliderFloat("Noise Strength", &randomNoiseStrength_, 0.0f, 1.0f);
+        ImGui::SliderFloat("Time Speed", &randomSpeed_, 0.0f, 10.0f);
+        ImGui::Checkbox("Color Noise", &randomIsColorNoise_);
+        
+        const char* noiseTypeItems[] = { "TV Static", "Multiply" };
+        ImGui::Combo("Noise Type", &randomNoiseType_, noiseTypeItems, IM_ARRAYSIZE(noiseTypeItems));
+        
+        ImGui::Text("Random Effect Time: %.2f", randomEffectTime_);
     }
     if (activePostProcess_ == kVignette) {
         ImGui::SliderFloat("Vignette Scale", &vignetteParamData_->scale, 0.0f, 32.0f);
@@ -971,6 +1043,15 @@ void GamePlayScene::Update() {
     if (activePostProcess_ == kRadialBlur) {
         ImGui::SliderFloat2("Center", &radialBlurParamData_->center.x, 0.0f, 1.0f);
         ImGui::SliderFloat("Blur Width", &radialBlurParamData_->blurWidth, 0.0f, 0.1f);
+    }
+    if (activePostProcess_ == kDissolve) {
+        ImGui::SliderFloat("Threshold", &dissolveParamData_->threshold, 0.0f, 1.0f);
+        ImGui::ColorEdit3("EdgeColor", &dissolveParamData_->edgeColor.x);
+        ImGui::SliderFloat("EdgeRange", &dissolveParamData_->edgeRange, 0.0f, 0.1f);
+        const char* noiseItems[] = { "noise0", "noise1" };
+        if (ImGui::Combo("Mask Texture", &selectedNoiseIndex_, noiseItems, IM_ARRAYSIZE(noiseItems))) {
+            activeNoiseSrvIndex_ = (selectedNoiseIndex_ == 0) ? noise0SrvIndex_ : noise1SrvIndex_;
+        }
     }
     ImGui::End();
 #endif
@@ -1180,18 +1261,33 @@ void GamePlayScene::Draw() {
     case kRadialBlur:
         pso = graphicsPipeline_->GetRadialBlurPipelineState();
         break;
+    case kDissolve:
+        pso = graphicsPipeline_->GetDissolvePipelineState();
+        break;
+    case kRandom:
+        pso = graphicsPipeline_->GetRandomPipelineState();
+        break;
     }
 
     // Fullscreenパイプラインで描画
     commandList->SetPipelineState(pso);
-    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetFullscreenRootSignature());
-    SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
-    if (activePostProcess_ == kVignette && vignetteParamResource_) {
-        commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
-    } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
-        commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
-    } else if (activePostProcess_ == kRadialBlur && radialBlurParamResource_) {
-        commandList->SetGraphicsRootConstantBufferView(1, radialBlurParamResource_->GetGPUVirtualAddress());
+    if (activePostProcess_ == kDissolve) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDissolveRootSignature());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, activeNoiseSrvIndex_);
+        commandList->SetGraphicsRootConstantBufferView(2, dissolveParamResource_->GetGPUVirtualAddress());
+    } else {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetFullscreenRootSignature());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
+        if (activePostProcess_ == kVignette && vignetteParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kRadialBlur && radialBlurParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, radialBlurParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kRandom && randomParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, randomParamResource_->GetGPUVirtualAddress());
+        }
     }
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->DrawInstanced(3, 1, 0, 0);

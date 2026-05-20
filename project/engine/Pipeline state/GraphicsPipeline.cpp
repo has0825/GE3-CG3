@@ -769,6 +769,48 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	hr = device->CreateRootSignature(0, copySignatureBlob->GetBufferPointer(), copySignatureBlob->GetBufferSize(), IID_PPV_ARGS(&copyImageRootSignature_));
 	assert(SUCCEEDED(hr));
 
+	// --- DissolveRootSignature ---
+	D3D12_DESCRIPTOR_RANGE dissolveRange0[1] = {};
+	dissolveRange0[0].BaseShaderRegister = 0;
+	dissolveRange0[0].NumDescriptors = 1;
+	dissolveRange0[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	dissolveRange0[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	D3D12_DESCRIPTOR_RANGE dissolveRange1[1] = {};
+	dissolveRange1[0].BaseShaderRegister = 1;
+	dissolveRange1[0].NumDescriptors = 1;
+	dissolveRange1[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	dissolveRange1[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	D3D12_ROOT_PARAMETER dissolveParams[3] = {};
+	dissolveParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	dissolveParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	dissolveParams[0].DescriptorTable.pDescriptorRanges = dissolveRange0;
+	dissolveParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	dissolveParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	dissolveParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	dissolveParams[1].DescriptorTable.pDescriptorRanges = dissolveRange1;
+	dissolveParams[1].DescriptorTable.NumDescriptorRanges = 1;
+
+	dissolveParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	dissolveParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	dissolveParams[2].Descriptor.ShaderRegister = 0;
+
+	D3D12_ROOT_SIGNATURE_DESC dissolveRootDesc{};
+	dissolveRootDesc.pParameters = dissolveParams;
+	dissolveRootDesc.NumParameters = _countof(dissolveParams);
+	dissolveRootDesc.pStaticSamplers = &copySamplerDesc;
+	dissolveRootDesc.NumStaticSamplers = 1;
+	dissolveRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> dissolveSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> dissolveErrorBlob;
+	hr = D3D12SerializeRootSignature(&dissolveRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &dissolveSignatureBlob, &dissolveErrorBlob);
+	assert(SUCCEEDED(hr));
+	hr = device->CreateRootSignature(0, dissolveSignatureBlob->GetBufferPointer(), dissolveSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&dissolveRootSignature_));
+	assert(SUCCEEDED(hr));
+
 	Microsoft::WRL::ComPtr<IDxcBlob> fullscreenVSBlob = CompileShader(L"Fullscreen.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(fullscreenVSBlob != nullptr);
 	
@@ -852,6 +894,22 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     copyPsoDesc.PS = { radialBlurPSBlob->GetBufferPointer(), radialBlurPSBlob->GetBufferSize() };
     hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&radialBlurPipelineState_));
     assert(SUCCEEDED(hr));
+
+	// Dissolve
+	Microsoft::WRL::ComPtr<IDxcBlob> dissolvePSBlob = CompileShader(L"Dissolve.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(dissolvePSBlob != nullptr);
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC dissolvePsoDesc = copyPsoDesc;
+	dissolvePsoDesc.pRootSignature = dissolveRootSignature_.Get();
+	dissolvePsoDesc.PS = { dissolvePSBlob->GetBufferPointer(), dissolvePSBlob->GetBufferSize() };
+	hr = device->CreateGraphicsPipelineState(&dissolvePsoDesc, IID_PPV_ARGS(&dissolvePipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// Random
+	Microsoft::WRL::ComPtr<IDxcBlob> randomPSBlob = CompileShader(L"Random.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(randomPSBlob != nullptr);
+	copyPsoDesc.PS = { randomPSBlob->GetBufferPointer(), randomPSBlob->GetBufferSize() };
+	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&randomPipelineState_));
+	assert(SUCCEEDED(hr));
 }
 
 

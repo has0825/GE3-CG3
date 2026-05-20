@@ -54,7 +54,10 @@ public:
     ID3D12PipelineState* GetBoxFilterPipelineState() const { return boxFilterPipelineState_.Get(); }
     ID3D12PipelineState* GetLuminanceOutlinePipelineState() const { return luminanceOutlinePipelineState_.Get(); }
     ID3D12PipelineState* GetRadialBlurPipelineState() const { return radialBlurPipelineState_.Get(); }
+    ID3D12PipelineState* GetDissolvePipelineState() const { return dissolvePipelineState_.Get(); }
+    ID3D12PipelineState* GetRandomPipelineState() const { return randomPipelineState_.Get(); }
     ID3D12RootSignature* GetFullscreenRootSignature() const { return copyImageRootSignature_.Get(); }
+    ID3D12RootSignature* GetDissolveRootSignature() const { return dissolveRootSignature_.Get(); }
 
 
 private:
@@ -100,6 +103,9 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> boxFilterPipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> luminanceOutlinePipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> randomPipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> dissolveRootSignature_;
 
 
     std::ofstream logStream_;

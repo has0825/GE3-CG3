@@ -205,6 +205,8 @@ private:
         kBoxFilter,
         kOutline,
         kRadialBlur,
+        kDissolve,
+        kRandom,
     };
     PostProcessType activePostProcess_ = kNone;
 
@@ -227,6 +229,41 @@ private:
     };
     Microsoft::WRL::ComPtr<ID3D12Resource> radialBlurParamResource_;
     RadialBlurParameter* radialBlurParamData_ = nullptr;
+
+    struct DissolveParameter {
+        float threshold;
+        Vector3 edgeColor;
+        float edgeRange;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> dissolveParamResource_;
+    DissolveParameter* dissolveParamData_ = nullptr;
+    
+    struct RandomParameter {
+        float time;
+        float noiseScale;
+        float noiseStrength;
+        float isColorNoise;
+        float isMultiplyNoise;
+        float padding[3];
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> randomParamResource_;
+    RandomParameter* randomParamData_ = nullptr;
+    float randomEffectTime_ = 0.0f;
+    float randomNoiseScale_ = 100.0f;
+    float randomNoiseStrength_ = 1.0f;
+    float randomSpeed_ = 1.0f;
+    bool randomIsColorNoise_ = false;
+    int randomNoiseType_ = 0; // 0: TV Static, 1: Multiply
+    bool isTransitioning_ = false;
+    float transitionThreshold_ = 1.0f;
+    uint32_t noise0SrvIndex_ = 0;
+    uint32_t noise1SrvIndex_ = 0;
+    uint32_t activeNoiseSrvIndex_ = 0; // 現在使用中のノイズ (0=noise0, 1=noise1)
+    int selectedNoiseIndex_ = 1;       // ImGui Comboの選択インデックス
+    Microsoft::WRL::ComPtr<ID3D12Resource> noise0Resource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> noise0IntermediateResource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> noise1Resource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> noise1IntermediateResource_;
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
     std::unique_ptr<PostProcess> postProcess_;
