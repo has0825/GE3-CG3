@@ -103,6 +103,11 @@ void GamePlayScene::Initialize() {
     cameraResource_->Map(0, nullptr, reinterpret_cast<void**>(&cameraDataCB_));
     cameraDataCB_->worldPosition = { 0.0f, 0.0f, 0.0f };
 
+    vignetteParamResource_ = CreateBufferResource(device, sizeof(VignetteParameter));
+    vignetteParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&vignetteParamData_));
+    vignetteParamData_->scale = 16.0f;
+    vignetteParamData_->power = 0.8f;
+
     particles_.resize(kNumInstances);
     for (UINT i = 0; i < kNumInstances; ++i) {
         particles_[i] = MakeNewParticle(currentEffect_, emitterPos_);
@@ -582,12 +587,37 @@ void GamePlayScene::Update() {
             fighterTransformData_->World = MakeAffineMatrix(fighterModel_->transform.scale, fighterModel_->transform.rotate, fighterWorldPos);
             
             // --- 弾の発射と更新 ---
-            Vector3 reticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f }; // 遠くにレティクル
+            Vector3 defaultReticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f }; // デフォルトは遠くにレティクル
+            
+            // ★ エイムアシスト機能（徐々に吸い付くlerpバージョン）★
+            float bestDist2D = 30.0f; // 吸い付く判定の緩さ（これよりXY平面の距離が近ければロックオン）
+            Enemy* lockedEnemy = nullptr;
+            for (auto& enemy : enemies_) {
+                if (!enemy.isAlive) continue;
+                // 自機より奥にいる敵だけを狙う
+                if (enemy.position.z > fighterWorldPos.z) {
+                    float dx = enemy.position.x - fighterWorldPos.x;
+                    float dy = enemy.position.y - fighterWorldPos.y;
+                    float dist2D = std::sqrt(dx * dx + dy * dy);
+                    if (dist2D < bestDist2D) {
+                        bestDist2D = dist2D;
+                        lockedEnemy = &enemy;
+                    }
+                }
+            }
+            Vector3 targetReticlePos = lockedEnemy ? lockedEnemy->position : defaultReticlePos;
+            // lerpで徐々に目標位置に近づける（0.05f = 約3秒で完全ロックオン）
+            float aimLerpSpeed = 0.05f;
+            aimReticlePos_.x = std::lerp(aimReticlePos_.x, targetReticlePos.x, aimLerpSpeed);
+            aimReticlePos_.y = std::lerp(aimReticlePos_.y, targetReticlePos.y, aimLerpSpeed);
+            aimReticlePos_.z = std::lerp(aimReticlePos_.z, targetReticlePos.z, aimLerpSpeed);
+            Vector3 reticlePos = aimReticlePos_;
+
             if (input_->IsKeyTriggered(DIK_SPACE)) {
                 // 左翼と右翼から発射 (高さを少し上に調整して拡大モデルの翼にピッタリ合わせる)
-                // 近すぎると弾が当たらない対策として、発射位置を少し内側に寄せる
-                Vector3 leftWing = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z + 5.0f };
-                Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z + 5.0f };
+                // 近すぎると弾が当たらない対策として、発射位置を少し内側に寄せ、Z座標を自機本体と同じ位置からにする
+                Vector3 leftWing = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
+                Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
                 
                 Vector3 dirLeft = { reticlePos.x - leftWing.x, reticlePos.y - leftWing.y, reticlePos.z - leftWing.z };
                 dirLeft = Normalize(dirLeft);
@@ -810,7 +840,7 @@ void GamePlayScene::Update() {
             camTrans.translate.z + 65.0f
         };
         // 左右のジェットエンジンノズル（位置を少し上に調整し、機体中心からX方向に±0.8f、後方Z方向に-3.0f）
-        leftJetPos = { fighterWorldPos.x - 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
+        leftJetPos = { fighterWorldPos.x - 0.3f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f }; // 左ジェットを右寄りに調整
         rightJetPos = { fighterWorldPos.x + 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
     }
 
@@ -917,10 +947,14 @@ void GamePlayScene::Update() {
 
 #ifdef USE_IMGUI
     ImGui::Begin("PostProcess");
-    const char* items[] = { "None", "Grayscale", "Sepia" };
+    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette" };
     int currentItem = static_cast<int>(activePostProcess_);
     if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
         activePostProcess_ = static_cast<PostProcessType>(currentItem);
+    }
+    if (activePostProcess_ == kVignette) {
+        ImGui::SliderFloat("Vignette Scale", &vignetteParamData_->scale, 0.0f, 32.0f);
+        ImGui::SliderFloat("Vignette Power", &vignetteParamData_->power, 0.0f, 5.0f);
     }
     ImGui::End();
 #endif
@@ -1118,12 +1152,18 @@ void GamePlayScene::Draw() {
     case kSepia:
         pso = graphicsPipeline_->GetSepiaPipelineState();
         break;
+    case kVignette:
+        pso = graphicsPipeline_->GetVignettePipelineState();
+        break;
     }
 
     // Fullscreenパイプラインで描画
     commandList->SetPipelineState(pso);
     commandList->SetGraphicsRootSignature(graphicsPipeline_->GetFullscreenRootSignature());
     SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
+    if (activePostProcess_ == kVignette && vignetteParamResource_) {
+        commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
+    }
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->DrawInstanced(3, 1, 0, 0);
 }

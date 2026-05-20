@@ -729,7 +729,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	// ★追加部分：CopyImage（フルスクリーン三角形コピー）用のルートシグネチャ＆パイプライン
 	// ====================================================================
 
-	D3D12_ROOT_PARAMETER copyImageParams[1] = {};
+	D3D12_ROOT_PARAMETER copyImageParams[2] = {};
 	D3D12_DESCRIPTOR_RANGE copyImageRange[1] = {};
 	copyImageRange[0].BaseShaderRegister = 0;
 	copyImageRange[0].NumDescriptors = 1;
@@ -740,6 +740,10 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	copyImageParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	copyImageParams[0].DescriptorTable.pDescriptorRanges = copyImageRange;
 	copyImageParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	copyImageParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	copyImageParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	copyImageParams[1].Descriptor.ShaderRegister = 0;
 
 	D3D12_STATIC_SAMPLER_DESC copySamplerDesc{};
 	copySamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -819,6 +823,13 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
     assert(sepiaPSBlob != nullptr);
     copyPsoDesc.PS = { sepiaPSBlob->GetBufferPointer(), sepiaPSBlob->GetBufferSize() };
     hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&sepiaPipelineState_));
+    assert(SUCCEEDED(hr));
+
+    // Vignette
+    Microsoft::WRL::ComPtr<IDxcBlob> vignettePSBlob = CompileShader(L"Vignette.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+    assert(vignettePSBlob != nullptr);
+    copyPsoDesc.PS = { vignettePSBlob->GetBufferPointer(), vignettePSBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&vignettePipelineState_));
     assert(SUCCEEDED(hr));
 }
 

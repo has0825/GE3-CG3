@@ -66,3 +66,7 @@ Begin CompileShader, path:Sepia.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Sepia.PS.hlsl, profile:ps_6_0
 
+Begin CompileShader, path:Vignette.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:Vignette.PS.hlsl, profile:ps_6_0
+

@@ -201,8 +201,16 @@ private:
         kNone,
         kGrayscale,
         kSepia,
+        kVignette,
     };
     PostProcessType activePostProcess_ = kNone;
+
+    struct VignetteParameter {
+        float scale;
+        float power;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> vignetteParamResource_;
+    VignetteParameter* vignetteParamData_ = nullptr;
 
     std::unique_ptr<GpuParticleManager> gpuParticleManager_;
     std::unique_ptr<PostProcess> postProcess_;
@@ -215,7 +223,7 @@ private:
         float radius;
     };
     static const int kMaxEnemies = 15;
-    static const int kInitialEnemies = 1; // 最初に出現する敵の数
+    static const int kInitialEnemies = 2; // 最初に出現する敵の数
     int nextEnemyIndex_ = kInitialEnemies; // 次に出現させる敵のインデックス
     std::vector<Enemy> enemies_;
     Microsoft::WRL::ComPtr<ID3D12Resource> enemyTransformResources_[kMaxEnemies];
@@ -234,4 +242,7 @@ private:
     std::vector<Bullet> playerBullets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> bulletTransformResources_[kMaxBullets];
     TransformationMatrix* bulletTransformData_[kMaxBullets] = { nullptr };
+
+    // エイムアシスト用：徐々に補間されるレティクル位置
+    Vector3 aimReticlePos_ = { 0.0f, 0.0f, 0.0f };
 };
