@@ -45,6 +45,7 @@ void Skybox::Draw(ID3D12GraphicsCommandList* commandList, const Matrix4x4& wvp, 
     *constData_ = wvp;
 
     commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // param[0]: WVP (定数バッファ)
     commandList->SetGraphicsRootConstantBufferView(0, constBuffer_->GetGPUVirtualAddress());

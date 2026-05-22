@@ -88,6 +88,7 @@ private:
 
     std::unique_ptr<Model> playerModel_;
     std::unique_ptr<Model> fighterModel_;
+    std::unique_ptr<Model> enemyModel_;
     std::unique_ptr<Skybox> skybox_;
 
     std::mt19937 randomEngine_;
@@ -167,6 +168,7 @@ private:
     bool showAnimatedCube_ = false;
     bool showParticles_ = false;
     bool showSkybox_ = true;
+    int skyboxType_ = 0; // 0: cobblestone, 1: airport
     bool showEnemies_ = false;
 
     // simpleSkin
@@ -290,6 +292,14 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> fighterTransformResource_;
     TransformationMatrix* fighterTransformData_ = nullptr;
 
+    // プレイヤーのワールドZ座標（カメラと分離して独立管理）
+    float fighterWorldZ_ = 0.0f;           // プレイヤーのワールドZ座標
+
+    // バレルロール（左Shiftキーで360度ロール）
+    bool isBarrelRolling_ = false;          // バレルロール中フラグ
+    float barrelRollTimer_ = 0.0f;         // ロール進行タイマー
+    static constexpr float kBarrelRollDuration = 0.45f; // ロール完了までの秒数
+
     // 弾管理
     static const uint32_t kMaxBullets = 60;
     std::vector<Bullet> playerBullets_;
@@ -298,4 +308,14 @@ private:
 
     // エイムアシスト用：徐々に補間されるレティクル位置
     Vector3 aimReticlePos_ = { 0.0f, 0.0f, 0.0f };
+
+    // ブーストRadialBlur用
+    bool isBoosting_ = false;                  // ブースト動作中フラグ
+    float boostBlurWidth_ = 0.0f;              // 現在のブラー強度（0.0〜kBoostBlurMax）
+    float boostForwardSpeed_ = 30.0f;          // 現在の前進速度（ブースト中に増加）
+    static constexpr float kBoostBlurMax = 0.05f;   // ブースト時の最大ブラー幅
+    static constexpr float kBoostBlurFadeIn  = 4.0f; // フェードイン速度
+    static constexpr float kBoostBlurFadeOut = 3.0f; // フェードアウト速度
+    static constexpr float kBoostSpeedMax  = 90.0f;  // ブースト時最大速度
+    static constexpr float kNormalSpeed    = 30.0f;  // 通常速度
 };

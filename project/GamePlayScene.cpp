@@ -309,6 +309,9 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->LoadTexture("human/white.png");
     TextureManager::GetInstance()->LoadTexture("aiming.png");
     TextureManager::GetInstance()->LoadTexture("Player2/Player_basecolor.JPEG");
+    TextureManager::GetInstance()->LoadTexture("Player/player.png");
+    TextureManager::GetInstance()->LoadTexture("cobblestone_street_night_2k.dds");
+    TextureManager::GetInstance()->LoadTexture("rostock_laage_airport_4k.dds");
 
     skybox_ = std::make_unique<Skybox>();
     skybox_->Initialize(device);
@@ -317,6 +320,10 @@ void GamePlayScene::Initialize() {
     fighterModel_ = Model::LoadGLTF("Resources/Player2/Player.obj", device);
     if (fighterModel_) {
         fighterModel_->transform.scale = { 10.0f, 10.0f, 10.0f };
+    }
+    enemyModel_ = Model::LoadGLTF("Resources/Player/player.obj", device);
+    if (enemyModel_) {
+        enemyModel_->transform.scale = { 10.0f, 10.0f, 10.0f };
     }
     
     // 戦闘機用トランスフォーム
@@ -447,6 +454,9 @@ void GamePlayScene::Initialize() {
     postProcess_->Initialize(dxCommon_, WinApp::kClientWidth, WinApp::kClientHeight);
 
     gpuParticleManager_->SetTranslate({ -10.0f, 0.0f, 0.0f });
+
+    // プレイヤーのワールドZ座標を初期化（カメラ初期Z=-15より65ユニット前に配置）
+    fighterWorldZ_ = camera_->GetTransform().translate.z + 65.0f;
 }
 
 void GamePlayScene::Finalize() {
@@ -484,6 +494,10 @@ void GamePlayScene::Update() {
     ImGui::Checkbox("Show AnimatedCube", &showAnimatedCube_);
     ImGui::Checkbox("Show Particles", &showParticles_);
     ImGui::Checkbox("Show Skybox", &showSkybox_);
+    if (showSkybox_) {
+        const char* skyboxItems[] = { "Cobblestone Street (Night)", "Rostock Airport (Day)" };
+        ImGui::Combo("Skybox Type", &skyboxType_, skyboxItems, IM_ARRAYSIZE(skyboxItems));
+    }
     ImGui::Checkbox("Show Enemies", &showEnemies_);
     ImGui::DragFloat2("Sprite Position", &spritePos_.x, 1.0f, -2000.0f, 2000.0f, "%.1f");
     if (ImGui::SliderFloat("Model Reflection", &modelEnvCoefficient_, 0.0f, 1.0f)) {
@@ -551,7 +565,8 @@ void GamePlayScene::Update() {
 
     if (input_->IsKeyTriggered(DIK_G)) useGravity_ = !useGravity_;
 
-    if (input_->IsKeyTriggered(DIK_SPACE)) {
+    // SPACEキーを押した瞬間にSEを再生（戦闘機モード以外のみ。戦闘機モードはブーストSE対応予定）
+    if (input_->IsKeyTriggered(DIK_SPACE) && sceneMode_ != SceneMode::kFighter) {
         audio_->PlayWave(jumpSE_, false, 1.0f);
     }
     EulerTransform& camTrans = camera_->GetTransform();
@@ -609,62 +624,118 @@ void GamePlayScene::Update() {
         }
     } else if (sceneMode_ == SceneMode::kFighter) {
         // --- 戦闘機（レールシューター）モード ---
-        // 1. カメラは常に前進
-        float forwardSpeed = 30.0f;
-        camTrans.translate.z += forwardSpeed * kDeltaTime;
-        
-        // 2. 自機のローカル移動（カメラからの相対位置）
+
+        // ── ブースト処理（LSHIFTでトグル） ────────────────────────────
+        if (input_->IsKeyTriggered(DIK_LSHIFT)) {
+            isBoosting_ = !isBoosting_;
+            if (!isBarrelRolling_) {
+                isBarrelRolling_ = true;
+                barrelRollTimer_ = 0.0f;
+            }
+        }
+
+        if (isBoosting_) {
+            boostBlurWidth_ += kBoostBlurFadeIn * kDeltaTime * kBoostBlurMax;
+            boostBlurWidth_ = (std::min)(boostBlurWidth_, kBoostBlurMax);
+            boostForwardSpeed_ += (kBoostSpeedMax - boostForwardSpeed_) * 0.05f;
+        } else {
+            boostBlurWidth_ -= kBoostBlurFadeOut * kDeltaTime * kBoostBlurMax;
+            boostBlurWidth_ = (std::max)(boostBlurWidth_, 0.0f);
+            boostForwardSpeed_ += (kNormalSpeed - boostForwardSpeed_) * 0.05f;
+        }
+
+        // RadialBlur の適用制御
+        if (boostBlurWidth_ > 0.0001f) {
+            if (!isTransitioning_) activePostProcess_ = kRadialBlur;
+            if (radialBlurParamData_) {
+                radialBlurParamData_->center = { 0.5f, 0.5f };
+                radialBlurParamData_->blurWidth = -boostBlurWidth_;
+            }
+        } else {
+            if (activePostProcess_ == kRadialBlur && !isTransitioning_) {
+                activePostProcess_ = kNone;
+            }
+        }
+
+        // ── 1. プレイヤーのワールドZ座標を自律前進 ──────────────────
+        fighterWorldZ_ += boostForwardSpeed_ * kDeltaTime;
+
+        // ── 2. カメラは一定距離後ろをlerpで追従 ──────────────────────
+        //    通常時はほぼ即座に追従、ブースト時は少し遅れてプレイヤーが先行する
+        float cameraFollowSpeed = isBoosting_ ? 0.03f : 0.08f;
+        float targetCamZ = fighterWorldZ_ - 65.0f;
+        camTrans.translate.z = std::lerp(camTrans.translate.z, targetCamZ, cameraFollowSpeed);
+
+        // ── 3. 自機の横/縦移動（画面内相対）─────────────────────────
         if (fighterModel_) {
             Vector3 inputDir = {0,0,0};
             if (input_->IsKeyPressed(DIK_W)) inputDir.y += 1.0f;
             if (input_->IsKeyPressed(DIK_S)) inputDir.y -= 1.0f;
             if (input_->IsKeyPressed(DIK_A)) inputDir.x -= 1.0f;
             if (input_->IsKeyPressed(DIK_D)) inputDir.x += 1.0f;
-            
+
             if (inputDir.x != 0 || inputDir.y != 0) {
                 inputDir = Normalize(inputDir);
                 fighterModel_->transform.translate.x += inputDir.x * 25.0f * kDeltaTime;
                 fighterModel_->transform.translate.y += inputDir.y * 20.0f * kDeltaTime;
             }
-            
-            // 画面外に出ないように制限 (距離が遠くなったため範囲を広げて調整)
+
             fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -35.0f, 35.0f);
             fighterModel_->transform.translate.y = std::clamp(fighterModel_->transform.translate.y, -25.0f, 25.0f);
-            
-            // スターフォックス風の緩やかなカメラ追従 (X, Y 補間)
+
+            // スターフォックス風のカメラX/Y追従
             float cameraLag = 0.08f;
             float targetCamX = fighterModel_->transform.translate.x * 0.5f;
             float targetCamY = fighterModel_->transform.translate.y * 0.5f;
             camTrans.translate.x = std::lerp(camTrans.translate.x, targetCamX, cameraLag);
             camTrans.translate.y = std::lerp(camTrans.translate.y, targetCamY, cameraLag);
 
-            // ワールド座標の計算 (Star Fox風にカメラから離す)
+            // ── プレイヤーのワールド座標（Z はfighterWorldZ_を直接使う）──
             Vector3 fighterWorldPos = {
                 camTrans.translate.x + fighterModel_->transform.translate.x,
                 camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
-                camTrans.translate.z + 65.0f
+                fighterWorldZ_   // ← カメラZ+固定オフセットではなく、独立Z座標を使用
             };
-            
-            // 機体の傾き（ロール、ピッチ）
-            float targetRoll = inputDir.x * -0.6f;
-            float targetPitch = inputDir.y * 0.4f;
-            playerRotationRoll_ = std::lerp(playerRotationRoll_, targetRoll, 0.1f);
-            playerRotationPitch_ = std::lerp(playerRotationPitch_, targetPitch, 0.1f);
-            
-            fighterModel_->transform.rotate.z = playerRotationRoll_;
+
+            // ── 4. バレルロール開始（LSHIFTのブースト切り替え時に連動） ──
+
+            // ── 5. 機体の傾き（通常ロール/ピッチ + バレルロール合成） ──
+            float baseRoll  = inputDir.x * -0.6f;
+            float basePitch = inputDir.y * 0.4f;
+            playerRotationRoll_  = std::lerp(playerRotationRoll_,  baseRoll,  0.1f);
+            playerRotationPitch_ = std::lerp(playerRotationPitch_, basePitch, 0.1f);
+
+            float rollAngle = playerRotationRoll_;
+
+            if (isBarrelRolling_) {
+                barrelRollTimer_ += kDeltaTime;
+                float t = barrelRollTimer_ / kBarrelRollDuration; // 0.0 → 1.0
+                if (t >= 1.0f) {
+                    t = 1.0f;
+                    isBarrelRolling_ = false;
+                    barrelRollTimer_ = 0.0f;
+                }
+                // easeInOut: 0.5 - 0.5 * cos(π*t) で0から1へスムーズに変化
+                float easedT = 0.5f - 0.5f * std::cos(static_cast<float>(M_PI) * t);
+                rollAngle += easedT * 2.0f * static_cast<float>(M_PI); // ← ベース回転に上乗せ（360度一回転）
+            }
+
+            fighterModel_->transform.rotate.z = rollAngle;
             fighterModel_->transform.rotate.x = playerRotationPitch_;
-            
-            fighterTransformData_->World = MakeAffineMatrix(fighterModel_->transform.scale, fighterModel_->transform.rotate, fighterWorldPos);
-            
-            // --- 弾の発射と更新 ---
-            Vector3 defaultReticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f }; // デフォルトは遠くにレティクル
-            
-            // ★ エイムアシスト機能（徐々に吸い付くlerpバージョン）★
-            float bestDist2D = 30.0f; // 吸い付く判定の緩さ（これよりXY平面の距離が近ければロックオン）
+
+            fighterTransformData_->World = MakeAffineMatrix(
+                fighterModel_->transform.scale,
+                fighterModel_->transform.rotate,
+                fighterWorldPos
+            );
+
+            // ── 弾の発射（LCtrl） ────────────────────────────────────
+            Vector3 defaultReticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f };
+
+            float bestDist2D = 30.0f;
             Enemy* lockedEnemy = nullptr;
             for (auto& enemy : enemies_) {
                 if (!enemy.isAlive) continue;
-                // 自機より奥にいる敵だけを狙う
                 if (enemy.position.z > fighterWorldPos.z) {
                     float dx = enemy.position.x - fighterWorldPos.x;
                     float dy = enemy.position.y - fighterWorldPos.y;
@@ -676,7 +747,6 @@ void GamePlayScene::Update() {
                 }
             }
             Vector3 targetReticlePos = lockedEnemy ? lockedEnemy->position : defaultReticlePos;
-            // lerpで徐々に目標位置に近づける（0.05f = 約3秒で完全ロックオン）
             float aimLerpSpeed = 0.05f;
             aimReticlePos_.x = std::lerp(aimReticlePos_.x, targetReticlePos.x, aimLerpSpeed);
             aimReticlePos_.y = std::lerp(aimReticlePos_.y, targetReticlePos.y, aimLerpSpeed);
@@ -684,43 +754,34 @@ void GamePlayScene::Update() {
             Vector3 reticlePos = aimReticlePos_;
 
             if (input_->IsKeyTriggered(DIK_SPACE)) {
-                // 左翼と右翼から発射 (高さを少し上に調整して拡大モデルの翼にピッタリ合わせる)
-                // 近すぎると弾が当たらない対策として、発射位置を少し内側に寄せ、Z座標を自機本体と同じ位置からにする
-                Vector3 leftWing = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
+                Vector3 leftWing  = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
                 Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
-                
-                Vector3 dirLeft = { reticlePos.x - leftWing.x, reticlePos.y - leftWing.y, reticlePos.z - leftWing.z };
-                dirLeft = Normalize(dirLeft);
-                Vector3 dirRight = { reticlePos.x - rightWing.x, reticlePos.y - rightWing.y, reticlePos.z - rightWing.z };
-                dirRight = Normalize(dirRight);
-                float bulletSpeed = 150.0f; // 前進速度が上がったため弾速も少しアップ！
-                
+
+                Vector3 dirLeft  = Normalize({ reticlePos.x - leftWing.x,  reticlePos.y - leftWing.y,  reticlePos.z - leftWing.z });
+                Vector3 dirRight = Normalize({ reticlePos.x - rightWing.x, reticlePos.y - rightWing.y, reticlePos.z - rightWing.z });
+                float bulletSpeed = 150.0f + boostForwardSpeed_;
+
                 for (auto& b : playerBullets_) {
                     if (b.currentTime >= b.lifeTime) {
-                        b.position = leftWing;
-                        b.velocity = Scale(dirLeft, bulletSpeed);
-                        b.lifeTime = 2.0f;
-                        b.currentTime = 0.0f;
-                        break;
+                        b.position = leftWing; b.velocity = Scale(dirLeft, bulletSpeed);
+                        b.lifeTime = 2.0f; b.currentTime = 0.0f; break;
                     }
                 }
                 for (auto& b : playerBullets_) {
                     if (b.currentTime >= b.lifeTime) {
-                        b.position = rightWing;
-                        b.velocity = Scale(dirRight, bulletSpeed);
-                        b.lifeTime = 2.0f;
-                        b.currentTime = 0.0f;
-                        break;
+                        b.position = rightWing; b.velocity = Scale(dirRight, bulletSpeed);
+                        b.lifeTime = 2.0f; b.currentTime = 0.0f; break;
                     }
                 }
                 audio_->PlayWave(jumpSE_, false, 1.0f);
             }
-            
-            // エイミング(レティクル)の更新 (距離があるため大きめに描画)
+
+            // エイミング(レティクル)の更新
             Matrix4x4 reticleWorld = MakeAffineMatrix(Vector3{8.0f, 8.0f, 8.0f}, Vector3{0.0f, 0.0f, 0.0f}, reticlePos);
             aimingInstancingData_->World = reticleWorld;
         }
     }
+
     
     // 弾の更新（全モード共通）と敵との衝突判定
     for (int i = 0; i < kMaxBullets; ++i) {
@@ -907,10 +968,10 @@ void GamePlayScene::Update() {
         Vector3 fighterWorldPos = {
             camTrans.translate.x + fighterModel_->transform.translate.x,
             camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
-            camTrans.translate.z + 65.0f
+            fighterWorldZ_   // ← 独立Z座標を使用
         };
         // 左右のジェットエンジンノズル（位置を少し上に調整し、機体中心からX方向に±0.8f、後方Z方向に-3.0f）
-        leftJetPos = { fighterWorldPos.x - 0.3f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f }; // 左ジェットを右寄りに調整
+        leftJetPos  = { fighterWorldPos.x - 0.3f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
         rightJetPos = { fighterWorldPos.x + 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
     }
 
@@ -1063,6 +1124,40 @@ void GamePlayScene::Draw() {
     // --- 1. RenderTextureへの描画開始 ---
     postProcess_->PreDraw();
 
+    // スカイボックスの描画
+    if (skybox_ && showSkybox_) {
+        ID3D12DescriptorHeap* heaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, heaps);
+
+        if (graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState()) {
+            commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+
+            // カメラのビュー行列を取得し、平行移動成分をゼロにする
+            Matrix4x4 viewMatrix = camera_->GetViewMatrix();
+            viewMatrix.m[3][0] = 0.0f;
+            viewMatrix.m[3][1] = 0.0f;
+            viewMatrix.m[3][2] = 0.0f;
+
+            // 進行感を出すために、時間経過でゆっくりY軸周りに自動回転させる
+            float rotationAngle = randomEffectTime_ * 0.03f;
+            Matrix4x4 rotateY = MakeRotateYMatrix(rotationAngle);
+            Matrix4x4 skyboxViewMatrix = Multiply(rotateY, viewMatrix);
+
+            Matrix4x4 projectionMatrix = camera_->GetProjectionMatrix();
+            Matrix4x4 wvpMatrix = Multiply(skyboxViewMatrix, projectionMatrix);
+
+            std::string skyboxTexName = (skyboxType_ == 0) ? "cobblestone_street_night_2k.dds" : "rostock_laage_airport_4k.dds";
+            // 安全対策: 指定されたテクスチャがキューブマップでない場合は、有効なキューブマップにフォールバックする
+            if (!TextureManager::GetInstance()->GetMetaData(skyboxTexName).IsCubemap()) {
+                skyboxTexName = "rostock_laage_airport_4k.dds";
+            }
+            D3D12_GPU_DESCRIPTOR_HANDLE skyboxSrvHandle = TextureManager::GetInstance()->GetSrvHandleGPU(skyboxTexName);
+
+            skybox_->Draw(commandList, wvpMatrix, skyboxSrvHandle);
+        }
+    }
+
     // 1. キャラクターモデルの描画 (playerModel_)
     if (showSimpleSkin_ && playerModel_) {
         ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
@@ -1113,11 +1208,11 @@ void GamePlayScene::Draw() {
             }
 
             // 敵の描画（プレイヤーと同じ戦闘機モデルを使用）
-            if (fighterModel_ && showEnemies_) {
+            if (enemyModel_ && showEnemies_) {
                 for (int i = 0; i < kMaxEnemies; ++i) {
                     if (enemies_[i].isAlive) {
                         commandList->SetGraphicsRootConstantBufferView(1, enemyTransformResources_[i]->GetGPUVirtualAddress());
-                        fighterModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player2/Player_basecolor.JPEG"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                        enemyModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player/player.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                     }
                 }
             }

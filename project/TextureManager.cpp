@@ -5,6 +5,7 @@
 #include <vector>
 #include <Windows.h>
 #include "SrvManager.h"
+#include <sstream>
 
 // stringからwstringへの変換ヘルパー
 static std::wstring ConvertString(const std::string& str) {
@@ -62,9 +63,9 @@ void TextureManager::LoadTexture(const std::string& fileName) {
         return;
     }
 
-    // 圧縮フォーマットならそのまま、そうでないならMipMap生成
+    // 圧縮フォーマット、すでにミップマップが存在する場合、またはDDSファイルの場合はそのまま使用する
     DirectX::ScratchImage mipImages{};
-    if (DirectX::IsCompressed(image.GetMetadata().format)) {
+    if (DirectX::IsCompressed(image.GetMetadata().format) || image.GetMetadata().mipLevels > 1 || fullPath.ends_with(".dds")) {
         mipImages = std::move(image);
     } else {
         hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 4, mipImages);
