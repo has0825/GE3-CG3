@@ -1,92 +1,96 @@
-Begin CompileShader, path:Particle.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Resources/shaders/Particle.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:Particle.VS.hlsl, profile:vs_6_0
 
-Begin CompileShader, path:Particle.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Particle.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Particle.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Skybox.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Resources/shaders/Skybox.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:Skybox.VS.hlsl, profile:vs_6_0
 
-Begin CompileShader, path:Skybox.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Skybox.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Skybox.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Object3d.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Resources/shaders/Object3d.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:Object3d.VS.hlsl, profile:vs_6_0
 
-Begin CompileShader, path:Object3d.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Object3d.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Object3d.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:SkinningPost.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Resources/shaders/SkinningPost.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:SkinningPost.VS.hlsl, profile:vs_6_0
 
-Begin CompileShader, path:Skinning.CS.hlsl, profile:cs_6_0
+Begin CompileShader, path:Resources/shaders/Skinning.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:Skinning.CS.hlsl, profile:cs_6_0
 
-Begin CompileShader, path:InitializeParticle.CS.hlsl, profile:cs_6_0
+Begin CompileShader, path:Resources/shaders/InitializeParticle.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:InitializeParticle.CS.hlsl, profile:cs_6_0
 
-Begin CompileShader, path:GpuParticle.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Resources/shaders/GpuParticle.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:GpuParticle.VS.hlsl, profile:vs_6_0
 
-Begin CompileShader, path:GpuParticle.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/GpuParticle.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:GpuParticle.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:EmitParticle.CS.hlsl, profile:cs_6_0
+Begin CompileShader, path:Resources/shaders/EmitParticle.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:EmitParticle.CS.hlsl, profile:cs_6_0
 
-Begin CompileShader, path:UpdateParticle.CS.hlsl, profile:cs_6_0
+Begin CompileShader, path:Resources/shaders/UpdateParticle.CS.hlsl, profile:cs_6_0
 
 Compile Succeeded, path:UpdateParticle.CS.hlsl, profile:cs_6_0
 
-Begin CompileShader, path:Fullscreen.VS.hlsl, profile:vs_6_0
+Begin CompileShader, path:Resources/shaders/Fullscreen.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:Fullscreen.VS.hlsl, profile:vs_6_0
 
-Begin CompileShader, path:CopyImage.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/CopyImage.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:CopyImage.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Grayscale.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Grayscale.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Grayscale.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Sepia.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Sepia.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Sepia.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Vignette.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Vignette.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Vignette.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:BoxFilter.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/BoxFilter.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:BoxFilter.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:LuminanceBasedOutline.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:RadialBlur.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/RadialBlur.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:RadialBlur.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Dissolve.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Dissolve.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Dissolve.PS.hlsl, profile:ps_6_0
 
-Begin CompileShader, path:Random.PS.hlsl, profile:ps_6_0
+Begin CompileShader, path:Resources/shaders/Random.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Random.PS.hlsl, profile:ps_6_0
+
+Begin CompileShader, path:Resources/shaders/DepthBasedOutline.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:DepthBasedOutline.PS.hlsl, profile:ps_6_0
 

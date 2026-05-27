@@ -38,6 +38,10 @@ public:
     UINT GetDescriptorSizeSRV() const { return device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV); }
     UINT GetDescriptorSizeRTV() const { return device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV); }
     D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTextureRtvHandle() const { return rtvHandles_[2]; }
+    ID3D12Resource* GetDepthStencilResource() const { return depthStencilResource_.Get(); }
+
+    // 深度バッファのリソース状態を安全に遷移させる
+    void TransitionDepthStencilState(D3D12_RESOURCE_STATES newState);
 
     // デスクリプタヒープ生成
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
@@ -79,6 +83,10 @@ private:
 
     D3D12_VIEWPORT viewport_{};
     D3D12_RECT scissorRect_{};
+    bool isFirstFrame_ = true;
+
+    // 深度バッファの現在のリソース状態（不整合なバリアを防ぐために追跡）
+    D3D12_RESOURCE_STATES depthStencilState_ = D3D12_RESOURCE_STATE_DEPTH_WRITE;
 
     // DirectXCommon.h の public 部分に追加
 

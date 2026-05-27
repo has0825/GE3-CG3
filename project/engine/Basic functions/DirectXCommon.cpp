@@ -84,6 +84,9 @@ void DirectXCommon::Finalize() {
 void DirectXCommon::PreDraw() {
     UINT backBufferIndex = swapChain_->GetCurrentBackBufferIndex();
 
+    // 深度バッファをDEPTH_WRITE状態へ安全に遷移（まだDEPTH_WRITEの場合はスキップ）
+    TransitionDepthStencilState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
     // TransitionBarrierの設定
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -259,4 +262,22 @@ Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DirectXCommon::CreateDescriptorHeap
     assert(SUCCEEDED(hr));
 
     return descriptorHeap;
+}
+
+void DirectXCommon::TransitionDepthStencilState(D3D12_RESOURCE_STATES newState) {
+    // 現在の状態と同じならバリア不要（不整合を防止）
+    if (depthStencilState_ == newState) {
+        return;
+    }
+
+    D3D12_RESOURCE_BARRIER depthBarrier{};
+    depthBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    depthBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    depthBarrier.Transition.pResource = depthStencilResource_.Get();
+    depthBarrier.Transition.StateBefore = depthStencilState_;
+    depthBarrier.Transition.StateAfter = newState;
+    depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList_->ResourceBarrier(1, &depthBarrier);
+
+    depthStencilState_ = newState;
 }

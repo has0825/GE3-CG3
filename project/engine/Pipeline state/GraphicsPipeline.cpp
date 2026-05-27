@@ -323,13 +323,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 
 	D3D12_BLEND_DESC obj3dBlendDesc{};
 	obj3dBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	obj3dBlendDesc.RenderTarget[0].BlendEnable = TRUE;
-	obj3dBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	obj3dBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	obj3dBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	obj3dBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	obj3dBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	obj3dBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	obj3dBlendDesc.RenderTarget[0].BlendEnable = FALSE; // 不透明オブジェクトはブレンドを無効にする
 	obj3dPsoDesc.BlendState = obj3dBlendDesc;
 
 	// Zバッファ（深度）を有効化して、手前のものが奥を隠すようにする
@@ -910,6 +904,79 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	copyPsoDesc.PS = { randomPSBlob->GetBufferPointer(), randomPSBlob->GetBufferSize() };
 	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&randomPipelineState_));
 	assert(SUCCEEDED(hr));
+
+	// --- 深度ベースアウトライン（Depth-based Outline）用のルートシグネチャ作成 ---
+	D3D12_ROOT_PARAMETER depthOutlineParams[2] = {};
+	
+	// [0] t0: カラーテクスチャ用の Descriptor Table
+	D3D12_DESCRIPTOR_RANGE colorRange[1] = {};
+	colorRange[0].BaseShaderRegister = 0;
+	colorRange[0].NumDescriptors = 1;
+	colorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	colorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	depthOutlineParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	depthOutlineParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	depthOutlineParams[0].DescriptorTable.pDescriptorRanges = colorRange;
+	depthOutlineParams[0].DescriptorTable.NumDescriptorRanges = 1;
+
+	// [1] t1: 深度テクスチャ用の Descriptor Table
+	D3D12_DESCRIPTOR_RANGE depthRange[1] = {};
+	depthRange[0].BaseShaderRegister = 1;
+	depthRange[0].NumDescriptors = 1;
+	depthRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	depthRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	depthOutlineParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	depthOutlineParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	depthOutlineParams[1].DescriptorTable.pDescriptorRanges = depthRange;
+	depthOutlineParams[1].DescriptorTable.NumDescriptorRanges = 1;
+
+	// サンプラーは2つ (s0: バイリニア, s1: ポイント)
+	D3D12_STATIC_SAMPLER_DESC depthOutlineSamplers[2] = {};
+	
+	// s0: バイリニアサンプラー (カラー用)
+	depthOutlineSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	depthOutlineSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	depthOutlineSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	depthOutlineSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	depthOutlineSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	depthOutlineSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+	depthOutlineSamplers[0].ShaderRegister = 0;
+	depthOutlineSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	// s1: ポイントサンプラー (深度用、補間アーティファクト防止)
+	depthOutlineSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+	depthOutlineSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	depthOutlineSamplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	depthOutlineSamplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	depthOutlineSamplers[1].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	depthOutlineSamplers[1].MaxLOD = D3D12_FLOAT32_MAX;
+	depthOutlineSamplers[1].ShaderRegister = 1;
+	depthOutlineSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	D3D12_ROOT_SIGNATURE_DESC depthOutlineRootDesc{};
+	depthOutlineRootDesc.pParameters = depthOutlineParams;
+	depthOutlineRootDesc.NumParameters = _countof(depthOutlineParams);
+	depthOutlineRootDesc.pStaticSamplers = depthOutlineSamplers;
+	depthOutlineRootDesc.NumStaticSamplers = _countof(depthOutlineSamplers);
+	depthOutlineRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> depthOutlineSignatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> depthOutlineErrorBlob;
+	hr = D3D12SerializeRootSignature(&depthOutlineRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &depthOutlineSignatureBlob, &depthOutlineErrorBlob);
+	assert(SUCCEEDED(hr));
+	hr = device->CreateRootSignature(0, depthOutlineSignatureBlob->GetBufferPointer(), depthOutlineSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&depthOutlineRootSignature_));
+	assert(SUCCEEDED(hr));
+
+	// --- 深度ベースアウトライン用のパイプラインステート作成 ---
+	Microsoft::WRL::ComPtr<IDxcBlob> depthOutlinePSBlob = CompileShader(L"DepthBasedOutline.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(depthOutlinePSBlob != nullptr);
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC depthOutlinePsoDesc = copyPsoDesc; // フルスクリーン共通の設定を流用
+	depthOutlinePsoDesc.pRootSignature = depthOutlineRootSignature_.Get();
+	depthOutlinePsoDesc.PS = { depthOutlinePSBlob->GetBufferPointer(), depthOutlinePSBlob->GetBufferSize() };
+
+	hr = device->CreateGraphicsPipelineState(&depthOutlinePsoDesc, IID_PPV_ARGS(&depthOutlinePipelineState_));
+	assert(SUCCEEDED(hr));
 }
 
 
@@ -920,9 +987,14 @@ Microsoft::WRL::ComPtr<IDxcBlob> GraphicsPipeline::CompileShader(
 	IDxcCompiler3* dxcCompiler,
 	IDxcIncludeHandler* includeHandler)
 {
-	Log(logStream_, ConvertString(std::format(L"Begin CompileShader, path:{}, profile:{}\n", filePath, profile)));
+	std::wstring fullPath = filePath;
+	if (filePath.find(L'/') == std::wstring::npos && filePath.find(L'\\') == std::wstring::npos) {
+		fullPath = L"Resources/shaders/" + filePath;
+	}
+
+	Log(logStream_, ConvertString(std::format(L"Begin CompileShader, path:{}, profile:{}\n", fullPath, profile)));
 	Microsoft::WRL::ComPtr<IDxcBlobEncoding> shaderSource = nullptr;
-	HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
+	HRESULT hr = dxcUtils->LoadFile(fullPath.c_str(), nullptr, &shaderSource);
 	assert(SUCCEEDED(hr));
 	DxcBuffer shaderSourceBuffer;
 	shaderSourceBuffer.Ptr = shaderSource->GetBufferPointer();
@@ -930,7 +1002,7 @@ Microsoft::WRL::ComPtr<IDxcBlob> GraphicsPipeline::CompileShader(
 	shaderSourceBuffer.Encoding = DXC_CP_UTF8;
 
 	LPCWSTR arguments[] = {
-		filePath.c_str(),
+		fullPath.c_str(),
 		L"-E", L"main",
 		L"-T", profile,
 		L"-Zi", L"-Qembed_debug",

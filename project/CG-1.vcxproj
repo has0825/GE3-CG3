@@ -15,9 +15,9 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Audio.cpp" />
-    <ClCompile Include="BaseScene.cpp" />
-    <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="engine\Audio\Audio.cpp" />
+    <ClCompile Include="engine\Scene\BaseScene.cpp" />
+    <ClCompile Include="engine\Graphics\Camera.cpp" />
     <ClCompile Include="engine\D3D12Util\D3D12Util.cpp" />
     <ClCompile Include="engine\Basic functions\DirectXCommon.cpp" />
     <ClCompile Include="externals\imgui\imgui.cpp" />
@@ -28,16 +28,15 @@
     <ClCompile Include="externals\imgui\imgui_tables.cpp" />
     <ClCompile Include="externals\imgui\imgui_widgets.cpp" />
     <ClCompile Include="engine\Pipeline state\GraphicsPipeline.cpp" />
-    <ClCompile Include="Framework.cpp" />
-    <ClCompile Include="Fuga.cpp" />
-    <ClCompile Include="Game.cpp" />
-    <ClCompile Include="GamePlayScene.cpp" />
-    <ClCompile Include="GpuParticleManager.cpp" />
-    <ClCompile Include="PostProcess.cpp" />
-
-    <ClCompile Include="Hoge.cpp" />
-    <ClCompile Include="ImGuiManager.cpp" />
-    <ClCompile Include="Input.cpp" />
+    <ClCompile Include="engine\Framework\Framework.cpp" />
+    <ClCompile Include="engine\Test\Fuga.cpp" />
+    <ClCompile Include="engine\Framework\Game.cpp" />
+    <ClCompile Include="engine\Scene\GamePlayScene.cpp" />
+    <ClCompile Include="engine\Manager\GpuParticleManager.cpp" />
+    <ClCompile Include="engine\Graphics\PostProcess.cpp" />
+    <ClCompile Include="engine\Test\Hoge.cpp" />
+    <ClCompile Include="engine\Manager\ImGuiManager.cpp" />
+    <ClCompile Include="engine\Input\Input.cpp" />
     <ClCompile Include="main.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
       <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
@@ -46,15 +45,15 @@
     <ClCompile Include="engine\Model\AdvancedAnimation.cpp" />
     <ClCompile Include="engine\Model\Model.cpp" />
     <ClCompile Include="engine\window\WinApp.cpp" />
-    <ClCompile Include="ModelManager.cpp" />
-    <ClCompile Include="ParticleManager.cpp" />
-    <ClCompile Include="SceneFactory.cpp" />
-    <ClCompile Include="SceneManager.cpp" />
-    <ClCompile Include="Skybox.cpp" />
-    <ClCompile Include="Sprite.cpp" />
-    <ClCompile Include="SrvManager.cpp" />
-    <ClCompile Include="TextureManager.cpp" />
-    <ClCompile Include="TitleScene.cpp" />
+    <ClCompile Include="engine\Manager\ModelManager.cpp" />
+    <ClCompile Include="engine\Manager\ParticleManager.cpp" />
+    <ClCompile Include="engine\Scene\SceneFactory.cpp" />
+    <ClCompile Include="engine\Scene\SceneManager.cpp" />
+    <ClCompile Include="engine\Graphics\Skybox.cpp" />
+    <ClCompile Include="engine\Graphics\Sprite.cpp" />
+    <ClCompile Include="engine\Manager\SrvManager.cpp" />
+    <ClCompile Include="engine\Manager\TextureManager.cpp" />
+    <ClCompile Include="engine\Scene\TitleScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Particle.PS.hlsl">
@@ -99,12 +98,12 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AbstractSceneFactory.h" />
-    <ClInclude Include="Audio.h" />
-    <ClInclude Include="BaseScene.h" />
-    <ClInclude Include="Camera.h" />
+    <ClInclude Include="engine\Scene\AbstractSceneFactory.h" />
+    <ClInclude Include="engine\Audio\Audio.h" />
+    <ClInclude Include="engine\Scene\BaseScene.h" />
+    <ClInclude Include="engine\Graphics\Camera.h" />
     <ClInclude Include="engine\D3D12Util\D3D12Util.h" />
-    <ClInclude Include="DataTypes.h" />
+    <ClInclude Include="engine\Common\DataTypes.h" />
     <ClInclude Include="engine\Basic functions\DirectXCommon.h" />
     <ClInclude Include="externals\imgui\imconfig.h" />
     <ClInclude Include="externals\imgui\imgui.h" />
@@ -120,25 +119,24 @@
     <ClInclude Include="engine\Model\AdvancedAnimation.h" />
     <ClInclude Include="engine\Model\Model.h" />
     <ClInclude Include="engine\window\WinApp.h" />
-    <ClInclude Include="Framework.h" />
-    <ClInclude Include="Fuga.h" />
-    <ClInclude Include="Game.h" />
-    <ClInclude Include="GamePlayScene.h" />
-    <ClInclude Include="GpuParticle.h" />
-    <ClInclude Include="PostProcess.h" />
-
-    <ClInclude Include="Hoge.h" />
-    <ClInclude Include="ImGuiManager.h" />
-    <ClInclude Include="Input.h" />
-    <ClInclude Include="ModelManager.h" />
-    <ClInclude Include="ParticleManager.h" />
-    <ClInclude Include="SceneFactory.h" />
-    <ClInclude Include="SceneManager.h" />
-    <ClInclude Include="Skybox.h" />
-    <ClInclude Include="Sprite.h" />
-    <ClInclude Include="SrvManager.h" />
-    <ClInclude Include="TextureManager.h" />
-    <ClInclude Include="TitleScene.h" />
+    <ClInclude Include="engine\Framework\Framework.h" />
+    <ClInclude Include="engine\Test\Fuga.h" />
+    <ClInclude Include="engine\Framework\Game.h" />
+    <ClInclude Include="engine\Scene\GamePlayScene.h" />
+    <ClInclude Include="engine\Common\GpuParticle.h" />
+    <ClInclude Include="engine\Graphics\PostProcess.h" />
+    <ClInclude Include="engine\Test\Hoge.h" />
+    <ClInclude Include="engine\Manager\ImGuiManager.h" />
+    <ClInclude Include="engine\Input\Input.h" />
+    <ClInclude Include="engine\Manager\ModelManager.h" />
+    <ClInclude Include="engine\Manager\ParticleManager.h" />
+    <ClInclude Include="engine\Scene\SceneFactory.h" />
+    <ClInclude Include="engine\Scene\SceneManager.h" />
+    <ClInclude Include="engine\Graphics\Skybox.h" />
+    <ClInclude Include="engine\Graphics\Sprite.h" />
+    <ClInclude Include="engine\Manager\SrvManager.h" />
+    <ClInclude Include="engine\Manager\TextureManager.h" />
+    <ClInclude Include="engine\Scene\TitleScene.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="externals\imgui\LICENSE.txt" />
@@ -239,7 +237,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -267,7 +265,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -297,7 +295,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>Disabled</Optimization>
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

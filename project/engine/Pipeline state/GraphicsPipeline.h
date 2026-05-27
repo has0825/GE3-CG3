@@ -58,6 +58,8 @@ public:
     ID3D12PipelineState* GetRandomPipelineState() const { return randomPipelineState_.Get(); }
     ID3D12RootSignature* GetFullscreenRootSignature() const { return copyImageRootSignature_.Get(); }
     ID3D12RootSignature* GetDissolveRootSignature() const { return dissolveRootSignature_.Get(); }
+    ID3D12PipelineState* GetDepthOutlinePipelineState() const { return depthOutlinePipelineState_.Get(); }
+    ID3D12RootSignature* GetDepthOutlineRootSignature() const { return depthOutlineRootSignature_.Get(); }
 
 
 private:
@@ -106,6 +108,8 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> randomPipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> dissolveRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> depthOutlineRootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> depthOutlinePipelineState_;
 
 
     std::ofstream logStream_;
