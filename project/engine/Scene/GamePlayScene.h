@@ -151,6 +151,7 @@ private:
     SoundData jumpSE_;
 
     SceneMode sceneMode_ = SceneMode::kFighter;
+    SceneMode preDebugSceneMode_ = SceneMode::kFighter;
     float modelEnvCoefficient_ = 1.0f;
     float mouseSensitivity_ = 0.005f;
     Vector2 spritePos_ = { 0.0f, 0.0f };
@@ -359,4 +360,53 @@ private:
     static constexpr float kBoostBlurFadeOut = 3.0f; // フェードアウト速度
     static constexpr float kBoostSpeedMax  = 480.0f;  // ブースト時最大速度
     static constexpr float kNormalSpeed    = 30.0f;  // 通常速度
+
+public:
+    // ゲームフェーズの定義
+    enum class GamePhase {
+        kPhase1,
+        kPhase2,
+        kBossFight
+    };
+
+private:
+    // フェーズ管理用
+    GamePhase currentPhase_ = GamePhase::kBossFight; // 初期値ボス戦スタート
+    float phaseTimer_ = 0.0f;
+    static constexpr float kPhaseDuration = 10.0f; // 1フェーズ10秒
+
+    // 蜘蛛ボス用モデル
+    std::unique_ptr<Model> bossBodyModel_;
+    std::unique_ptr<Model> bossLegModel_;
+
+    // 蜘蛛ボス用定数バッファ
+    Microsoft::WRL::ComPtr<ID3D12Resource> bossBodyTransformResource_;
+    TransformationMatrix* bossBodyTransformData_ = nullptr;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> bossLegTransformResources_[8];
+    TransformationMatrix* bossLegTransformData_[8] = { nullptr };
+
+    // 蜘蛛ボス調整パラメータ (ImGuiで調整可能)
+    float bossScale_ = 3.0f;           // 全体の基本スケール(3.0f)
+    float bossBodyScale_ = 3.0f;       // 胴体ボディ(big+Spider.obj)専用の独立スケール
+    float bossLegScale_ = 1.0f;        // 足モデル(big+spider+arm.obj)専用の独立スケール
+    float bossZOffset_ = 150.0f;       // プレイヤーとの距離
+    float bossYOffset_ = -20.0f;       // 接地高さ
+    float bossBodyRotY_ = 180.0f;      // ボス胴体のY回転(プレイヤーに向けるため)
+    
+    // 左右対称な4対の足の配置パラメータ (ユーザーがImGuiで完全個別調整可能)
+    Vector3 bossLegPairPos0_ = { 1.5f, 0.0f, 1.5f };   // 前足 (ペア0)
+    float bossLegPairRotY0_ = 135.0f;
+    Vector3 bossLegPairPos1_ = { 2.0f, 0.0f, 0.5f };   // 中前足 (ペア1)
+    float bossLegPairRotY1_ = 90.0f;
+    Vector3 bossLegPairPos2_ = { 2.0f, 0.0f, -0.5f };  // 中後足 (ペア2)
+    float bossLegPairRotY2_ = 90.0f;
+    Vector3 bossLegPairPos3_ = { 1.5f, 0.0f, -1.5f };  // 後足 (ペア3)
+    float bossLegPairRotY3_ = 45.0f;
+
+    // 歩行アニメーション制御用パラメータ
+    float bossLegSwingSpeed_ = 5.0f;   // 歩行の速さ
+    float bossLegSwingRange_ = 0.3f;   // 前後の振れ幅
+    float bossLegLiftRange_ = 0.5f;    // 上下のステップ幅
+    float bossTime_ = 0.0f;            // アニメーション用タイマー
 };

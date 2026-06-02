@@ -434,6 +434,34 @@ void GamePlayScene::Initialize() {
 
     // プレイヤーのワールドZ座標を初期化（カメラ初期Z=-15より65ユニット前に配置）
     fighterWorldZ_ = camera_->GetTransform().translate.z + 65.0f;
+
+    // ── 蜘蛛ボス（Big Spider）の初期化 ──
+    // テクスチャのロード
+    TextureManager::GetInstance()->LoadTexture("big Spider/big+Spider_basecolor.jpg");
+    TextureManager::GetInstance()->LoadTexture("big Spider/big+spider+arm_basecolor.jpg");
+
+    // ボスモデルのロード
+    bossBodyModel_ = Model::LoadGLTF("Resources/big Spider/big+Spider.obj", device);
+    bossLegModel_ = Model::LoadGLTF("Resources/big Spider/big+spider+arm.obj", device);
+
+    // 胴体用の定数バッファ生成とマップ
+    bossBodyTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    bossBodyTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&bossBodyTransformData_));
+    bossBodyTransformData_->WVP = MakeIdentity4x4();
+    bossBodyTransformData_->World = MakeIdentity4x4();
+
+    // 8本の足用の定数バッファ生成とマップ
+    for (int i = 0; i < 8; ++i) {
+        bossLegTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
+        bossLegTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&bossLegTransformData_[i]));
+        bossLegTransformData_[i]->WVP = MakeIdentity4x4();
+        bossLegTransformData_[i]->World = MakeIdentity4x4();
+    }
+
+    // 初期フェーズはボス戦スタート
+    currentPhase_ = GamePhase::kBossFight;
+    phaseTimer_ = 0.0f;
+    bossTime_ = 0.0f;
 }
 
 void GamePlayScene::Finalize() {
@@ -444,6 +472,24 @@ void GamePlayScene::Finalize() {
 
 void GamePlayScene::Update() {
     float kDeltaTime = 1.0f / 60.0f;
+
+    // ── フェーズ自動遷移 ──
+    if (currentPhase_ != GamePhase::kBossFight) {
+        phaseTimer_ += kDeltaTime;
+        if (phaseTimer_ >= kPhaseDuration) {
+            phaseTimer_ = 0.0f;
+            if (currentPhase_ == GamePhase::kPhase1) {
+                currentPhase_ = GamePhase::kPhase2;
+            } else if (currentPhase_ == GamePhase::kPhase2) {
+                currentPhase_ = GamePhase::kBossFight;
+            }
+        }
+    }
+
+    // ボスの足アニメーション時間更新
+    if (currentPhase_ == GamePhase::kBossFight) {
+        bossTime_ += kDeltaTime * bossLegSwingSpeed_;
+    }
 
     randomEffectTime_ += kDeltaTime * randomSpeed_;
     if (randomParamData_) {
@@ -465,8 +511,55 @@ void GamePlayScene::Update() {
     }
 
 #ifdef USE_IMGUI
-    ImGui::SetNextWindowSize(ImVec2(500, 200));
+    ImGui::SetNextWindowSize(ImVec2(500, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("GamePlay Control");
+
+    // ── ゲームフェーズ制御 ──
+    ImGui::Separator();
+    ImGui::Text("Game Phase Control");
+    const char* phaseNames[] = { "1 Phase (Enemies)", "2 Phase (Enemies)", "Boss Fight (Big Spider)" };
+    int currentPhaseInt = static_cast<int>(currentPhase_);
+    if (ImGui::Combo("Game Phase", &currentPhaseInt, phaseNames, IM_ARRAYSIZE(phaseNames))) {
+        currentPhase_ = static_cast<GamePhase>(currentPhaseInt);
+        phaseTimer_ = 0.0f; // 切り替え時にタイマーをリセット
+    }
+    if (currentPhase_ != GamePhase::kBossFight) {
+        ImGui::ProgressBar(phaseTimer_ / kPhaseDuration, ImVec2(0.0f, 0.0f));
+        ImGui::Text("Time remaining: %.1fs", kPhaseDuration - phaseTimer_);
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "BOSS FIGHT ACTIVE");
+    }
+
+    // ── 蜘蛛ボス調整項目 ──
+    if (currentPhase_ == GamePhase::kBossFight) {
+        ImGui::Separator();
+        ImGui::Text("Spider Boss Control");
+        ImGui::DragFloat("Boss Body Scale (big+Spider)", &bossBodyScale_, 0.1f, 0.01f, 100.0f, "%.2f");
+        ImGui::DragFloat("Boss Leg Scale (big+spider+arm)", &bossLegScale_, 0.1f, 0.01f, 100.0f, "%.2f");
+        ImGui::DragFloat("Boss Y Height", &bossYOffset_, 0.5f, -200.0f, 100.0f, "%.1f");
+        ImGui::DragFloat("Boss Z Offset", &bossZOffset_, 1.0f, 10.0f, 1000.0f, "%.1f");
+        ImGui::DragFloat("Boss Body RotY", &bossBodyRotY_, 1.0f, 0.0f, 360.0f, "%.1f");
+        
+        ImGui::Text("--- Symmetrical Leg Pairs (X, Y, Z Offsets) ---");
+        ImGui::DragFloat3("Pair 0 (Front) Offset", &bossLegPairPos0_.x, 0.05f, -20.0f, 20.0f, "%.2f");
+        ImGui::DragFloat("Pair 0 (Front) RotY", &bossLegPairRotY0_, 1.0f, -180.0f, 180.0f, "%.1f");
+        
+        ImGui::DragFloat3("Pair 1 (Mid-Front) Offset", &bossLegPairPos1_.x, 0.05f, -20.0f, 20.0f, "%.2f");
+        ImGui::DragFloat("Pair 1 (Mid-Front) RotY", &bossLegPairRotY1_, 1.0f, -180.0f, 180.0f, "%.1f");
+        
+        ImGui::DragFloat3("Pair 2 (Mid-Back) Offset", &bossLegPairPos2_.x, 0.05f, -20.0f, 20.0f, "%.2f");
+        ImGui::DragFloat("Pair 2 (Mid-Back) RotY", &bossLegPairRotY2_, 1.0f, -180.0f, 180.0f, "%.1f");
+        
+        ImGui::DragFloat3("Pair 3 (Back) Offset", &bossLegPairPos3_.x, 0.05f, -20.0f, 20.0f, "%.2f");
+        ImGui::DragFloat("Pair 3 (Back) RotY", &bossLegPairRotY3_, 1.0f, -180.0f, 180.0f, "%.1f");
+
+        ImGui::Text("--- Walk Animation Motion ---");
+        ImGui::DragFloat("Walk Speed", &bossLegSwingSpeed_, 0.1f, 0.0f, 20.0f, "%.1f");
+        ImGui::DragFloat("Walk Swing Range", &bossLegSwingRange_, 0.01f, 0.0f, 2.0f, "%.2f");
+        ImGui::DragFloat("Walk Step Lift Range", &bossLegLiftRange_, 0.05f, 0.0f, 10.0f, "%.2f");
+    }
+
+    ImGui::Separator();
     ImGui::Checkbox("Show SimpleSkin", &showSimpleSkin_);
     ImGui::Checkbox("Show AnimatedCube", &showAnimatedCube_);
     ImGui::Checkbox("Show Particles", &showParticles_);
@@ -492,6 +585,11 @@ void GamePlayScene::Update() {
         }
     }
     
+    ImGui::Text("F1 Key: Toggle Debug Camera (Free Camera)");
+    if (sceneMode_ == SceneMode::kCamera) {
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  [WASDQE] Move Camera (LShift: Turbo)");
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  [Mouse] Look Around");
+    }
     ImGui::Text("TAB Key: Switch Scene Mode");
     ImGui::Text("Current Mode: %s", (sceneMode_ == SceneMode::kMouse ? "Mouse" : (sceneMode_ == SceneMode::kCamera ? "Camera" : "Fighter")));
     ImGui::End();
@@ -528,6 +626,53 @@ void GamePlayScene::Update() {
     }
     EulerTransform& camTrans = camera_->GetTransform();
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
+
+    // F1キーでデバッグカメラ（第三者視点フリーカメラ）を即時切り替え
+    if (input_->IsKeyTriggered(DIK_F1)) {
+        if (sceneMode_ == SceneMode::kCamera) {
+            // 現在デバッグカメラ（Camera）モードなら、元のモードに戻す
+            sceneMode_ = preDebugSceneMode_;
+
+            // 元の操作に戻る際は、ImGuiなどを快適に操作できるよう必ずマウスカーソルを確実に再表示する
+            // ShowCursorの内部カウンタが負に累積して消えたままになるのを防ぐため、表示(>=0)されるまで呼び出す
+            while (ShowCursor(TRUE) < 0);
+
+            // ── 元の操作に戻る際、カメラの回転・位置を一瞬で戦闘機背後に完全リセット！ ──
+            if (sceneMode_ == SceneMode::kFighter) {
+                // 1. 回転を正面(0,0,0)にリセット（デバッグ時の首振り角を引き継がない）
+                camTrans.rotate = { 0.0f, 0.0f, 0.0f };
+
+                // 2. 位置（X, Y, Z）を戦闘機追従のジャストな初期背後位置に一瞬でワープ
+                float targetCamX = 0.0f;
+                float targetCamY = 0.0f;
+                if (fighterModel_) {
+                    targetCamX = fighterModel_->transform.translate.x * 0.5f;
+                    targetCamY = fighterModel_->transform.translate.y * 0.5f;
+                }
+                camTrans.translate.x = targetCamX;
+                camTrans.translate.y = targetCamY;
+                camTrans.translate.z = fighterWorldZ_ - 65.0f;
+            }
+        } else {
+            // それ以外なら、現在のモードを保存してデバッグカメラ（Camera）に切り替える
+            preDebugSceneMode_ = sceneMode_;
+            sceneMode_ = SceneMode::kCamera;
+
+            // デバッグカメラに入る際はマウスカーソルを確実に非表示にする
+            // カウンタが過剰にマイナスに偏るのを防ぐため、非表示(<0)になったらループを抜ける制御にする
+            while (ShowCursor(FALSE) >= 0);
+
+            // カメラの回転を正面にリセット（切り替え直後に迷子になるのを防止）
+            camTrans.rotate = { 0.0f, 0.0f, 0.0f };
+
+            // マウスカーソルを即座にウィンドウ中央へリセットし、移行直後の1フレーム目でのカメラ回転の暴走を防止
+            RECT rect;
+            GetWindowRect(hwnd, &rect);
+            int centerX = rect.left + (rect.right - rect.left) / 2;
+            int centerY = rect.top + (rect.bottom - rect.top) / 2;
+            SetCursorPos(centerX, centerY);
+        }
+    }
 
     // TABキーでモード切替
     if (input_->IsKeyTriggered(DIK_TAB)) {
@@ -572,7 +717,12 @@ void GamePlayScene::Update() {
         if (input_->IsKeyPressed(DIK_Q)) moveDir.y -= 1.0f;
         
         if (moveDir.x != 0.0f || moveDir.y != 0.0f || moveDir.z != 0.0f) {
-            float cameraSpeed = 5.0f;
+            // フリーカメラの基本移動速度を大幅に向上（元の 5.0f は遅すぎたため 80.0f に設定）
+            // さらに左Shiftまたは右Shiftを押している間は、高速ターボ移動（300.0f）できるように拡張
+            float cameraSpeed = 80.0f;
+            if (input_->IsKeyPressed(DIK_LSHIFT) || input_->IsKeyPressed(DIK_RSHIFT)) {
+                cameraSpeed = 300.0f;
+            }
             Matrix4x4 cameraRotY = MakeRotateYMatrix(camTrans.rotate.y);
             Vector3 rotatedMoveDir = TransformNormal(moveDir, cameraRotY);
             rotatedMoveDir = Normalize(rotatedMoveDir);
@@ -796,8 +946,87 @@ void GamePlayScene::Update() {
             }
         }
     }
+    // ── 蜘蛛ボス（Big Spider）のトランスフォームとアニメーション更新 ──
+    if (bossBodyTransformData_) {
+        // 胴体のワールド行列計算
+        // ボスはプレイヤーの前方 bossZOffset_ の位置に進み、高さは接地高さ bossYOffset_
+        Vector3 bossPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+        Vector3 bossBodyScale = { bossBodyScale_, bossBodyScale_, bossBodyScale_ }; // 胴体専用スケール
+        Vector3 bossRotate = { 0.0f, bossBodyRotY_ * (float)M_PI / 180.0f, 0.0f }; // Y軸回転
+
+        Matrix4x4 bossWorld = MakeAffineMatrix(bossBodyScale, bossRotate, bossPos);
+        bossBodyTransformData_->World = bossWorld;
+
+        // 胴体の「スケールなし」の行列（足の大きさを胴体から完全に独立させるために使用）
+        Matrix4x4 bossWorldNoScale = MakeAffineMatrix(Vector3{ 1.0f, 1.0f, 1.0f }, bossRotate, bossPos);
+
+        // 4組の左右対称な足ペアパラメータを配列化してアクセス
+        Vector3 legPairPos[4] = { bossLegPairPos0_, bossLegPairPos1_, bossLegPairPos2_, bossLegPairPos3_ };
+        float legPairRotY[4] = { bossLegPairRotY0_, bossLegPairRotY1_, bossLegPairRotY2_, bossLegPairRotY3_ };
+
+        for (int i = 0; i < 8; ++i) {
+            if (!bossLegTransformData_[i]) continue;
+
+            int pairIdx = (i < 4) ? i : (i - 4); // 0,1,2,3 ➔ 左足、4,5,6,7 ➔ 右足
+
+            // チドリ歩行パターンの位相オフセット（交互に動かす）
+            float phaseOffset = (i == 0 || i == 2 || i == 5 || i == 7) ? 0.0f : (float)M_PI;
+
+            // 前後のスイング（Y回転）
+            float swing = std::sin(bossTime_ + phaseOffset) * bossLegSwingRange_;
+
+            // 上下のステップ運動（Y軸上昇）
+            // 接地時は0、足が上がるときは正の値
+            float lift = (std::max)(0.0f, std::sin(bossTime_ + phaseOffset + (float)M_PI * 0.5f)) * bossLegLiftRange_;
+
+            // 左右対称に配置するため、左足と右足で符号を分岐
+            Vector3 finalOffset = legPairPos[pairIdx];
+            float baseRotY = legPairRotY[pairIdx];
+
+            Vector3 legRotate{};
+            if (i < 4) {
+                // 左足
+                finalOffset.x = -finalOffset.x; // 左側なのでマイナス
+                finalOffset.y += lift;
+                legRotate = { 
+                    -0.1f, // 少し斜め下に向ける
+                    (-baseRotY) * (float)M_PI / 180.0f + swing, 
+                    0.0f 
+                };
+            } else {
+                // 右足
+                finalOffset.y += lift;
+                legRotate = { 
+                    0.1f, // 少し斜め下に向ける
+                    baseRotY * (float)M_PI / 180.0f + swing, 
+                    0.0f 
+                };
+            }
+
+            // 足モデル自体のスケール（独立した足専用スケールを適用）
+            Vector3 legScale = { bossLegScale_, bossLegScale_, bossLegScale_ };
+
+            // 足のローカル行列（生え口のオフセット位置には、配置用スケールである bossScale_ を適用）
+            Matrix4x4 legLocal = MakeAffineMatrix(legScale, legRotate, Scale(finalOffset, bossScale_));
+            // スケールなしの胴体行列と合成することで、胴体スケール変更が足の大きさに影響するのを防止
+            Matrix4x4 legWorld = Multiply(legLocal, bossWorldNoScale);
+
+            bossLegTransformData_[i]->World = legWorld;
+        }
+    }
+
     camera_->Update();
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
+
+    // 蜘蛛ボスのWVP行列更新 (最新のカメラ行列を使用)
+    if (bossBodyTransformData_) {
+        bossBodyTransformData_->WVP = Multiply(bossBodyTransformData_->World, viewProjectionMatrix);
+        for (int i = 0; i < 8; ++i) {
+            if (bossLegTransformData_[i]) {
+                bossLegTransformData_[i]->WVP = Multiply(bossLegTransformData_[i]->World, viewProjectionMatrix);
+            }
+        }
+    }
 
     // 敵キャラのワールド行列・WVPの更新
     EulerTransform& camTransForEnemy = camera_->GetTransform();
@@ -823,10 +1052,10 @@ void GamePlayScene::Update() {
     }
 
     // 戦闘機とエイミングのWVPの更新
+    if (fighterModel_ && fighterTransformData_) {
+        fighterTransformData_->WVP = Multiply(fighterTransformData_->World, viewProjectionMatrix);
+    }
     if (sceneMode_ == SceneMode::kFighter) {
-        if (fighterModel_ && fighterTransformData_) {
-            fighterTransformData_->WVP = Multiply(fighterTransformData_->World, viewProjectionMatrix);
-        }
         if (aimingInstancingData_) {
             aimingInstancingData_->WVP = Multiply(aimingInstancingData_->World, viewProjectionMatrix);
             aimingInstancingData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -1128,8 +1357,8 @@ void GamePlayScene::Draw() {
         }
     }
 
-    // --- 戦闘機モードの描画 ---
-    if (sceneMode_ == SceneMode::kFighter) {
+    // --- 3Dオブジェクト（戦闘機/デバッグカメラモード共通）の描画 ---
+    if (sceneMode_ == SceneMode::kFighter || sceneMode_ == SceneMode::kCamera) {
         ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
         commandList->SetDescriptorHeaps(1, modelHeaps);
         if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
@@ -1155,7 +1384,7 @@ void GamePlayScene::Draw() {
             }
 
             // ビル(Building)描画
-            if (buildingModel_) {
+            if (buildingModel_ && currentPhase_ != GamePhase::kBossFight) {
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
                 int cbIndex = 0;
@@ -1180,11 +1409,41 @@ void GamePlayScene::Draw() {
             }
 
             // 敵の描画（プレイヤーと同じ戦闘機モデルを使用）
-            if (enemyModel_ && showEnemies_) {
+            if (enemyModel_ && showEnemies_ && currentPhase_ != GamePhase::kBossFight) {
                 for (int i = 0; i < kMaxEnemies; ++i) {
                     if (enemies_[i].isAlive) {
                         commandList->SetGraphicsRootConstantBufferView(1, enemyTransformResources_[i]->GetGPUVirtualAddress());
                         enemyModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player/player.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                    }
+                }
+            }
+
+            // 蜘蛛ボス（Big Spider）の描画
+            if (currentPhase_ == GamePhase::kBossFight) {
+                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+
+                // 胴体の描画
+                if (bossBodyModel_ && bossBodyTransformResource_) {
+                    commandList->SetGraphicsRootConstantBufferView(1, bossBodyTransformResource_->GetGPUVirtualAddress());
+                    bossBodyModel_->DrawModel(
+                        commandList,
+                        TextureManager::GetInstance()->GetSrvHandleGPU("big Spider/big+Spider_basecolor.jpg"),
+                        TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+                    );
+                }
+
+                // 足の描画（8本の足をループで個別に描画）
+                if (bossLegModel_) {
+                    for (int i = 0; i < 8; ++i) {
+                        if (bossLegTransformResources_[i]) {
+                            commandList->SetGraphicsRootConstantBufferView(1, bossLegTransformResources_[i]->GetGPUVirtualAddress());
+                            bossLegModel_->DrawModel(
+                                commandList,
+                                TextureManager::GetInstance()->GetSrvHandleGPU("big Spider/big+spider+arm_basecolor.jpg"),
+                                TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+                            );
+                        }
                     }
                 }
             }
