@@ -32,6 +32,8 @@
     <ClCompile Include="engine\Test\Fuga.cpp" />
     <ClCompile Include="engine\Framework\Game.cpp" />
     <ClCompile Include="engine\Scene\GamePlayScene.cpp" />
+    <ClCompile Include="engine\Scene\ClearScene.cpp" />
+    <ClCompile Include="engine\Scene\GameOverScene.cpp" />
     <ClCompile Include="engine\Manager\GpuParticleManager.cpp" />
     <ClCompile Include="engine\Graphics\PostProcess.cpp" />
     <ClCompile Include="engine\Test\Hoge.cpp" />
@@ -123,6 +125,8 @@
     <ClInclude Include="engine\Test\Fuga.h" />
     <ClInclude Include="engine\Framework\Game.h" />
     <ClInclude Include="engine\Scene\GamePlayScene.h" />
+    <ClInclude Include="engine\Scene\ClearScene.h" />
+    <ClInclude Include="engine\Scene\GameOverScene.h" />
     <ClInclude Include="engine\Common\GpuParticle.h" />
     <ClInclude Include="engine\Graphics\PostProcess.h" />
     <ClInclude Include="engine\Test\Hoge.h" />
@@ -233,7 +237,7 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;USE_IMGUI;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /FS %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>true</TreatWarningAsError>
@@ -262,7 +266,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /FS %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
@@ -290,7 +294,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /FS %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>Disabled</Optimization>

@@ -173,10 +173,31 @@ std::unique_ptr<Model> Model::CreateBoxModel(ID3D12Device* device) {
     return model;
 }
 
+struct GLTFCacheData {
+    ModelData modelData;
+    Node rootNode;
+    std::map<std::string, Bone> bones;
+    std::shared_ptr<Animation> animation;
+};
 
+static std::map<std::string, GLTFCacheData> s_GLTFCache;
 
 std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device* device) {
     std::unique_ptr<Model> model = std::make_unique<Model>();
+
+    // キャッシュを検索
+    auto it = s_GLTFCache.find(filename);
+    if (it != s_GLTFCache.end()) {
+        const auto& cache = it->second;
+        model->rootNode = cache.rootNode;
+        model->bones_ = cache.bones;
+        if (cache.animation) {
+            model->animation_ = std::make_unique<Animation>(*cache.animation);
+        }
+        model->Initialize(cache.modelData, device);
+        return model;
+    }
+
     ModelData modelData;
 
     Assimp::Importer importer;
@@ -198,10 +219,6 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
     for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
         aiMesh* mesh = scene->mMeshes[i];
         
-        // アサーションを削除し、UVや法線がない場合はデフォルト値を使う
-        // assert(mesh->HasNormals());
-        // assert(mesh->HasTextureCoords(0));
-
         // 頂点ごとのウェイト情報を一時保存
         struct Weight {
             uint32_t index;
@@ -295,6 +312,16 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
             model->animation_->channels.push_back(channel);
         }
     }
+
+    // 解析データをキャッシュに保存
+    GLTFCacheData cache;
+    cache.modelData = modelData;
+    cache.rootNode = model->rootNode;
+    cache.bones = model->bones_;
+    if (model->animation_) {
+        cache.animation = std::make_shared<Animation>(*model->animation_);
+    }
+    s_GLTFCache[filename] = std::move(cache);
 
     model->Initialize(modelData, device);
     return model;

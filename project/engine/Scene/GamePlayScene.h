@@ -12,6 +12,7 @@
 #include "GpuParticle.h"
 #include <vector>
 #include <random>
+#include "Sprite.h"
 #include "PostProcess.h"
 #include <memory>
 #include <wrl.h>
@@ -288,6 +289,8 @@ private:
         Vector3 rotate;
         bool isAlive;
         float radius;
+        float hp;
+        float maxHP;
 
         // フォーメーション管理用メンバ
         int groupIndex;      // 所属グループ (0~2)
@@ -371,9 +374,20 @@ public:
 
 private:
     // フェーズ管理用
-    GamePhase currentPhase_ = GamePhase::kBossFight; // 初期値ボス戦スタート
+    GamePhase currentPhase_ = GamePhase::kPhase1; // 初期値フェーズ1スタート
     float phaseTimer_ = 0.0f;
     static constexpr float kPhaseDuration = 10.0f; // 1フェーズ10秒
+
+    // フェーズ表示演出用メンバ変数
+    std::unique_ptr<Sprite> phaseIntroSprite_;
+    std::unique_ptr<Sprite> numberIntroSprite_;
+    float phaseIntroTimer_ = -1.0f;
+    int phaseIntroNum_ = 1;
+    void StartPhaseIntro(int phaseNum);
+
+    // ボス登場演出と画面シェイクの制御用メンバ変数
+    float bossAppearanceTimer_ = -1.0f;
+    float cameraShake_ = 0.0f;
 
     // 蜘蛛ボス用モデル
     std::unique_ptr<Model> bossBodyModel_;
@@ -388,25 +402,89 @@ private:
 
     // 蜘蛛ボス調整パラメータ (ImGuiで調整可能)
     float bossScale_ = 3.0f;           // 全体の基本スケール(3.0f)
-    float bossBodyScale_ = 3.0f;       // 胴体ボディ(big+Spider.obj)専用の独立スケール
-    float bossLegScale_ = 1.0f;        // 足モデル(big+spider+arm.obj)専用の独立スケール
-    float bossZOffset_ = 150.0f;       // プレイヤーとの距離
-    float bossYOffset_ = -20.0f;       // 接地高さ
-    float bossBodyRotY_ = 180.0f;      // ボス胴体のY回転(プレイヤーに向けるため)
+    float bossBodyScale_ = 39.21f;       // 胴体ボディ(big+Spider.obj)専用の独立スケール
+    float bossLegScale_ = 30.91f;        // 足モデル(big+spider+arm.obj)専用の独立スケール
+    float bossZOffset_ = 169.0f;       // プレイヤーとの距離
+    float bossYOffset_ = -8.5f;       // 接地高さ
+    float bossBodyRotY_ = 273.0f;      // ボス胴体のY回転(プレイヤーに向けるため)
     
     // 左右対称な4対の足の配置パラメータ (ユーザーがImGuiで完全個別調整可能)
-    Vector3 bossLegPairPos0_ = { 1.5f, 0.0f, 1.5f };   // 前足 (ペア0)
+    Vector3 bossLegPairPos0_ = { 1.50f, -5.35f, 5.55f };   // 前足 (ペア0)
     float bossLegPairRotY0_ = 135.0f;
-    Vector3 bossLegPairPos1_ = { 2.0f, 0.0f, 0.5f };   // 中前足 (ペア1)
-    float bossLegPairRotY1_ = 90.0f;
-    Vector3 bossLegPairPos2_ = { 2.0f, 0.0f, -0.5f };  // 中後足 (ペア2)
-    float bossLegPairRotY2_ = 90.0f;
-    Vector3 bossLegPairPos3_ = { 1.5f, 0.0f, -1.5f };  // 後足 (ペア3)
-    float bossLegPairRotY3_ = 45.0f;
+    Vector3 bossLegPairPos1_ = { 2.00f, -4.35f, 5.80f };   // 中前足 (ペア1)
+    float bossLegPairRotY1_ = 176.0f;
+    Vector3 bossLegPairPos2_ = { 2.00f, -4.55f, -5.65f };  // 中後足 (ペア2)
+    float bossLegPairRotY2_ = 1.0f;
+    Vector3 bossLegPairPos3_ = { 1.50f, -4.90f, -6.50f };  // 後足 (ペア3)
+    float bossLegPairRotY3_ = 6.0f;
 
     // 歩行アニメーション制御用パラメータ
-    float bossLegSwingSpeed_ = 5.0f;   // 歩行の速さ
+    float bossLegSwingSpeed_ = 8.0f;   // 歩行の速さ
     float bossLegSwingRange_ = 0.3f;   // 前後の振れ幅
     float bossLegLiftRange_ = 0.5f;    // 上下のステップ幅
     float bossTime_ = 0.0f;            // アニメーション用タイマー
+
+    // 蜘蛛ボスの足ピボット位置 (ローカル座標での根本位置)
+    // 太もも側（接続ギア）を固定軸にするため、Z軸のプラス側に変更します
+    float bossLegPivotY_ = 0.10f;
+    float bossLegPivotZ_ = 0.35f;
+
+    // 蜘蛛ボスの胴体の揺れパラメータ
+    float bossBodyBounceRange_ = 0.3f;  // 胴体の上下の揺れ幅(メートル)
+    float bossBodyRollRange_ = 2.0f;    // 胴体の左右のロール角(度)
+
+    // HP・衝突判定関連のメンバ変数
+    float playerHP_ = 100.0f;
+    float playerMaxHP_ = 100.0f;
+    float bossHP_ = 500.0f;
+    float bossMaxHP_ = 500.0f;
+    float bossCollisionRadius_ = 18.0f;
+
+    // HPバー（スプライト）描画用
+    static const uint32_t kHpBarInstanceCount = 4;
+    Microsoft::WRL::ComPtr<ID3D12Resource> hpBarInstancingResource_;
+    ParticleForGPU* hpBarInstancingData_ = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE hpBarInstancingSrvHandleGPU_{};
+
+    // HPVisual（HPバーの滑らかな減少アニメーション用）
+    float playerHPVisual_ = 100.0f;
+    float bossHPVisual_ = 500.0f;
+
+    // ボス行動AI
+    enum class BossActionState {
+        kIdle,          // 待機/移動
+        kLegAttack,     // 足で殴る
+        kLaserAttack,   // 糸レーザー照射
+        kWebAttack,     // 蜘蛛の巣弾
+    };
+    BossActionState bossActionState_ = BossActionState::kIdle;
+    float bossActionTimer_ = 0.0f;
+    float bossLaserTimer_ = 0.0f;
+
+    // プレイヤーの移動速度デバフタイマーおよび画面蜘蛛の巣効果タイマー
+    float playerSpeedDebuffTimer_ = 0.0f;
+    float screenWebTimer_ = 0.0f;
+
+    // 蜘蛛の巣弾の管理
+    struct WebBullet {
+        Vector3 position;
+        Vector3 velocity;
+        float radius;
+        bool isAlive;
+    };
+    static const int kMaxWebBullets = 5;
+    std::vector<WebBullet> bossWebBullets_;
+
+    // 蜘蛛の巣弾(3D)用定数バッファ
+    Microsoft::WRL::ComPtr<ID3D12Resource> webBulletInstancingResource_;
+    ParticleForGPU* webBulletInstancingData_ = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE webBulletInstancingSrvHandleGPU_{};
+
+    // 画面蜘蛛の巣(2D)用定数バッファ
+    Microsoft::WRL::ComPtr<ID3D12Resource> screenWebTransformResource_;
+    ParticleForGPU* screenWebTransformData_ = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE screenWebSrvHandleGPU_{};
+
+    // 蜘蛛の巣テクスチャのSRVハンドル
+    D3D12_GPU_DESCRIPTOR_HANDLE spiderWebSrvHandleGPU_{};
 };

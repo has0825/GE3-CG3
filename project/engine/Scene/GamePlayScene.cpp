@@ -280,6 +280,8 @@ void GamePlayScene::Initialize() {
         enemy.rotate = { 0.0f, 0.0f, 0.0f }; // モデルの向きを180度反転して修正
         enemy.isAlive = true;
         enemy.radius = 3.5f;
+        enemy.hp = 30.0f;
+        enemy.maxHP = 30.0f;
         enemies_.push_back(enemy);
     }
 
@@ -360,6 +362,37 @@ void GamePlayScene::Initialize() {
     reticleMaterialResource_->Map(0, nullptr, reinterpret_cast<void**>(&reticleMaterialData_));
     reticleMaterialData_->color = {1.0f, 1.0f, 1.0f, 1.0f};
     reticleMaterialData_->uvTransform = MakeIdentity4x4();
+
+    // HPバー用のバッファ生成とマッピング
+    hpBarInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kHpBarInstanceCount);
+    hpBarInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&hpBarInstancingData_));
+    for (uint32_t i = 0; i < kHpBarInstanceCount; ++i) {
+        hpBarInstancingData_[i].WVP = MakeIdentity4x4();
+        hpBarInstancingData_[i].World = MakeIdentity4x4();
+        hpBarInstancingData_[i].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        hpBarInstancingData_[i].uvTransform = MakeIdentity4x4();
+    }
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC hpBarInstancingSrvDesc{};
+    hpBarInstancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    hpBarInstancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    hpBarInstancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    hpBarInstancingSrvDesc.Buffer.FirstElement = 0;
+    hpBarInstancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    hpBarInstancingSrvDesc.Buffer.NumElements = kHpBarInstanceCount;
+    hpBarInstancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+
+    uint32_t hpBarInstancingSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE hpBarInstancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(hpBarInstancingSrvIndex);
+    hpBarInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(hpBarInstancingSrvIndex);
+    device->CreateShaderResourceView(hpBarInstancingResource_.Get(), &hpBarInstancingSrvDesc, hpBarInstancingSrvHandleCPU);
+
+    // HP関連変数の初期化
+    playerHP_ = 100.0f;
+    playerMaxHP_ = 100.0f;
+    bossHP_ = 500.0f;
+    bossMaxHP_ = 500.0f;
+    bossCollisionRadius_ = 18.0f;
 
     // 【重要】モデルのスケール・座標設定
     // ※もし画面に見えない場合は、ここ(scale)を 10.0f や 100.0f など大きくしてみてください。
@@ -458,10 +491,89 @@ void GamePlayScene::Initialize() {
         bossLegTransformData_[i]->World = MakeIdentity4x4();
     }
 
-    // 初期フェーズはボス戦スタート
-    currentPhase_ = GamePhase::kBossFight;
+    // 蜘蛛の巣テクスチャのロードとSRV取得
+    TextureManager::GetInstance()->LoadTexture("spider web.png");
+    spiderWebSrvHandleGPU_ = TextureManager::GetInstance()->GetSrvHandleGPU("spider web.png");
+
+    // 画面蜘蛛の巣用バッファ生成とマッピング
+    screenWebTransformResource_ = CreateBufferResource(device, sizeof(ParticleForGPU));
+    screenWebTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&screenWebTransformData_));
+    screenWebTransformData_->WVP = MakeIdentity4x4();
+    screenWebTransformData_->World = MakeIdentity4x4();
+    screenWebTransformData_->color = { 1.0f, 1.0f, 1.0f, 0.0f }; // 初期は完全透明
+    screenWebTransformData_->uvTransform = MakeIdentity4x4();
+
+    // 画面蜘蛛の巣用のSRV作成
+    D3D12_SHADER_RESOURCE_VIEW_DESC screenWebSrvDesc{};
+    screenWebSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    screenWebSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    screenWebSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    screenWebSrvDesc.Buffer.FirstElement = 0;
+    screenWebSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    screenWebSrvDesc.Buffer.NumElements = 1;
+    screenWebSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+
+    uint32_t screenWebSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE screenWebSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(screenWebSrvIndex);
+    screenWebSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(screenWebSrvIndex);
+    device->CreateShaderResourceView(screenWebTransformResource_.Get(), &screenWebSrvDesc, screenWebSrvHandleCPU);
+
+    // 蜘蛛の巣弾（3D）用バッファ生成とマッピング
+    webBulletInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU) * kMaxWebBullets);
+    webBulletInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&webBulletInstancingData_));
+    for (int i = 0; i < kMaxWebBullets; ++i) {
+        webBulletInstancingData_[i].WVP = MakeIdentity4x4();
+        webBulletInstancingData_[i].World = MakeIdentity4x4();
+        webBulletInstancingData_[i].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        webBulletInstancingData_[i].uvTransform = MakeIdentity4x4();
+    }
+
+    // 蜘蛛の巣弾用のSRV作成
+    D3D12_SHADER_RESOURCE_VIEW_DESC webBulletSrvDesc{};
+    webBulletSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    webBulletSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    webBulletSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    webBulletSrvDesc.Buffer.FirstElement = 0;
+    webBulletSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    webBulletSrvDesc.Buffer.NumElements = kMaxWebBullets;
+    webBulletSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+
+    uint32_t webBulletSrvIndex = SrvManager::GetInstance()->Allocate();
+    D3D12_CPU_DESCRIPTOR_HANDLE webBulletSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(webBulletSrvIndex);
+    webBulletInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(webBulletSrvIndex);
+    device->CreateShaderResourceView(webBulletInstancingResource_.Get(), &webBulletSrvDesc, webBulletSrvHandleCPU);
+
+    // 蜘蛛の巣弾オブジェクトプール初期化
+    bossWebBullets_.resize(kMaxWebBullets);
+    for (int i = 0; i < kMaxWebBullets; ++i) {
+        bossWebBullets_[i].isAlive = false;
+        bossWebBullets_[i].radius = 8.0f; // 巨大な蜘蛛の巣
+    }
+
+    // HP表示補間用初期化
+    playerHPVisual_ = playerHP_;
+    bossHPVisual_ = bossHP_;
+
+    // 初期フェーズはフェーズ1スタート
+    currentPhase_ = GamePhase::kPhase1;
     phaseTimer_ = 0.0f;
     bossTime_ = 0.0f;
+    StartPhaseIntro(1);
+}
+
+void GamePlayScene::StartPhaseIntro(int phaseNum) {
+    phaseIntroNum_ = phaseNum;
+    phaseIntroTimer_ = 0.0f;
+
+    // Asepriteで作られたフェーズ画像と数字画像をロードしてスプライト生成
+    phaseIntroSprite_ = Sprite::Create("phase.png", { 0.0f, 0.0f });
+    std::string numberTex = "number/big" + std::to_string(phaseNum) + ".png";
+    numberIntroSprite_ = Sprite::Create(numberTex, { 0.0f, 0.0f });
+
+    // 効果音を鳴らす (少し高めの音量で)
+    if (audio_) {
+        audio_->PlayWave(jumpSE_, false, 1.2f);
+    }
 }
 
 void GamePlayScene::Finalize() {
@@ -473,6 +585,90 @@ void GamePlayScene::Finalize() {
 void GamePlayScene::Update() {
     float kDeltaTime = 1.0f / 60.0f;
 
+    // ゲームクリア/ゲームオーバー遷移判定
+    if (bossHP_ <= 0.0f) {
+        SceneManager::GetInstance()->ChangeScene("CLEAR");
+        return;
+    }
+    if (playerHP_ <= 0.0f) {
+        SceneManager::GetInstance()->ChangeScene("GAMEOVER");
+        return;
+    }
+
+    // HPVisualの補間更新（滑らかなHPバー減少用）
+    playerHPVisual_ = std::lerp(playerHPVisual_, playerHP_, 0.1f);
+    bossHPVisual_ = std::lerp(bossHPVisual_, bossHP_, 0.1f);
+
+    // デバフおよび画面効果タイマーの更新
+    if (playerSpeedDebuffTimer_ > 0.0f) {
+        playerSpeedDebuffTimer_ -= kDeltaTime;
+    }
+    if (screenWebTimer_ > 0.0f) {
+        screenWebTimer_ -= kDeltaTime;
+    }
+
+    // ── 「PHASE」表示演出タイマーの更新 ──
+    if (phaseIntroTimer_ >= 0.0f) {
+        phaseIntroTimer_ += kDeltaTime;
+        
+        float t = phaseIntroTimer_;
+        float s = 1.0f; // スケール倍率
+        float a = 1.0f; // アルファ値
+        
+        if (t < 0.5f) {
+            // 1. フェードイン・縮小バウンド (0.0s 〜 0.5s)
+            float rate = t / 0.5f;
+            const float c1 = 1.70158f;
+            const float c3 = c1 + 1.0f;
+            float e = 1.0f + c3 * std::pow(rate - 1.0f, 3.0f) + c1 * std::pow(rate - 1.0f, 2.0f);
+            s = 4.0f - 3.0f * e; // 4倍 ➔ 1倍 (EaseOutBack)
+            a = rate; // 0.0 ➔ 1.0
+        } else if (t < 1.5f) {
+            // 2. 静止・ゆっくりズーム (0.5s 〜 1.5s)
+            float rate = (t - 0.5f) / 1.0f;
+            s = 1.0f + 0.1f * rate; // 1.0倍 ➔ 1.1倍
+            a = 1.0f;
+        } else if (t < 2.0f) {
+            // 3. フェードアウト・拡大 (1.5s 〜 2.0s)
+            float rate = (t - 1.5f) / 0.5f;
+            s = 1.1f + 0.5f * rate * rate; // 1.1倍 ➔ 1.6倍 (EaseInQuad)
+            a = 1.0f - rate; // 1.0 ➔ 0.0
+        } else {
+            // 演出終了
+            phaseIntroTimer_ = -1.0f;
+            phaseIntroSprite_.reset();
+            numberIntroSprite_.reset();
+        }
+
+        // スプライトの位置とサイズを更新
+        if (phaseIntroSprite_ && numberIntroSprite_) {
+            float w1 = (float)phaseIntroSprite_->GetMetadata().width;
+            float h1 = (float)phaseIntroSprite_->GetMetadata().height;
+            float w2 = (float)numberIntroSprite_->GetMetadata().width;
+            float h2 = (float)numberIntroSprite_->GetMetadata().height;
+            
+            float gap = 20.0f; // 文字と数字の間隔
+            float totalW = (w1 + gap + w2) * s;
+            
+            float cx = (float)WinApp::kClientWidth / 2.0f;
+            float cy = (float)WinApp::kClientHeight / 2.0f;
+            
+            // PHASE文字の配置
+            float x1 = cx - totalW / 2.0f;
+            float y1 = cy - (h1 * s) / 2.0f;
+            phaseIntroSprite_->transform.translate = { x1, y1, 0.0f };
+            phaseIntroSprite_->transform.scale = { w1 * s, h1 * s, 1.0f };
+            phaseIntroSprite_->SetColor({ 1.0f, 1.0f, 1.0f, a });
+            
+            // 数字の配置
+            float x2 = x1 + (w1 + gap) * s;
+            float y2 = cy - (h2 * s) / 2.0f;
+            numberIntroSprite_->transform.translate = { x2, y2, 0.0f };
+            numberIntroSprite_->transform.scale = { w2 * s, h2 * s, 1.0f };
+            numberIntroSprite_->SetColor({ 1.0f, 1.0f, 1.0f, a });
+        }
+    }
+
     // ── フェーズ自動遷移 ──
     if (currentPhase_ != GamePhase::kBossFight) {
         phaseTimer_ += kDeltaTime;
@@ -480,15 +676,44 @@ void GamePlayScene::Update() {
             phaseTimer_ = 0.0f;
             if (currentPhase_ == GamePhase::kPhase1) {
                 currentPhase_ = GamePhase::kPhase2;
+                StartPhaseIntro(2); // PHASE 2の表示演出
             } else if (currentPhase_ == GamePhase::kPhase2) {
                 currentPhase_ = GamePhase::kBossFight;
+                bossAppearanceTimer_ = 3.0f; // ボス登場演出開始（3秒）
             }
+        }
+    }
+
+    // ── ボス登場落下演出タイマーの更新 ──
+    if (bossAppearanceTimer_ > 0.0f) {
+        bossAppearanceTimer_ -= kDeltaTime;
+        if (bossAppearanceTimer_ <= 0.0f) {
+            bossAppearanceTimer_ = -1.0f;
+            // 着地！画面シェイクと土煙・SE
+            cameraShake_ = 3.5f;
+            if (audio_) {
+                audio_->PlayWave(jumpSE_, false, 2.0f); // 大音量で着地SE
+            }
+            // 土煙パーティクル
+            Vector3 landPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+            for (int k = 0; k < 12; ++k) {
+                particleManager_->EmitHit(landPos);
+            }
+            particleManager_->EmitRing(landPos);
+            particleManager_->EmitCylinder(landPos);
         }
     }
 
     // ボスの足アニメーション時間更新
     if (currentPhase_ == GamePhase::kBossFight) {
         bossTime_ += kDeltaTime * bossLegSwingSpeed_;
+    }
+
+    // ボス戦時は雑魚敵をすべて非生存にする
+    if (currentPhase_ == GamePhase::kBossFight) {
+        for (auto& enemy : enemies_) {
+            enemy.isAlive = false;
+        }
     }
 
     randomEffectTime_ += kDeltaTime * randomSpeed_;
@@ -530,15 +755,24 @@ void GamePlayScene::Update() {
         ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "BOSS FIGHT ACTIVE");
     }
 
+    // ── プレイヤーHP調整 ──
+    ImGui::Separator();
+    ImGui::Text("Player HP Status");
+    ImGui::SliderFloat("Player HP", &playerHP_, 0.0f, playerMaxHP_, "%.1f");
+
     // ── 蜘蛛ボス調整項目 ──
     if (currentPhase_ == GamePhase::kBossFight) {
         ImGui::Separator();
         ImGui::Text("Spider Boss Control");
+        ImGui::SliderFloat("Boss HP", &bossHP_, 0.0f, bossMaxHP_, "%.1f");
+        ImGui::DragFloat("Boss Collision Radius", &bossCollisionRadius_, 0.1f, 1.0f, 100.0f, "%.1f");
         ImGui::DragFloat("Boss Body Scale (big+Spider)", &bossBodyScale_, 0.1f, 0.01f, 100.0f, "%.2f");
         ImGui::DragFloat("Boss Leg Scale (big+spider+arm)", &bossLegScale_, 0.1f, 0.01f, 100.0f, "%.2f");
         ImGui::DragFloat("Boss Y Height", &bossYOffset_, 0.5f, -200.0f, 100.0f, "%.1f");
         ImGui::DragFloat("Boss Z Offset", &bossZOffset_, 1.0f, 10.0f, 1000.0f, "%.1f");
         ImGui::DragFloat("Boss Body RotY", &bossBodyRotY_, 1.0f, 0.0f, 360.0f, "%.1f");
+        ImGui::DragFloat("Body Bounce Range", &bossBodyBounceRange_, 0.01f, 0.0f, 5.0f, "%.2f");
+        ImGui::DragFloat("Body Roll Range (deg)", &bossBodyRollRange_, 0.05f, 0.0f, 15.0f, "%.1f");
         
         ImGui::Text("--- Symmetrical Leg Pairs (X, Y, Z Offsets) ---");
         ImGui::DragFloat3("Pair 0 (Front) Offset", &bossLegPairPos0_.x, 0.05f, -20.0f, 20.0f, "%.2f");
@@ -552,6 +786,10 @@ void GamePlayScene::Update() {
         
         ImGui::DragFloat3("Pair 3 (Back) Offset", &bossLegPairPos3_.x, 0.05f, -20.0f, 20.0f, "%.2f");
         ImGui::DragFloat("Pair 3 (Back) RotY", &bossLegPairRotY3_, 1.0f, -180.0f, 180.0f, "%.1f");
+
+        ImGui::Text("--- Leg Local Pivot Offset ---");
+        ImGui::DragFloat("Pivot Y (Up/Down)", &bossLegPivotY_, 0.01f, -1.0f, 1.0f, "%.2f");
+        ImGui::DragFloat("Pivot Z (Front/Back)", &bossLegPivotZ_, 0.01f, -1.0f, 1.0f, "%.2f");
 
         ImGui::Text("--- Walk Animation Motion ---");
         ImGui::DragFloat("Walk Speed", &bossLegSwingSpeed_, 0.1f, 0.0f, 20.0f, "%.1f");
@@ -588,7 +826,9 @@ void GamePlayScene::Update() {
     ImGui::Text("F1 Key: Toggle Debug Camera (Free Camera)");
     if (sceneMode_ == SceneMode::kCamera) {
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  [WASDQE] Move Camera (LShift: Turbo)");
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  [Mouse] Look Around");
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  [ZC] Rotate Camera Left/Right (Yaw)");
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  [Right-Click Drag] Look Around");
+        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "  (Mouse cursor is active for ImGui!)");
     }
     ImGui::Text("TAB Key: Switch Scene Mode");
     ImGui::Text("Current Mode: %s", (sceneMode_ == SceneMode::kMouse ? "Mouse" : (sceneMode_ == SceneMode::kCamera ? "Camera" : "Fighter")));
@@ -658,19 +898,11 @@ void GamePlayScene::Update() {
             preDebugSceneMode_ = sceneMode_;
             sceneMode_ = SceneMode::kCamera;
 
-            // デバッグカメラに入る際はマウスカーソルを確実に非表示にする
-            // カウンタが過剰にマイナスに偏るのを防ぐため、非表示(<0)になったらループを抜ける制御にする
-            while (ShowCursor(FALSE) >= 0);
+            // デバッグカメラに入る際は最初はImGuiをいじるため、マウスカーソルを確実に表示状態にする
+            while (ShowCursor(TRUE) < 0);
 
             // カメラの回転を正面にリセット（切り替え直後に迷子になるのを防止）
             camTrans.rotate = { 0.0f, 0.0f, 0.0f };
-
-            // マウスカーソルを即座にウィンドウ中央へリセットし、移行直後の1フレーム目でのカメラ回転の暴走を防止
-            RECT rect;
-            GetWindowRect(hwnd, &rect);
-            int centerX = rect.left + (rect.right - rect.left) / 2;
-            int centerY = rect.top + (rect.bottom - rect.top) / 2;
-            SetCursorPos(centerX, centerY);
         }
     }
 
@@ -689,24 +921,41 @@ void GamePlayScene::Update() {
     }
 
     if (sceneMode_ == SceneMode::kCamera) {
-        // カメラ操作モード: マウス移動で回転（カーソルロック）
-        RECT rect;
-        GetWindowRect(hwnd, &rect);
-        int centerX = rect.left + (rect.right - rect.left) / 2;
-        int centerY = rect.top + (rect.bottom - rect.top) / 2;
-        POINT currentPos;
-        GetCursorPos(&currentPos);
+        // 右クリックが押されている間（ドラッグ中）だけカメラを回転させる（カーソルロック）
+        if (input_->IsMousePressed(1)) {
+            // カメラ回転中はマウスカーソルを確実に非表示にする
+            while (ShowCursor(FALSE) >= 0);
 
-        float deltaX = static_cast<float>(currentPos.x - centerX);
-        float deltaY = static_cast<float>(currentPos.y - centerY);
+            RECT rect;
+            GetWindowRect(hwnd, &rect);
+            int centerX = rect.left + (rect.right - rect.left) / 2;
+            int centerY = rect.top + (rect.bottom - rect.top) / 2;
+            POINT currentPos;
+            GetCursorPos(&currentPos);
 
-        SetCursorPos(centerX, centerY);
+            float deltaX = static_cast<float>(currentPos.x - centerX);
+            float deltaY = static_cast<float>(currentPos.y - centerY);
 
-        camTrans.rotate.y += deltaX * mouseSensitivity_;
-        camTrans.rotate.x += deltaY * mouseSensitivity_;
+            SetCursorPos(centerX, centerY);
 
-        const float pitchLimit = static_cast<float>(M_PI / 2.0 - 0.01);
-        camTrans.rotate.x = std::clamp(camTrans.rotate.x, -pitchLimit, pitchLimit);
+            camTrans.rotate.y += deltaX * mouseSensitivity_;
+            camTrans.rotate.x += deltaY * mouseSensitivity_;
+
+            const float pitchLimit = static_cast<float>(M_PI / 2.0 - 0.01);
+            camTrans.rotate.x = std::clamp(camTrans.rotate.x, -pitchLimit, pitchLimit);
+        } else {
+            // 右クリックを離している間は、ImGuiの操作ができるようにマウスカーソルを確実に表示する
+            while (ShowCursor(TRUE) < 0);
+        }
+        
+        // Z / C キーによるカメラの左右旋回（横回転）
+        float keyboardRotSpeed = 1.5f; // 秒間の回転速度(ラジアン)
+        if (input_->IsKeyPressed(DIK_Z)) {
+            camTrans.rotate.y -= keyboardRotSpeed * kDeltaTime;
+        }
+        if (input_->IsKeyPressed(DIK_C)) {
+            camTrans.rotate.y += keyboardRotSpeed * kDeltaTime;
+        }
         
         Vector3 moveDir = { 0.0f, 0.0f, 0.0f };
         if (input_->IsKeyPressed(DIK_W)) moveDir.z += 1.0f;
@@ -791,8 +1040,9 @@ void GamePlayScene::Update() {
 
             if (inputDir.x != 0 || inputDir.y != 0) {
                 inputDir = Normalize(inputDir);
-                fighterModel_->transform.translate.x += inputDir.x * 25.0f * kDeltaTime;
-                fighterModel_->transform.translate.y += inputDir.y * 20.0f * kDeltaTime;
+                float speedFactor = (playerSpeedDebuffTimer_ > 0.0f) ? 0.5f : 1.0f;
+                fighterModel_->transform.translate.x += inputDir.x * 25.0f * speedFactor * kDeltaTime;
+                fighterModel_->transform.translate.y += inputDir.y * 20.0f * speedFactor * kDeltaTime;
             }
 
             fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -35.0f, 35.0f);
@@ -895,69 +1145,379 @@ void GamePlayScene::Update() {
             // エイミング(レティクル)の更新
             Matrix4x4 reticleWorld = MakeAffineMatrix(Vector3{8.0f, 8.0f, 8.0f}, Vector3{0.0f, 0.0f, 0.0f}, reticlePos);
             aimingInstancingData_->World = reticleWorld;
+
+            // ── 自機と敵・ボスの衝突判定 ────────────────────────
+            if (currentPhase_ == GamePhase::kBossFight) {
+                // 落下登場演出時のオフセット
+                float dropOffset = 0.0f;
+                if (bossAppearanceTimer_ > 0.0f) {
+                    float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
+                    dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+                }
+
+                // ボスとの衝突
+                float bodyBounce = 0.0f;
+                if (bossLegSwingSpeed_ > 0.0f) {
+                    bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                }
+                Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + dropOffset, fighterWorldZ_ + bossZOffset_ };
+                Vector3 diff = Subtract(fighterWorldPos, bossPos);
+                float dist = Length(diff);
+                if (dist <= (bossCollisionRadius_ + 2.0f)) { // 自機半径2.0f
+                    // 接触中は毎フレーム少しずつダメージを受ける
+                    playerHP_ -= 0.5f;
+                    if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+
+                    // 一定頻度で被弾エフェクトとSEを発生
+                    static uint32_t hitTimer = 0;
+                    if (++hitTimer % 15 == 0) {
+                        particleManager_->EmitHit(fighterWorldPos);
+                        audio_->PlayWave(jumpSE_, false, 0.8f);
+                    }
+                }
+            } else {
+                // 雑魚敵との衝突
+                for (auto& enemy : enemies_) {
+                    if (!enemy.isAlive) continue;
+
+                    Vector3 diff = Subtract(fighterWorldPos, enemy.position);
+                    float dist = Length(diff);
+                    if (dist <= (enemy.radius + 2.0f)) { // 自機半径2.0f
+                        // 敵を撃破
+                        enemy.isAlive = false;
+                        playerHP_ -= 10.0f;
+                        if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+
+                        // 被弾エフェクトとSE
+                        particleManager_->EmitHit(enemy.position);
+                        particleManager_->EmitRing(enemy.position);
+                        audio_->PlayWave(jumpSE_, false, 1.2f);
+
+                        // 全滅判定とリポップ
+                        int g = enemy.groupIndex;
+                        bool anyAlive = false;
+                        for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
+                            if (enemies_[g * kEnemiesPerGroup + idx].isAlive) {
+                                anyAlive = true;
+                                break;
+                            }
+                        }
+                        if (!anyAlive) {
+                            RespawnEnemyGroup(g, fighterWorldZ_);
+                        }
+                    }
+                }
+            }
         }
     }
 
-    
-    // 弾の更新（全モード共通）と敵との衝突判定
+    // 弾の更新（全モード共通）と敵・ボスとの衝突判定
     for (int i = 0; i < kMaxBullets; ++i) {
         if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
             playerBullets_[i].position = Add(playerBullets_[i].position, Scale(playerBullets_[i].velocity, kDeltaTime));
             playerBullets_[i].currentTime += kDeltaTime;
 
-            // 敵との当たり判定 (球衝突判定)
-            for (auto& enemy : enemies_) {
-                if (!enemy.isAlive) continue;
+            // ボスフェーズ時のボスとの衝突判定
+            if (currentPhase_ == GamePhase::kBossFight) {
+                // 落下登場演出時のオフセット
+                float dropOffset = 0.0f;
+                if (bossAppearanceTimer_ > 0.0f) {
+                    float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
+                    dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+                }
 
-                Vector3 diff = Subtract(playerBullets_[i].position, enemy.position);
+                float bodyBounce = 0.0f;
+                if (bossLegSwingSpeed_ > 0.0f) {
+                    bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                }
+                Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + dropOffset, fighterWorldZ_ + bossZOffset_ };
+
+                Vector3 diff = Subtract(playerBullets_[i].position, bossPos);
                 float dist = Length(diff);
-                // 弾の当たり判定半径を広げて（0.5f -> 2.5f）、すり抜けや近距離で当たらない現象を緩和
-                if (dist <= (enemy.radius + 2.5f)) {
+                if (dist <= (bossCollisionRadius_ + 2.5f)) { // 弾の半径2.5f
                     // 弾を消去
                     playerBullets_[i].currentTime = playerBullets_[i].lifeTime;
 
-                    // 敵を撃破
-                    enemy.isAlive = false;
-                    Vector3 deathPos = enemy.position; // 爆発エフェクト発生位置を記録
+                    // ボスにダメージ
+                    bossHP_ -= 10.0f;
+                    if (bossHP_ < 0.0f) bossHP_ = 0.0f;
 
-                    // 所属小隊が全滅したか判定
-                    int g = enemy.groupIndex;
-                    bool anyAlive = false;
-                    for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
-                        if (enemies_[g * kEnemiesPerGroup + idx].isAlive) {
-                            anyAlive = true;
-                            break;
+                    // 被弾エフェクトとSE
+                    particleManager_->EmitHit(playerBullets_[i].position);
+                    audio_->PlayWave(jumpSE_, false, 1.2f);
+                }
+            }
+            // 非ボスフェーズ時の敵との当たり判定 (球衝突判定)
+            else {
+                for (auto& enemy : enemies_) {
+                    if (!enemy.isAlive) continue;
+
+                    Vector3 diff = Subtract(playerBullets_[i].position, enemy.position);
+                    float dist = Length(diff);
+                    // 弾の当たり判定半径を広げて（0.5f -> 2.5f）、すり抜けや近距離で当たらない現象を緩和
+                    if (dist <= (enemy.radius + 2.5f)) {
+                        // 弾を消去
+                        playerBullets_[i].currentTime = playerBullets_[i].lifeTime;
+
+                        // 敵のHPを減算
+                        enemy.hp -= 10.0f;
+                        if (enemy.hp <= 0.0f) {
+                            // 敵を撃破
+                            enemy.isAlive = false;
+                            Vector3 deathPos = enemy.position; // 爆発エフェクト発生位置を記録
+
+                            // 所属小隊が全滅したか判定
+                            int g = enemy.groupIndex;
+                            bool anyAlive = false;
+                            for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
+                                if (enemies_[g * kEnemiesPerGroup + idx].isAlive) {
+                                    anyAlive = true;
+                                    break;
+                                }
+                            }
+                            // 全滅していたら、プレイヤーの前方に新しい陣形で小隊ごとリポップ！
+                            if (!anyAlive) {
+                                RespawnEnemyGroup(g, fighterWorldZ_);
+                            }
+
+                            // ★★★ 超ド派手爆破エフェクト！ ★★★
+                            particleManager_->EmitHit(deathPos);
+                            particleManager_->EmitRing(deathPos);
+                            particleManager_->EmitCylinder(deathPos);
+
+                            // 爆破音を再生
+                            audio_->PlayWave(jumpSE_, false, 1.5f);
+                        } else {
+                            // 生存時は小規模な被弾エフェクトとSE
+                            particleManager_->EmitHit(playerBullets_[i].position);
+                            audio_->PlayWave(jumpSE_, false, 0.6f);
                         }
+                        break;
                     }
-                    // 全滅していたら、プレイヤーの前方に新しい陣形で小隊ごとリポップ！
-                    if (!anyAlive) {
-                        RespawnEnemyGroup(g, fighterWorldZ_);
-                    }
-
-                    // ★★★ 超ド派手爆破エフェクト！ ★★★
-                    particleManager_->EmitHit(deathPos);
-                    particleManager_->EmitRing(deathPos);
-                    particleManager_->EmitCylinder(deathPos);
-
-                    // 爆破音を再生
-                    audio_->PlayWave(jumpSE_, false, 1.5f);
-                    break;
                 }
             }
         }
     }
+
+    // ── 蜘蛛ボス（Big Spider）の攻撃AIと攻撃更新 ──
+    if (currentPhase_ == GamePhase::kBossFight) {
+        bossActionTimer_ += kDeltaTime;
+
+        // 攻撃周期：2.5秒ごとに攻撃を切り替える（高速化）
+        if (bossActionState_ == BossActionState::kIdle && bossActionTimer_ >= 2.5f) {
+            bossActionTimer_ = 0.0f;
+            int pattern = randomEngine_() % 3;
+            if (pattern == 0) {
+                bossActionState_ = BossActionState::kLegAttack;
+            } else if (pattern == 1) {
+                bossActionState_ = BossActionState::kLaserAttack;
+                bossLaserTimer_ = 0.0f;
+            } else {
+                bossActionState_ = BossActionState::kWebAttack;
+            }
+        }
+
+        // 各攻撃パターンに応じたボスの物理的な移動やアニメーション設定
+        if (bossActionState_ == BossActionState::kLegAttack) {
+            // 足殴り：ボスが一時的にプレイヤーに急接近する（2.5秒で往復：1秒接近、0.5秒維持、1秒後退に高速化）
+            if (bossActionTimer_ <= 1.0f) {
+                float t = bossActionTimer_ / 1.0f;
+                bossZOffset_ = std::lerp(169.0f, 65.0f, t);
+            } else if (bossActionTimer_ <= 1.5f) {
+                bossZOffset_ = 65.0f;
+                bossLegSwingRange_ = 1.2f; // 足を激しく動かす
+            } else if (bossActionTimer_ <= 2.5f) {
+                float t = (bossActionTimer_ - 1.5f) / 1.0f;
+                bossZOffset_ = std::lerp(65.0f, 169.0f, t);
+            } else {
+                bossZOffset_ = 169.0f;
+                bossLegSwingRange_ = 0.3f; // 元に戻す
+                bossActionState_ = BossActionState::kIdle;
+                bossActionTimer_ = 0.0f;
+            }
+        } 
+        else if (bossActionState_ == BossActionState::kLaserAttack) {
+            // 糸レーザー：3秒間、高密度で直進パーティクルを射出する
+            if (bossActionTimer_ <= 3.0f) {
+                bossLaserTimer_ += kDeltaTime;
+                if (bossLaserTimer_ >= 0.08f) { // 0.08秒ごとに2発
+                    bossLaserTimer_ = 0.0f;
+                    
+                    float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                    Vector3 bossMouthPos = { 0.0f, bossYOffset_ + bodyBounce - 2.0f, fighterWorldZ_ + bossZOffset_ - 10.0f };
+                    
+                    EulerTransform& camTrans = camera_->GetTransform();
+                    Vector3 fighterWorldPos = {
+                        camTrans.translate.x + fighterModel_->transform.translate.x,
+                        camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+                        fighterWorldZ_
+                    };
+                    
+                    particleManager_->EmitLaserThread(bossMouthPos, fighterWorldPos);
+                    audio_->PlayWave(jumpSE_, false, 0.3f);
+                }
+            } else {
+                bossActionState_ = BossActionState::kIdle;
+                bossActionTimer_ = 0.0f;
+            }
+        } 
+        else if (bossActionState_ == BossActionState::kWebAttack) {
+            // 蜘蛛の巣弾：プレイヤーに向けて巨大な蜘蛛の巣弾を1発射出する
+            float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+            Vector3 bossMouthPos = { 0.0f, bossYOffset_ + bodyBounce - 2.0f, fighterWorldZ_ + bossZOffset_ - 10.0f };
+            
+            EulerTransform& camTrans = camera_->GetTransform();
+            Vector3 fighterWorldPos = {
+                camTrans.translate.x + fighterModel_->transform.translate.x,
+                camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+                fighterWorldZ_
+            };
+
+            for (auto& web : bossWebBullets_) {
+                if (!web.isAlive) {
+                    web.isAlive = true;
+                    web.position = bossMouthPos;
+                    
+                    Vector3 dir = { fighterWorldPos.x - bossMouthPos.x, fighterWorldPos.y - bossMouthPos.y, fighterWorldPos.z - bossMouthPos.z };
+                    float len = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+                    if (len > 0.01f) {
+                        dir = { dir.x / len, dir.y / len, dir.z / len };
+                    } else {
+                        dir = { 0.0f, 0.0f, -1.0f };
+                    }
+                    float speed = 100.0f; // 中速
+                    web.velocity = { dir.x * speed, dir.y * speed, dir.z * speed };
+                    
+                    audio_->PlayWave(jumpSE_, false, 1.4f);
+                    break;
+                }
+            }
+            
+            bossActionState_ = BossActionState::kIdle;
+            bossActionTimer_ = 0.0f;
+        }
+
+        // ── 蜘蛛の巣弾の更新処理と自機との衝突・回避判定 ──
+        EulerTransform& camTrans = camera_->GetTransform();
+        Vector3 fighterWorldPos = {
+            camTrans.translate.x + fighterModel_->transform.translate.x,
+            camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+            fighterWorldZ_
+        };
+
+        for (auto& web : bossWebBullets_) {
+            if (web.isAlive) {
+                // 弾の移動
+                web.position = {
+                    web.position.x + web.velocity.x * kDeltaTime,
+                    web.position.y + web.velocity.y * kDeltaTime,
+                    web.position.z + web.velocity.z * kDeltaTime
+                };
+
+                // 自機との衝突判定
+                Vector3 diff = { fighterWorldPos.x - web.position.x, fighterWorldPos.y - web.position.y, fighterWorldPos.z - web.position.z };
+                float dist = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+                if (web.position.z < fighterWorldPos.z + 5.0f && web.position.z > fighterWorldPos.z - 5.0f && dist <= (web.radius + 2.0f)) { // 自機半径2.0f
+                    web.isAlive = false;
+                    playerHP_ -= 20.0f; // 大ダメージ
+                    if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+                    
+                    // デバフ発動：3秒間の移動速度半減
+                    playerSpeedDebuffTimer_ = 3.0f;
+
+                    particleManager_->EmitHit(fighterWorldPos);
+                    audio_->PlayWave(jumpSE_, false, 1.5f);
+                }
+                // 自機を通り越して回避成功したか判定
+                else if (web.position.z < fighterWorldPos.z - 5.0f) {
+                    web.isAlive = false;
+                    screenWebTimer_ = 5.0f; // 画面蜘蛛の巣効果タイマー設定（5秒間）
+                }
+            }
+        }
+
+        // ── 糸レーザーと自機との衝突判定 ──
+        if (bossActionState_ == BossActionState::kLaserAttack && bossActionTimer_ <= 3.0f) {
+            static float laserHitCooldown = 0.0f;
+            laserHitCooldown += kDeltaTime;
+            if (laserHitCooldown >= 0.2f) {
+                laserHitCooldown = 0.0f;
+                
+                float dx = fighterWorldPos.x - 0.0f;
+                float dy = fighterWorldPos.y - (bossYOffset_ - 2.0f);
+                float dist2D = std::sqrt(dx * dx + dy * dy);
+                
+                // 避けていなければ小ダメージ
+                if (dist2D < 15.0f) {
+                    playerHP_ -= 1.5f;
+                    if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+                    
+                    particleManager_->EmitHit(fighterWorldPos);
+                    audio_->PlayWave(jumpSE_, false, 0.5f);
+                }
+            }
+        }
+    }
+
     // ── 蜘蛛ボス（Big Spider）のトランスフォームとアニメーション更新 ──
     if (bossBodyTransformData_) {
+        // 歩行速度が0より大きい時のみ、サイン波に同期した胴体の揺れ（上下バウンシング＆左右ロール）を計算
+        float bodyBounce = 0.0f;
+        float bodyRoll = 0.0f;
+        if (bossLegSwingSpeed_ > 0.0f) {
+            bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+            bodyRoll = std::cos(bossTime_) * (bossBodyRollRange_ * (float)M_PI / 180.0f);
+        }
+
+        // ── 振りかぶり近接攻撃のアニメーション計算 ──
+        float bossYAttackOffset = 0.0f;
+        float extraLegPitchL = 0.0f; // 左前足の振りかぶり・叩きつけ
+        float extraLegPitchR = 0.0f; // 右前足の振りかぶり・叩きつけ
+        float attackBlend = 0.0f; // 前足がプレイヤーに向き直るブレンド率
+
+        if (currentPhase_ == GamePhase::kBossFight && bossActionState_ == BossActionState::kLegAttack) {
+            if (bossActionTimer_ <= 2.0f) {
+                // 1. 接近・振りかぶり（0.0〜2.0秒）：胴体が上昇し、前足が上に大きく持ち上がる
+                float t = bossActionTimer_ / 2.0f;
+                bossYAttackOffset = std::lerp(0.0f, 15.0f, t);
+                extraLegPitchL = std::lerp(0.0f, 0.8f, t);  // 前足を上へ
+                extraLegPitchR = std::lerp(0.0f, -0.8f, t); // 前足を上へ（右足対称）
+                attackBlend = t;
+            } else if (bossActionTimer_ <= 2.4f) {
+                // 2. 叩きつけ急降下（2.0〜2.4秒）：胴体が一気に叩きつけ高さへ急降下し、前足も激しく振り下ろされる
+                float t = (bossActionTimer_ - 2.0f) / 0.4f;
+                bossYAttackOffset = std::lerp(15.0f, -8.0f, t);
+                extraLegPitchL = std::lerp(0.8f, -0.6f, t);
+                extraLegPitchR = std::lerp(-0.8f, 0.6f, t);
+                attackBlend = 1.0f;
+            } else if (bossActionTimer_ <= 3.0f) {
+                // 3. 叩きつけ後の余韻・戻り（2.4〜3.0秒）：通常の高さへ戻る
+                float t = (bossActionTimer_ - 2.4f) / 0.6f;
+                bossYAttackOffset = std::lerp(-8.0f, 0.0f, t);
+                extraLegPitchL = std::lerp(-0.6f, 0.0f, t);
+                extraLegPitchR = std::lerp(0.6f, 0.0f, t);
+                attackBlend = std::lerp(1.0f, 0.0f, t);
+            }
+        }
+
+        // 落下登場演出時のオフセット
+        float dropOffset = 0.0f;
+        if (bossAppearanceTimer_ > 0.0f) {
+            float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
+            dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+        }
+
         // 胴体のワールド行列計算
         // ボスはプレイヤーの前方 bossZOffset_ の位置に進み、高さは接地高さ bossYOffset_
-        Vector3 bossPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+        Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + bossYAttackOffset + dropOffset, fighterWorldZ_ + bossZOffset_ };
         Vector3 bossBodyScale = { bossBodyScale_, bossBodyScale_, bossBodyScale_ }; // 胴体専用スケール
-        Vector3 bossRotate = { 0.0f, bossBodyRotY_ * (float)M_PI / 180.0f, 0.0f }; // Y軸回転
+        // Y軸回転に加えて、Z軸のロール回転を合成
+        Vector3 bossRotate = { 0.0f, bossBodyRotY_ * (float)M_PI / 180.0f, bodyRoll };
 
         Matrix4x4 bossWorld = MakeAffineMatrix(bossBodyScale, bossRotate, bossPos);
         bossBodyTransformData_->World = bossWorld;
 
-        // 胴体の「スケールなし」の行列（足の大きさを胴体から完全に独立させるために使用）
+        // 胴体の「スケールなし」の行列（足の大きさを胴体から完全に独立させるために使用、胴体の揺れも同期）
         Matrix4x4 bossWorldNoScale = MakeAffineMatrix(Vector3{ 1.0f, 1.0f, 1.0f }, bossRotate, bossPos);
 
         // 4組の左右対称な足ペアパラメータを配列化してアクセス
@@ -975,9 +1535,10 @@ void GamePlayScene::Update() {
             // 前後のスイング（Y回転）
             float swing = std::sin(bossTime_ + phaseOffset) * bossLegSwingRange_;
 
-            // 上下のステップ運動（Y軸上昇）
-            // 接地時は0、足が上がるときは正の値
+            // 上下のステップ運動（Y軸平行移動の代わりに、根本をピボットにしたX軸回転に変更）
+            // 指定されたリフト高さ（メートル）を、足の長さ（bossLegScale_ * 0.5f）を基準にラジアン角に変換
             float lift = (std::max)(0.0f, std::sin(bossTime_ + phaseOffset + (float)M_PI * 0.5f)) * bossLegLiftRange_;
+            float liftAngleRad = lift / (bossLegScale_ * 0.5f);
 
             // 左右対称に配置するため、左足と右足で符号を分岐
             Vector3 finalOffset = legPairPos[pairIdx];
@@ -987,18 +1548,32 @@ void GamePlayScene::Update() {
             if (i < 4) {
                 // 左足
                 finalOffset.x = -finalOffset.x; // 左側なのでマイナス
-                finalOffset.y += lift;
+                float attackPitch = (i == 0) ? extraLegPitchL : 0.0f; // 左前足に適用
+                
+                // Y回転の計算：前足(i==0)は攻撃中正面へ向き直る
+                float normalRotY = (-baseRotY) * (float)M_PI / 180.0f + swing;
+                float targetRotY = -180.0f * (float)M_PI / 180.0f;
+                float currentRotY = (i == 0) ? std::lerp(normalRotY, targetRotY, attackBlend) : normalRotY;
+
+                // 根本位置は固定したまま、ピッチ回転（X軸回転）をプラス方向に適用して足先を持ち上げる
                 legRotate = { 
-                    -0.1f, // 少し斜め下に向ける
-                    (-baseRotY) * (float)M_PI / 180.0f + swing, 
+                    -0.1f + liftAngleRad + attackPitch, // 少し斜め下に向ける初期姿勢から上方向に回転
+                    currentRotY, 
                     0.0f 
                 };
             } else {
                 // 右足
-                finalOffset.y += lift;
+                float attackPitch = (i == 4) ? extraLegPitchR : 0.0f; // 右前足に適用
+
+                // Y回転の計算：前足(i==4)は攻撃中正面へ向き直る
+                float normalRotY = baseRotY * (float)M_PI / 180.0f + swing;
+                float targetRotY = 180.0f * (float)M_PI / 180.0f;
+                float currentRotY = (i == 4) ? std::lerp(normalRotY, targetRotY, attackBlend) : normalRotY;
+
+                // 根本位置は固定したまま、ピッチ回転（X軸回転）をマイナス方向に適用して足先を持ち上げる
                 legRotate = { 
-                    0.1f, // 少し斜め下に向ける
-                    baseRotY * (float)M_PI / 180.0f + swing, 
+                    0.1f - liftAngleRad + attackPitch, // 少し斜め下に向ける初期姿勢から上方向に回転
+                    currentRotY, 
                     0.0f 
                 };
             }
@@ -1006,8 +1581,46 @@ void GamePlayScene::Update() {
             // 足モデル自体のスケール（独立した足専用スケールを適用）
             Vector3 legScale = { bossLegScale_, bossLegScale_, bossLegScale_ };
 
-            // 足のローカル行列（生え口のオフセット位置には、配置用スケールである bossScale_ を適用）
-            Matrix4x4 legLocal = MakeAffineMatrix(legScale, legRotate, Scale(finalOffset, bossScale_));
+            // 初期姿勢の回転角 (R0) の計算
+            Vector3 legRotate0{};
+            if (i < 4) {
+                // 左足
+                legRotate0 = { 
+                    -0.1f, 
+                    (-baseRotY) * (float)M_PI / 180.0f, 
+                    0.0f 
+                };
+            } else {
+                // 右足
+                legRotate0 = { 
+                    0.1f, 
+                    baseRotY * (float)M_PI / 180.0f, 
+                    0.0f 
+                };
+            }
+
+            // 初期姿勢の回転行列 (R0) と 現在の回転行列 (R) を作成
+            Matrix4x4 mRotate0 = Multiply(Multiply(MakeRotateXMatrix(legRotate0.x), MakeRotateYMatrix(legRotate0.y)), MakeRotateZMatrix(legRotate0.z));
+            Matrix4x4 mRotate = Multiply(Multiply(MakeRotateXMatrix(legRotate.x), MakeRotateYMatrix(legRotate.y)), MakeRotateZMatrix(legRotate.z));
+
+            // スケールされたローカルピボット位置 (根本)
+            Vector3 scaledPivot = { 0.0f, bossLegPivotY_ * bossLegScale_, bossLegPivotZ_ * bossLegScale_ };
+            Vector4 pivotV4 = { scaledPivot.x, scaledPivot.y, scaledPivot.z, 1.0f };
+
+            // 回転による根本の変位（ズレ）を計算して相殺するベクトルを算出
+            Vector4 rot0V4 = Multiply(pivotV4, mRotate0);
+            Vector4 rotV4 = Multiply(pivotV4, mRotate);
+            Vector3 offsetCompensation = { rot0V4.x - rotV4.x, rot0V4.y - rotV4.y, rot0V4.z - rotV4.z };
+
+            // 以前の正常な配置座標に、ズレを打ち消す相殺ベクトルを加算
+            Vector3 finalJointPos = Scale(finalOffset, bossScale_);
+            finalJointPos.x += offsetCompensation.x;
+            finalJointPos.y += offsetCompensation.y;
+            finalJointPos.z += offsetCompensation.z;
+
+            // 以前の正常な配置方式をベースにしつつ、ズレを打ち消した座標を適用
+            Matrix4x4 legLocal = MakeAffineMatrix(legScale, legRotate, finalJointPos);
+
             // スケールなしの胴体行列と合成することで、胴体スケール変更が足の大きさに影響するのを防止
             Matrix4x4 legWorld = Multiply(legLocal, bossWorldNoScale);
 
@@ -1015,8 +1628,23 @@ void GamePlayScene::Update() {
         }
     }
 
+    // 画面シェイク（カメラの振動）の適用
+    Vector3 originalCamTranslate = camera_->GetTransform().translate;
+    if (cameraShake_ > 0.01f) {
+        std::uniform_real_distribution<float> dist(-cameraShake_, cameraShake_);
+        Vector3 shakeOffset = { dist(randomEngine_), dist(randomEngine_), 0.0f };
+        camera_->SetTranslate(Add(originalCamTranslate, shakeOffset));
+    }
+
     camera_->Update();
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
+
+    if (cameraShake_ > 0.01f) {
+        camera_->SetTranslate(originalCamTranslate);
+        cameraShake_ *= 0.85f;
+    } else {
+        cameraShake_ = 0.0f;
+    }
 
     // 蜘蛛ボスのWVP行列更新 (最新のカメラ行列を使用)
     if (bossBodyTransformData_) {
@@ -1032,20 +1660,28 @@ void GamePlayScene::Update() {
     EulerTransform& camTransForEnemy = camera_->GetTransform();
 
     // 各グループの画面外判定とリポップチェック
-    for (int g = 0; g < kNumGroups; ++g) {
-        // グループの中心Zがカメラの後方50mより後ろになったら、画面外とみなして小隊ごと前方へ再配置
-        if (enemyGroups_[g].centerZ < camTransForEnemy.translate.z - 50.0f) {
-            RespawnEnemyGroup(g, fighterWorldZ_);
+    if (currentPhase_ != GamePhase::kBossFight) {
+        for (int g = 0; g < kNumGroups; ++g) {
+            // グループの中心Zがカメラの後方50mより後ろになったら、画面外とみなして小隊ごと前方へ再配置
+            if (enemyGroups_[g].centerZ < camTransForEnemy.translate.z - 50.0f) {
+                RespawnEnemyGroup(g, fighterWorldZ_);
+            }
         }
-    }
 
-    for (int i = 0; i < kMaxEnemies; ++i) {
-        if (enemies_[i].isAlive) {
-            Matrix4x4 worldMatrix = MakeAffineMatrix(enemies_[i].scale, enemies_[i].rotate, enemies_[i].position);
-            enemyTransformData_[i]->World = worldMatrix;
-            enemyTransformData_[i]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
-        } else {
-            // 撃破された敵は非表示にする
+        for (int i = 0; i < kMaxEnemies; ++i) {
+            if (enemies_[i].isAlive) {
+                Matrix4x4 worldMatrix = MakeAffineMatrix(enemies_[i].scale, enemies_[i].rotate, enemies_[i].position);
+                enemyTransformData_[i]->World = worldMatrix;
+                enemyTransformData_[i]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
+            } else {
+                // 撃破された敵は非表示にする
+                enemyTransformData_[i]->World = MakeIdentity4x4();
+                enemyTransformData_[i]->WVP = MakeIdentity4x4();
+            }
+        }
+    } else {
+        // ボス戦フェーズではすべての雑魚敵を完全に非表示にする
+        for (int i = 0; i < kMaxEnemies; ++i) {
             enemyTransformData_[i]->World = MakeIdentity4x4();
             enemyTransformData_[i]->WVP = MakeIdentity4x4();
         }
@@ -1244,6 +1880,119 @@ void GamePlayScene::Update() {
         spriteInstancingData_[0].World = worldSprite;
         spriteInstancingData_[0].WVP = Multiply(worldSprite, viewProjSprite);
         spriteInstancingData_[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    }
+
+    // ── HPバーの更新 ──
+    if (hpBarInstancingData_) {
+        float halfClientW = (float)WinApp::kClientWidth / 2.0f;
+        float halfClientH = (float)WinApp::kClientHeight / 2.0f;
+        Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
+        Matrix4x4 viewProjSprite = Multiply(MakeIdentity4x4(), projectionSprite);
+
+        // 共通設定
+        for (uint32_t i = 0; i < kHpBarInstanceCount; ++i) {
+            hpBarInstancingData_[i].uvTransform = MakeIdentity4x4();
+        }
+
+        // 1. プレイヤーHPバー背景（インデックス0）
+        {
+            Vector3 scale = { 200.0f, 20.0f, 1.0f };
+            // 左上基準配置 (左端を -halfClientW + 30px に固定)
+            Vector3 translate = { -halfClientW + 30.0f + scale.x, halfClientH - 30.0f - (scale.y / 2.0f), 0.1f };
+            Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
+            hpBarInstancingData_[0].World = world;
+            hpBarInstancingData_[0].WVP = Multiply(world, viewProjSprite);
+            hpBarInstancingData_[0].color = { 0.1f, 0.1f, 0.1f, 0.8f }; // ダークグレー
+        }
+
+        // 2. プレイヤーHPバー前景（インデックス1）
+        {
+            // 滑らかなHPVisual_を使用
+            float hpRatio = std::clamp(playerHPVisual_ / playerMaxHP_, 0.0f, 1.0f);
+            Vector3 scale = { 196.0f * hpRatio, 16.0f, 1.0f };
+            // 背景の左端から4px内側に左端を固定
+            Vector3 translate = { -halfClientW + 34.0f + scale.x, halfClientH - 32.0f - (scale.y / 2.0f), 0.0f };
+            if (scale.x <= 0.0f) scale.x = 0.0001f;
+            Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
+            hpBarInstancingData_[1].World = world;
+            hpBarInstancingData_[1].WVP = Multiply(world, viewProjSprite);
+            hpBarInstancingData_[1].color = { 0.0f, 1.0f, 0.2f, 1.0f }; // 鮮やかな緑
+        }
+
+        // 3. ボスHPバー背景（インデックス2）
+        {
+            Vector3 scale = { 350.0f, 24.0f, 1.0f };
+            // 右上基準配置 (右端を halfClientW - 30px に固定)
+            Vector3 translate = { halfClientW - 30.0f - scale.x, halfClientH - 30.0f - (scale.y / 2.0f), 0.1f };
+            Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
+            hpBarInstancingData_[2].World = world;
+            hpBarInstancingData_[2].WVP = Multiply(world, viewProjSprite);
+            hpBarInstancingData_[2].color = { 1.0f, 0.0f, 0.0f, 1.0f }; // 明るい赤 (減少部分＝失われたHP)
+        }
+
+        // 4. ボスHPバー前景（インデックス3）
+        {
+            // 滑らかなbossHPVisual_を使用
+            float hpRatio = std::clamp(bossHPVisual_ / bossMaxHP_, 0.0f, 1.0f);
+            Vector3 scale = { 346.0f * hpRatio, 20.0f, 1.0f };
+            // 背景の右端から4px内側に右端を固定 (左端が右へ向けて縮む ＝ 左から減る)
+            Vector3 translate = { (halfClientW - 34.0f) - scale.x, halfClientH - 32.0f - (scale.y / 2.0f), 0.0f };
+            if (scale.x <= 0.0f) scale.x = 0.0001f;
+            Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
+            hpBarInstancingData_[3].World = world;
+            hpBarInstancingData_[3].WVP = Multiply(world, viewProjSprite);
+            hpBarInstancingData_[3].color = { 0.5f, 0.0f, 0.0f, 1.0f }; // 濃い赤 (残HP)
+        }
+    }
+
+    // ── 蜘蛛の巣弾（3Dビルボード）の更新・行列計算 ──
+    if (webBulletInstancingData_) {
+        Matrix4x4 viewProj = camera_->GetViewProjectionMatrix();
+        Matrix4x4 billboard = camera_->GetBillboardMatrix();
+
+        for (int i = 0; i < kMaxWebBullets; ++i) {
+            if (bossWebBullets_[i].isAlive) {
+                Vector3 scale = { bossWebBullets_[i].radius, bossWebBullets_[i].radius, 1.0f };
+                Matrix4x4 world = Multiply(MakeScaleMatrix(scale), billboard);
+                world.m[3][0] = bossWebBullets_[i].position.x;
+                world.m[3][1] = bossWebBullets_[i].position.y;
+                world.m[3][2] = bossWebBullets_[i].position.z;
+
+                webBulletInstancingData_[i].World = world;
+                webBulletInstancingData_[i].WVP = Multiply(world, viewProj);
+                webBulletInstancingData_[i].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+                webBulletInstancingData_[i].uvTransform = MakeIdentity4x4();
+            } else {
+                webBulletInstancingData_[i].World = MakeIdentity4x4();
+                webBulletInstancingData_[i].WVP = MakeIdentity4x4();
+                webBulletInstancingData_[i].color.w = 0.0f;
+            }
+        }
+    }
+
+    // ── 画面蜘蛛の巣（2Dスプライト）の更新・行列計算 ──
+    if (screenWebTransformData_) {
+        if (screenWebTimer_ > 0.0f) {
+            float halfClientW = (float)WinApp::kClientWidth / 2.0f;
+            float halfClientH = (float)WinApp::kClientHeight / 2.0f;
+            Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
+            Matrix4x4 viewProjSprite = Multiply(MakeIdentity4x4(), projectionSprite);
+
+            Vector3 scale = { 650.0f, 650.0f, 1.0f };
+            Vector3 translate = { 0.0f, 0.0f, 0.0f }; 
+            Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0,0,0}, translate);
+
+            float alpha = std::clamp(screenWebTimer_ / 5.0f, 0.0f, 0.8f);
+
+            screenWebTransformData_->World = world;
+            screenWebTransformData_->WVP = Multiply(world, viewProjSprite);
+            screenWebTransformData_->color = { 1.0f, 1.0f, 1.0f, alpha };
+            screenWebTransformData_->uvTransform = MakeIdentity4x4();
+        } else {
+            screenWebTransformData_->World = MakeIdentity4x4();
+            screenWebTransformData_->WVP = MakeIdentity4x4();
+            screenWebTransformData_->color = { 1.0f, 1.0f, 1.0f, 0.0f };
+        }
     }
 
     if (gpuParticleManager_) {
@@ -1460,6 +2209,18 @@ void GamePlayScene::Draw() {
                 }
             }
         }
+
+        // 蜘蛛の巣弾（3Dビルボード）の描画
+        if (currentPhase_ == GamePhase::kBossFight && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+            commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+                commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+                if (particleModel_) {
+                    particleModel_->Draw(commandList, kMaxWebBullets, spiderWebSrvHandleGPU_, webBulletInstancingSrvHandleGPU_);
+                }
+            }
+        }
     }
 
     // simpleSkinの描画
@@ -1540,6 +2301,49 @@ void GamePlayScene::Draw() {
                 commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
                 if (particleModel_) {
                     particleModel_->Draw(commandList, kSpriteInstanceCount, textSrvHandleGPU_, spriteInstancingSrvHandleGPU_);
+                }
+            }
+
+            // HPバーの描画
+            if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+                commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+                if (particleModel_) {
+                    // ボスフェーズのときはボスHPバーも含めた4インスタンス、それ以外はプレイヤーHPバーのみの2インスタンスを描画
+                    UINT hpBarDrawCount = (currentPhase_ == GamePhase::kBossFight) ? 4 : 2;
+                    particleModel_->Draw(
+                        commandList, 
+                        hpBarDrawCount, 
+                        TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), 
+                        hpBarInstancingSrvHandleGPU_
+                    );
+                }
+            }
+
+            // 画面蜘蛛の巣の描画（2D）
+            if (screenWebTimer_ > 0.0f && graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+                commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+                if (particleModel_) {
+                    particleModel_->Draw(commandList, 1, spiderWebSrvHandleGPU_, screenWebSrvHandleGPU_);
+                }
+            }
+
+            // フェーズ演出スプライトの描画 (PHASE 1 / 2)
+            if (phaseIntroTimer_ >= 0.0f) {
+                float halfClientW = (float)WinApp::kClientWidth / 2.0f;
+                float halfClientH = (float)WinApp::kClientHeight / 2.0f;
+                Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
+                Matrix4x4 viewProjSprite = Multiply(MakeIdentity4x4(), projectionSprite);
+
+                if (graphicsPipeline_ && graphicsPipeline_->GetObject3dRootSignature() && graphicsPipeline_->GetObject3dPipelineState()) {
+                    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+                    commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+
+                    if (phaseIntroSprite_) {
+                        phaseIntroSprite_->Draw(commandList, viewProjSprite);
+                    }
+                    if (numberIntroSprite_) {
+                        numberIntroSprite_->Draw(commandList, viewProjSprite);
+                    }
                 }
             }
         }
@@ -1752,6 +2556,8 @@ void GamePlayScene::RespawnEnemyGroup(int groupIndex, float playerZ) {
     for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
         int enemyIdx = groupIndex * kEnemiesPerGroup + idx;
         enemies_[enemyIdx].isAlive = true;
+        enemies_[enemyIdx].hp = 30.0f;
+        enemies_[enemyIdx].maxHP = 30.0f;
     }
     
     ApplyGroupFormation(groupIndex);

@@ -103,4 +103,10 @@ void Sprite::Draw(ID3D12GraphicsCommandList* commandList, const Matrix4x4& viewP
 
     // 6頂点描画
     commandList->DrawInstanced(6, 1, 0, 0);
+}
+
+void Sprite::SetColor(const Vector4& color) {
+    if (materialData_) {
+        materialData_->color = color;
+    }
 }

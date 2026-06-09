@@ -61,6 +61,7 @@ public:
     void EmitHit(const Vector3& emitterPos);
     void EmitRing(const Vector3& emitterPos);
     void EmitCylinder(const Vector3& emitterPos);
+    void EmitLaserThread(const Vector3& emitterPos, const Vector3& targetPos);
 
 private:
     // 個別のパーティクル生成用のヘルパー関数（自律オブジェクトプール用）

@@ -22,6 +22,12 @@ public:
     // 範囲指定で切り取る (左上XY, 幅, 高さ)
     void SetTextureRect(float left, float top, float width, float height);
 
+    // 色・アルファ値の設定
+    void SetColor(const Vector4& color);
+
+    // テクスチャメタデータの取得
+    const DirectX::TexMetadata& GetMetadata() const { return metadata_; }
+
     EulerTransform transform; // 座標、回転、スケール
 
 private:

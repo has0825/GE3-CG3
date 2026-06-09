@@ -59,13 +59,16 @@ void TextureManager::LoadTexture(const std::string& fileName) {
     }
 
     if (FAILED(hr)) {
-        assert(false && "Texture File Not Found or Load Failed! Check the path.");
+        std::string errMsg = "Texture File Not Found or Load Failed! Path: " + fullPath + "\n";
+        OutputDebugStringA(errMsg.c_str());
+        MessageBoxA(nullptr, errMsg.c_str(), "TextureManager Error", MB_OK | MB_ICONERROR);
+        assert(false);
         return;
     }
 
-    // 圧縮フォーマット、すでにミップマップが存在する場合、またはDDSファイルの場合はそのまま使用する
+    // 圧縮フォーマット、すでにミップマップが存在する場合、DDSファイルの場合、または画像サイズが小さすぎてミップマップ生成に適さない場合はそのまま使用する
     DirectX::ScratchImage mipImages{};
-    if (DirectX::IsCompressed(image.GetMetadata().format) || image.GetMetadata().mipLevels > 1 || fullPath.ends_with(".dds")) {
+    if (DirectX::IsCompressed(image.GetMetadata().format) || image.GetMetadata().mipLevels > 1 || fullPath.ends_with(".dds") || image.GetMetadata().width < 4 || image.GetMetadata().height < 4) {
         mipImages = std::move(image);
     } else {
         hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 4, mipImages);

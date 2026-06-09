@@ -314,6 +314,56 @@ void ParticleManager::EmitCylinder(const Vector3& emitterPos) {
     }
 }
 
+void ParticleManager::EmitLaserThread(const Vector3& emitterPos, const Vector3& targetPos) {
+    // ボスの口元からプレイヤーへの線分を分割してパーティクルを並べ、一瞬で繋がるビームを表現する
+    int numBeams = 35; 
+    std::uniform_real_distribution<float> distNoise(-0.3f, 0.3f);
+
+    int emitCount = numBeams;
+    for (uint32_t p = 0; p < kNumInstances && emitCount > 0; ++p) {
+        if (particles_[p].currentTime >= particles_[p].lifeTime) {
+            int index = numBeams - emitCount;
+            float t = (float)index / (float)(numBeams - 1);
+
+            // 線分上の補間座標
+            Vector3 lerpedPos = {
+                std::lerp(emitterPos.x, targetPos.x, t),
+                std::lerp(emitterPos.y, targetPos.y, t),
+                std::lerp(emitterPos.z, targetPos.z, t)
+            };
+
+            // ビームのブレ（放電ノイズ）を加える (少しバリバリさせる)
+            if (t > 0.05f && t < 0.95f) { // 根本と先端は少しノイズを抑える
+                lerpedPos.x += distNoise(randomEngine_);
+                lerpedPos.y += distNoise(randomEngine_);
+            }
+
+            particles_[p].position = lerpedPos;
+            particles_[p].velocity = { 0.0f, 0.0f, 0.0f }; // 静止
+            particles_[p].rotate = { 0.0f, 0.0f, 0.0f };
+
+            // 先端と根本は少し太く、中間は少し細くするなどしてディテールを出す
+            float size = 1.0f;
+            if (index == 0 || index == numBeams - 1) {
+                size = 1.8f; // 起点と終点は大きめに光らせる
+            } else {
+                size = 1.0f + std::sin(t * (float)M_PI) * 0.4f; // 中央をやや太く
+            }
+            particles_[p].scale = { size, size, size };
+
+            // すべて白色のレーザーに変更
+            particles_[p].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+            particles_[p].lifeTime = 0.15f; // すぐ消えることでチラつき(バリバリ感)を演出
+            particles_[p].currentTime = 0.0f;
+            particles_[p].type = Particle::Type::kBillboard;
+            particles_[p].uvTransform = MakeIdentity4x4();
+
+            emitCount--;
+        }
+    }
+}
+
 ParticleManager::Particle ParticleManager::MakeNewParticle(
     int type, 
     const Vector3& emitterPos, 
