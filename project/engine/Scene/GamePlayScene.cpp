@@ -7,6 +7,8 @@
 #include "TextureManager.h"
 #include "SrvManager.h"
 #include <algorithm>
+#include <fstream>
+#include <string>
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -38,6 +40,36 @@ static Vector3 TransformNormal(const Vector3& v, const Matrix4x4& m) {
 }
 
 void GamePlayScene::Initialize() {
+    // プレイヤーパラメータをファイルから読み込む
+    std::ifstream paramFile("Resources/player_params.txt");
+    if (paramFile.is_open()) {
+        std::string line;
+        while (std::getline(paramFile, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            size_t pos = line.find('=');
+            if (pos == std::string::npos) continue;
+            std::string key = line.substr(0, pos);
+            std::string val = line.substr(pos + 1);
+            if (key == "LIMIT_X") playerLimitX_ = std::stof(val);
+            else if (key == "LIMIT_Y") playerLimitY_ = std::stof(val);
+            else if (key == "COLLISION_RADIUS") playerCollisionRadius_ = std::stof(val);
+            else if (key == "SPEED_X") playerSpeedX_ = std::stof(val);
+            else if (key == "SPEED_Y") playerSpeedY_ = std::stof(val);
+        }
+        paramFile.close();
+    } else {
+        // ファイルが無ければデフォルト値で作成しておく
+        std::ofstream outfile("Resources/player_params.txt");
+        if (outfile.is_open()) {
+            outfile << "LIMIT_X=35.0\n";
+            outfile << "LIMIT_Y=25.0\n";
+            outfile << "COLLISION_RADIUS=2.0\n";
+            outfile << "SPEED_X=25.0\n";
+            outfile << "SPEED_Y=20.0\n";
+            outfile.close();
+        }
+    }
+
     dxCommon_ = DirectXCommon::GetInstance();
     input_ = Input::GetInstance();
     ID3D12Device* device = dxCommon_->GetDevice();
@@ -1041,12 +1073,12 @@ void GamePlayScene::Update() {
             if (inputDir.x != 0 || inputDir.y != 0) {
                 inputDir = Normalize(inputDir);
                 float speedFactor = (playerSpeedDebuffTimer_ > 0.0f) ? 0.5f : 1.0f;
-                fighterModel_->transform.translate.x += inputDir.x * 25.0f * speedFactor * kDeltaTime;
-                fighterModel_->transform.translate.y += inputDir.y * 20.0f * speedFactor * kDeltaTime;
+                fighterModel_->transform.translate.x += inputDir.x * playerSpeedX_ * speedFactor * kDeltaTime;
+                fighterModel_->transform.translate.y += inputDir.y * playerSpeedY_ * speedFactor * kDeltaTime;
             }
 
-            fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -35.0f, 35.0f);
-            fighterModel_->transform.translate.y = std::clamp(fighterModel_->transform.translate.y, -25.0f, 25.0f);
+            fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -playerLimitX_, playerLimitX_);
+            fighterModel_->transform.translate.y = std::clamp(fighterModel_->transform.translate.y, -playerLimitY_, playerLimitY_);
 
             // スターフォックス風のカメラX/Y追従
             float cameraLag = 0.08f;
@@ -1163,7 +1195,7 @@ void GamePlayScene::Update() {
                 Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + dropOffset, fighterWorldZ_ + bossZOffset_ };
                 Vector3 diff = Subtract(fighterWorldPos, bossPos);
                 float dist = Length(diff);
-                if (dist <= (bossCollisionRadius_ + 2.0f)) { // 自機半径2.0f
+                if (dist <= (bossCollisionRadius_ + playerCollisionRadius_)) { // 自機半径
                     // 接触中は毎フレーム少しずつダメージを受ける
                     playerHP_ -= 0.5f;
                     if (playerHP_ < 0.0f) playerHP_ = 0.0f;
@@ -1182,7 +1214,7 @@ void GamePlayScene::Update() {
 
                     Vector3 diff = Subtract(fighterWorldPos, enemy.position);
                     float dist = Length(diff);
-                    if (dist <= (enemy.radius + 2.0f)) { // 自機半径2.0f
+                    if (dist <= (enemy.radius + playerCollisionRadius_)) { // 自機半径
                         // 敵を撃破
                         enemy.isAlive = false;
                         playerHP_ -= 10.0f;
@@ -1417,7 +1449,7 @@ void GamePlayScene::Update() {
                 // 自機との衝突判定
                 Vector3 diff = { fighterWorldPos.x - web.position.x, fighterWorldPos.y - web.position.y, fighterWorldPos.z - web.position.z };
                 float dist = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-                if (web.position.z < fighterWorldPos.z + 5.0f && web.position.z > fighterWorldPos.z - 5.0f && dist <= (web.radius + 2.0f)) { // 自機半径2.0f
+                if (web.position.z < fighterWorldPos.z + 5.0f && web.position.z > fighterWorldPos.z - 5.0f && dist <= (web.radius + playerCollisionRadius_)) { // 自機半径
                     web.isAlive = false;
                     playerHP_ -= 20.0f; // 大ダメージ
                     if (playerHP_ < 0.0f) playerHP_ = 0.0f;

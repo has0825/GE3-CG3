@@ -487,4 +487,11 @@ private:
 
     // 蜘蛛の巣テクスチャのSRVハンドル
     D3D12_GPU_DESCRIPTOR_HANDLE spiderWebSrvHandleGPU_{};
+
+    // プレイヤーパラメータ
+    float playerLimitX_ = 35.0f;
+    float playerLimitY_ = 25.0f;
+    float playerCollisionRadius_ = 2.0f;
+    float playerSpeedX_ = 25.0f;
+    float playerSpeedY_ = 20.0f;
 };
