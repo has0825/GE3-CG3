@@ -591,6 +591,33 @@ void GamePlayScene::Initialize() {
     phaseTimer_ = 0.0f;
     bossTime_ = 0.0f;
     StartPhaseIntro(1);
+
+    // 現在の配置をBlender用にファイル出力する
+    std::ofstream layoutFile("Resources/scene_layout.txt");
+    if (layoutFile.is_open()) {
+        float kFloorHeight = 10.0f;
+        for (int i = 0; i < kMaxBuildings; ++i) {
+            for (int f = 0; f < buildings_[i].floors; ++f) {
+                Vector3 floorPos = buildings_[i].position;
+                floorPos.y = -20.0f + (float)f * kFloorHeight + kFloorHeight * 0.5f;
+                layoutFile << "BUILDING," 
+                           << floorPos.x << "," << floorPos.y << "," << floorPos.z << ","
+                           << buildings_[i].scale.x << "," << buildings_[i].scale.y << "," << buildings_[i].scale.z << ","
+                           << buildings_[i].rotate.x << "," << buildings_[i].rotate.y << "," << buildings_[i].rotate.z << "\n";
+            }
+        }
+        for (int i = 0; i < kNumFloors; ++i) {
+            layoutFile << "FLOOR," 
+                       << floorPositions_[i].x << "," << floorPositions_[i].y << "," << floorPositions_[i].z << ","
+                       << 200.0f << "," << 1.0f << "," << 200.0f << "\n";
+        }
+        // 自機初期位置の出力
+        layoutFile << "PLAYER," 
+                   << 0.0f << "," << -3.0f << "," << fighterWorldZ_ << ","
+                   << 10.0f << "," << 10.0f << "," << 10.0f << ","
+                   << 0.0f << "," << 0.0f << "," << 0.0f << "\n";
+        layoutFile.close();
+    }
 }
 
 void GamePlayScene::StartPhaseIntro(int phaseNum) {
@@ -1126,6 +1153,16 @@ void GamePlayScene::Update() {
                 fighterModel_->transform.rotate,
                 fighterWorldPos
             );
+
+            // ── プレイヤーのリアルタイム座標をファイル出力（5フレームに1回） ──
+            static int syncCounter = 0;
+            if (++syncCounter % 5 == 0) {
+                std::ofstream posFile("Resources/player_actual_pos.txt", std::ios::trunc);
+                if (posFile.is_open()) {
+                    posFile << fighterWorldPos.x << "," << fighterWorldPos.y << "," << fighterWorldPos.z << "\n";
+                    posFile.close();
+                }
+            }
 
             // ── 弾の発射（LCtrl） ────────────────────────────────────
             Vector3 defaultReticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f };
