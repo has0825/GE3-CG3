@@ -616,6 +616,15 @@ void GamePlayScene::Initialize() {
                    << 0.0f << "," << -3.0f << "," << fighterWorldZ_ << ","
                    << 10.0f << "," << 10.0f << "," << 10.0f << ","
                    << 0.0f << "," << 0.0f << "," << 0.0f << "\n";
+        // 敵の初期位置の出力
+        for (int i = 0; i < kMaxEnemies; ++i) {
+            if (enemies_[i].isAlive) {
+                layoutFile << "ENEMY," 
+                           << enemies_[i].position.x << "," << enemies_[i].position.y << "," << enemies_[i].position.z << ","
+                           << enemies_[i].scale.x << "," << enemies_[i].scale.y << "," << enemies_[i].scale.z << ","
+                           << enemies_[i].rotate.x << "," << enemies_[i].rotate.y << "," << enemies_[i].rotate.z << "\n";
+            }
+        }
         layoutFile.close();
     }
 }
