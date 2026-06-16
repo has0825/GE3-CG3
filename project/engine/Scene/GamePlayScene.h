@@ -296,12 +296,29 @@ private:
         int groupIndex;      // 所属グループ (0~2)
         int memberIndex;     // グループ内インデックス (0~4)
         Vector3 localOffset; // グループ中心からの相対位置
+
+        // ── 追加：敵の自律移動・特攻用のメンバ ──
+        enum class State {
+            kSideWait, // 横側で待機する
+            kAppear,   // 真ん中へ現れる (合流)
+            kWander,   // 動きながら下がっていく
+            kDive      // プレイヤーへ特攻する
+        };
+        State state = State::kSideWait;
+        float stateTimer = 0.0f;     // 状態切り替え用のタイマー
+        Vector3 wanderAnchor;        // 動き回る際の基準位置
+        Vector3 diveDirection;       // 特攻の方向ベクトル
+        float wanderPhase = 0.0f;    // ふわふわした動きを作るための位相値
+        float speed = 0.0f;          // 移動速度
+        float relativeZ = 120.0f;    // 追加：プレイヤーとの相対Z距離をキープするため
+        Vector3 appearStartPos;      // 追加：出現合流開始時の初期位置を記憶するため
     };
     static const int kMaxEnemies = 15; // 5体×3グループ = 計15体に調整
     std::vector<Enemy> enemies_;
     EnemyGroup enemyGroups_[kNumGroups];
     Microsoft::WRL::ComPtr<ID3D12Resource> enemyTransformResources_[kMaxEnemies];
     TransformationMatrix* enemyTransformData_[kMaxEnemies] = { nullptr };
+    int activeGroupIndex_ = 0; // 追加：現在出現中のアクティブなグループインデックス
 
     // フォーメーション関連ヘルパー関数
     void ApplyGroupFormation(int groupIndex);
@@ -376,7 +393,7 @@ private:
     // フェーズ管理用
     GamePhase currentPhase_ = GamePhase::kPhase1; // 初期値フェーズ1スタート
     float phaseTimer_ = 0.0f;
-    static constexpr float kPhaseDuration = 10.0f; // 1フェーズ10秒
+    static constexpr float kPhaseDuration = 45.0f; // 1フェーズ45秒に延長して複数編成と戦えるようにする
 
     // フェーズ表示演出用メンバ変数
     std::unique_ptr<Sprite> phaseIntroSprite_;

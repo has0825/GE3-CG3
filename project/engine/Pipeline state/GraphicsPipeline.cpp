@@ -118,7 +118,7 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
 
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
-	rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
+	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK; // 背面カリングを有効化
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 	rasterizerDesc.FrontCounterClockwise = FALSE;
 
@@ -976,6 +976,51 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	depthOutlinePsoDesc.PS = { depthOutlinePSBlob->GetBufferPointer(), depthOutlinePSBlob->GetBufferSize() };
 
 	hr = device->CreateGraphicsPipelineState(&depthOutlinePsoDesc, IID_PPV_ARGS(&depthOutlinePipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// --- Sprite用ルートシグネチャ・パイプラインステート作成 ---
+	spriteRootSignature_ = object3dRootSignature_;
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC spritePsoDesc{};
+	spritePsoDesc.pRootSignature = spriteRootSignature_.Get();
+	spritePsoDesc.InputLayout = inputLayoutDesc;
+	spritePsoDesc.VS = { obj3dVSBlob->GetBufferPointer(), obj3dVSBlob->GetBufferSize() };
+	spritePsoDesc.PS = { obj3dPSBlob->GetBufferPointer(), obj3dPSBlob->GetBufferSize() };
+
+	// 通常のアルファブレンド設定
+	D3D12_BLEND_DESC spriteBlendDesc{};
+	spriteBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	spriteBlendDesc.RenderTarget[0].BlendEnable = TRUE;
+	spriteBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	spriteBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	spriteBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	spriteBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	spriteBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	spriteBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	spritePsoDesc.BlendState = spriteBlendDesc;
+
+	// 背面カリングは行わない
+	D3D12_RASTERIZER_DESC spriteRasterizerDesc{};
+	spriteRasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
+	spriteRasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+	spriteRasterizerDesc.FrontCounterClockwise = FALSE;
+	spritePsoDesc.RasterizerState = spriteRasterizerDesc;
+
+	// 深度設定：テストは行うが書き込みは無効
+	D3D12_DEPTH_STENCIL_DESC spriteDepthStencilDesc{};
+	spriteDepthStencilDesc.DepthEnable = true;
+	spriteDepthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	spriteDepthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	spritePsoDesc.DepthStencilState = spriteDepthStencilDesc;
+
+	spritePsoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	spritePsoDesc.NumRenderTargets = 1;
+	spritePsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	spritePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	spritePsoDesc.SampleDesc.Count = 1;
+	spritePsoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	hr = device->CreateGraphicsPipelineState(&spritePsoDesc, IID_PPV_ARGS(&spritePipelineState_));
 	assert(SUCCEEDED(hr));
 }
 

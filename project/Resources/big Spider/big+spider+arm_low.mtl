@@ -1,0 +1,6 @@
+newmtl tripo_material_600a6c67_0edf_4392_8ec0_c374dd1f2138
+Kd 1.000000000 1.000000000 1.000000000
+d 1.000000000
+illum 2
+map_Kd big+spider+arm_basecolor.jpg
+

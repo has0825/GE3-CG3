@@ -310,7 +310,7 @@ void GamePlayScene::Initialize() {
         enemy.memberIndex = i % kEnemiesPerGroup;
         enemy.scale = { 2.5f, 2.5f, 2.5f };
         enemy.rotate = { 0.0f, 0.0f, 0.0f }; // モデルの向きを180度反転して修正
-        enemy.isAlive = true;
+        enemy.isAlive = false;
         enemy.radius = 3.5f;
         enemy.hp = 30.0f;
         enemy.maxHP = 30.0f;
@@ -320,6 +320,12 @@ void GamePlayScene::Initialize() {
     // 初期フォーメーション位置の適用
     for (int g = 0; g < kNumGroups; ++g) {
         ApplyGroupFormation(g);
+    }
+
+    // 最初はすべてのグループをアクティブ化して配置 (Z距離がそれぞれ分散されます)
+    activeGroupIndex_ = 0;
+    for (int g = 0; g < kNumGroups; ++g) {
+        RespawnEnemyGroup(g, fighterWorldZ_);
     }
 
     // ── ビル(Building)の初期化とバッファ生成 ──
@@ -505,7 +511,7 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->LoadTexture("big Spider/big+Spider_basecolor.jpg");
     TextureManager::GetInstance()->LoadTexture("big Spider/big+spider+arm_basecolor.jpg");
 
-    // ボスモデルのロード
+    // ボスモデルのロード (元の高画質オリジナルモデルをロード)
     bossBodyModel_ = Model::LoadGLTF("Resources/big Spider/big+Spider.obj", device);
     bossLegModel_ = Model::LoadGLTF("Resources/big Spider/big+spider+arm.obj", device);
 
@@ -706,6 +712,18 @@ void GamePlayScene::Update() {
             phaseIntroTimer_ = -1.0f;
             phaseIntroSprite_.reset();
             numberIntroSprite_.reset();
+
+            // フェーズ切り替え直後の敵リフレッシュ：ボス戦以外で、フェーズ演出が終わった瞬間に全グループをリポップさせる
+            if (currentPhase_ != GamePhase::kBossFight) {
+                // 古い敵をすべて一旦非生存にクリア
+                for (auto& enemy : enemies_) {
+                    enemy.isAlive = false;
+                }
+                // 改めて全グループを前方にリポップ
+                for (int g = 0; g < kNumGroups; ++g) {
+                    RespawnEnemyGroup(g, fighterWorldZ_);
+                }
+            }
         }
 
         // スプライトの位置とサイズを更新
@@ -718,21 +736,21 @@ void GamePlayScene::Update() {
             float gap = 20.0f; // 文字と数字の間隔
             float totalW = (w1 + gap + w2) * s;
             
-            float cx = (float)WinApp::kClientWidth / 2.0f;
-            float cy = (float)WinApp::kClientHeight / 2.0f;
+            float cx = 0.0f; // 平行投影(正射影)の中心は (0, 0)
+            float cy = 0.0f;
             
             // PHASE文字の配置
             float x1 = cx - totalW / 2.0f;
-            float y1 = cy - (h1 * s) / 2.0f;
+            float y1 = (h1 * s) / 2.0f; // Y軸は上がプラス。Yスケール反転により、開始点を上端に設定
             phaseIntroSprite_->transform.translate = { x1, y1, 0.0f };
-            phaseIntroSprite_->transform.scale = { w1 * s, h1 * s, 1.0f };
+            phaseIntroSprite_->transform.scale = { w1 * s, -h1 * s, 1.0f }; // Yスケールを負にして上下反転を修正
             phaseIntroSprite_->SetColor({ 1.0f, 1.0f, 1.0f, a });
             
             // 数字の配置
             float x2 = x1 + (w1 + gap) * s;
-            float y2 = cy - (h2 * s) / 2.0f;
+            float y2 = (h2 * s) / 2.0f;
             numberIntroSprite_->transform.translate = { x2, y2, 0.0f };
-            numberIntroSprite_->transform.scale = { w2 * s, h2 * s, 1.0f };
+            numberIntroSprite_->transform.scale = { w2 * s, -h2 * s, 1.0f }; // Yスケールを負にして上下反転を修正
             numberIntroSprite_->SetColor({ 1.0f, 1.0f, 1.0f, a });
         }
     }
@@ -1050,7 +1068,7 @@ void GamePlayScene::Update() {
         // --- 戦闘機（レールシューター）モード ---
 
         // ── ブースト処理（LSHIFTで発動、バレルロール終了と同時に自動で戻る） ────────────────
-        if (input_->IsKeyTriggered(DIK_LSHIFT)) {
+        if (input_->IsKeyTriggered(DIK_LSHIFT) && !(phaseIntroTimer_ >= 0.0f)) {
             if (!isBarrelRolling_) {
                 isBoosting_ = true;
                 isBarrelRolling_ = true;
@@ -1082,7 +1100,9 @@ void GamePlayScene::Update() {
         }
 
         // ── 1. プレイヤーのワールドZ座標を自律前進 ──────────────────
-        fighterWorldZ_ += boostForwardSpeed_ * kDeltaTime;
+        if (!(phaseIntroTimer_ >= 0.0f)) {
+            fighterWorldZ_ += boostForwardSpeed_ * kDeltaTime;
+        }
 
         // ── 2. カメラは等速追従（直接代入）をベースにしつつ、ブースト時はG遅延（最大120m）を適用 ──
         if (isBoosting_) {
@@ -1101,10 +1121,12 @@ void GamePlayScene::Update() {
         // ── 3. 自機の横/縦移動（画面内相対）─────────────────────────
         if (fighterModel_) {
             Vector3 inputDir = {0,0,0};
-            if (input_->IsKeyPressed(DIK_W)) inputDir.y += 1.0f;
-            if (input_->IsKeyPressed(DIK_S)) inputDir.y -= 1.0f;
-            if (input_->IsKeyPressed(DIK_A)) inputDir.x -= 1.0f;
-            if (input_->IsKeyPressed(DIK_D)) inputDir.x += 1.0f;
+            if (!(phaseIntroTimer_ >= 0.0f)) {
+                if (input_->IsKeyPressed(DIK_W)) inputDir.y += 1.0f;
+                if (input_->IsKeyPressed(DIK_S)) inputDir.y -= 1.0f;
+                if (input_->IsKeyPressed(DIK_A)) inputDir.x -= 1.0f;
+                if (input_->IsKeyPressed(DIK_D)) inputDir.x += 1.0f;
+            }
 
             if (inputDir.x != 0 || inputDir.y != 0) {
                 inputDir = Normalize(inputDir);
@@ -1122,6 +1144,20 @@ void GamePlayScene::Update() {
             float targetCamY = fighterModel_->transform.translate.y * 0.5f;
             camTrans.translate.x = std::lerp(camTrans.translate.x, targetCamX, cameraLag);
             camTrans.translate.y = std::lerp(camTrans.translate.y, targetCamY, cameraLag);
+
+            // ── Star Fox / Ex-Zodiac 風のダイナミックなカメラの首振り（ピッチ・ヨー・ロール） ──
+            float targetCamRotateY = fighterModel_->transform.translate.x * 0.003f;
+            float targetCamRotateX = -fighterModel_->transform.translate.y * 0.003f;
+            
+            float targetCamRotateZ = -inputDir.x * 0.03f;
+            if (isBarrelRolling_) {
+                float rollT = barrelRollTimer_ / kBarrelRollDuration;
+                targetCamRotateZ += std::sin(rollT * static_cast<float>(M_PI)) * 0.15f;
+            }
+
+            camTrans.rotate.x = std::lerp(camTrans.rotate.x, targetCamRotateX, 0.08f);
+            camTrans.rotate.y = std::lerp(camTrans.rotate.y, targetCamRotateY, 0.08f);
+            camTrans.rotate.z = std::lerp(camTrans.rotate.z, targetCamRotateZ, 0.08f);
 
             // ── プレイヤーのワールド座標（Z はfighterWorldZ_を直接使う）──
             Vector3 fighterWorldPos = {
@@ -1141,7 +1177,9 @@ void GamePlayScene::Update() {
             float rollAngle = playerRotationRoll_;
 
             if (isBarrelRolling_) {
-                barrelRollTimer_ += kDeltaTime;
+                if (!(phaseIntroTimer_ >= 0.0f)) {
+                    barrelRollTimer_ += kDeltaTime;
+                }
                 float t = barrelRollTimer_ / kBarrelRollDuration; // 0.0 → 1.0
                 if (t >= 1.0f) {
                     t = 1.0f;
@@ -1197,7 +1235,7 @@ void GamePlayScene::Update() {
             aimReticlePos_.z = std::lerp(aimReticlePos_.z, targetReticlePos.z, aimLerpSpeed);
             Vector3 reticlePos = aimReticlePos_;
 
-            if (input_->IsKeyTriggered(DIK_SPACE)) {
+            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f)) {
                 Vector3 leftWing  = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
                 Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
 
@@ -1271,32 +1309,21 @@ void GamePlayScene::Update() {
                         particleManager_->EmitRing(enemy.position);
                         audio_->PlayWave(jumpSE_, false, 1.2f);
 
-                        // 全滅判定とリポップ
-                        int g = enemy.groupIndex;
-                        bool anyAlive = false;
-                        for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
-                            if (enemies_[g * kEnemiesPerGroup + idx].isAlive) {
-                                anyAlive = true;
-                                break;
-                            }
-                        }
-                        if (!anyAlive) {
-                            RespawnEnemyGroup(g, fighterWorldZ_);
-                        }
+                        // 全滅リポップはUpdateの最後で一括判定するため、ここではリポップ処理を行わない
                     }
                 }
             }
         }
     }
 
-    // 弾の更新（全モード共通）と敵・ボスとの衝突判定
-    for (int i = 0; i < kMaxBullets; ++i) {
-        if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
-            playerBullets_[i].position = Add(playerBullets_[i].position, Scale(playerBullets_[i].velocity, kDeltaTime));
-            playerBullets_[i].currentTime += kDeltaTime;
+    // ── 弾の更新（全モード共通）と敵・ボスとの衝突判定 ──
+    if (!(phaseIntroTimer_ >= 0.0f)) {
+        for (int i = 0; i < kMaxBullets; ++i) {
+            if (playerBullets_[i].currentTime < playerBullets_[i].lifeTime) {
+                playerBullets_[i].position = Add(playerBullets_[i].position, Scale(playerBullets_[i].velocity, kDeltaTime));
+                playerBullets_[i].currentTime += kDeltaTime;
 
-            // ボスフェーズ時のボスとの衝突判定
-            if (currentPhase_ == GamePhase::kBossFight) {
+                if (currentPhase_ == GamePhase::kBossFight) {
                 // 落下登場演出時のオフセット
                 float dropOffset = 0.0f;
                 if (bossAppearanceTimer_ > 0.0f) {
@@ -1344,19 +1371,7 @@ void GamePlayScene::Update() {
                             enemy.isAlive = false;
                             Vector3 deathPos = enemy.position; // 爆発エフェクト発生位置を記録
 
-                            // 所属小隊が全滅したか判定
-                            int g = enemy.groupIndex;
-                            bool anyAlive = false;
-                            for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
-                                if (enemies_[g * kEnemiesPerGroup + idx].isAlive) {
-                                    anyAlive = true;
-                                    break;
-                                }
-                            }
-                            // 全滅していたら、プレイヤーの前方に新しい陣形で小隊ごとリポップ！
-                            if (!anyAlive) {
-                                RespawnEnemyGroup(g, fighterWorldZ_);
-                            }
+                            // 全滅リポップはUpdateの最後で一括判定するため、ここではリポップ処理を行わない
 
                             // ★★★ 超ド派手爆破エフェクト！ ★★★
                             particleManager_->EmitHit(deathPos);
@@ -1376,6 +1391,7 @@ void GamePlayScene::Update() {
             }
         }
     }
+}
 
     // ── 蜘蛛ボス（Big Spider）の攻撃AIと攻撃更新 ──
     if (currentPhase_ == GamePhase::kBossFight) {
@@ -1739,10 +1755,139 @@ void GamePlayScene::Update() {
 
     // 各グループの画面外判定とリポップチェック
     if (currentPhase_ != GamePhase::kBossFight) {
-        for (int g = 0; g < kNumGroups; ++g) {
-            // グループの中心Zがカメラの後方50mより後ろになったら、画面外とみなして小隊ごと前方へ再配置
-            if (enemyGroups_[g].centerZ < camTransForEnemy.translate.z - 50.0f) {
-                RespawnEnemyGroup(g, fighterWorldZ_);
+        // 自機の現在位置を取得
+        Vector3 fighterWorldPos = { 0.0f, 0.0f, 0.0f };
+        if (fighterModel_) {
+            fighterWorldPos = {
+                fighterModel_->transform.translate.x,
+                fighterModel_->transform.translate.y,
+                fighterWorldZ_
+            };
+        }
+
+        // グループ中心Zに基づく画面外判定と強制リポップ処理は、一括全滅リポップ制御に移行したため削除しました
+
+        bool isPhaseIntroActive = (phaseIntroTimer_ >= 0.0f);
+
+        // ── 雑魚敵の移動・状態更新 ──
+        for (int i = 0; i < kMaxEnemies; ++i) {
+            if (!enemies_[i].isAlive) continue;
+
+            Enemy& enemy = enemies_[i];
+            
+            // フェーズ演出中（isPhaseIntroActive == true）は敵の動きやタイマー更新をストップ
+            if (!isPhaseIntroActive) {
+                enemy.stateTimer += kDeltaTime;
+
+                if (enemy.state == Enemy::State::kSideWait) {
+                    // 1. 横側で待機: プレイヤーが一定距離内 (Z軸で150m) に近づくまでその場で待機（プレイヤーとの距離短縮対応）
+                    float distZ = enemy.position.z - fighterWorldZ_;
+                    if (distZ > 0.0f && distZ < 150.0f) {
+                        enemy.state = Enemy::State::kAppear;
+                        enemy.stateTimer = 0.0f;
+                        // 出現時の実際の相対Z距離を基準にキープZを設定 (最大120m)
+                        enemy.relativeZ = (std::min)(120.0f, distZ);
+                        // 出現開始時の位置を記憶
+                        enemy.appearStartPos = enemy.position;
+                    }
+                }
+                else if (enemy.state == Enemy::State::kAppear) {
+                    // 2. 中央へ移動: 待機位置からフォーメーション目標位置 (wanderAnchor) に向けてイージング＋カーブで合流（Star Fox風）
+                    enemy.wanderAnchor.z = fighterWorldZ_ + enemy.relativeZ;
+
+                    float kAppearDuration = 1.2f; // 1.2秒かけて合流
+                    float t = std::clamp(enemy.stateTimer / kAppearDuration, 0.0f, 1.0f);
+                    
+                    // EaseOutQuad による滑らかな合流
+                    float rate = 1.0f - (1.0f - t) * (1.0f - t);
+
+                    // Z軸は徐々にプレイヤーとのキープ相対Zに近づける
+                    float currentZ = std::lerp(enemy.appearStartPos.z, enemy.wanderAnchor.z, rate);
+                    
+                    // X軸は滑らかに目標フォーメーション位置へ
+                    float currentX = std::lerp(enemy.appearStartPos.x, enemy.wanderAnchor.x, rate);
+
+                    // Y軸は「上へ膨らむ山なりのカーブ」を加えてビルから飛び出す挙動にする
+                    float arcHeight = 15.0f; // 飛び出しの最高到達高度
+                    float heightOffset = arcHeight * std::sin(t * static_cast<float>(M_PI));
+                    float currentY = std::lerp(enemy.appearStartPos.y, enemy.wanderAnchor.y, rate) + heightOffset;
+
+                    enemy.position = { currentX, currentY, currentZ };
+
+                    // 飛び出す方向（左から右か、右から左か）に応じて機体をローリング（傾き）させる演出
+                    float rollDir = (enemy.appearStartPos.x < enemy.wanderAnchor.x) ? -0.8f : 0.8f; // 約45度傾く
+                    enemy.rotate.z = rollDir * std::sin(t * static_cast<float>(M_PI)); // 合流完了で水平に戻る
+                    
+                    // 進行方向を向くヨー（rotate.y）
+                    float yawDir = (enemy.appearStartPos.x < enemy.wanderAnchor.x) ? 0.4f : -0.4f;
+                    enemy.rotate.y = yawDir * (1.0f - rate); // 合流完了で正面に戻る
+
+                    if (t >= 1.0f) {
+                        enemy.position = enemy.wanderAnchor;
+                        enemy.rotate = { 0.0f, 0.0f, 0.0f }; // 回転をリセット
+                        enemy.state = Enemy::State::kWander;
+                        enemy.stateTimer = 0.0f;
+                        enemy.wanderPhase = (float)(rand() % 100) / 10.0f;
+                    }
+                }
+                else if (enemy.state == Enemy::State::kWander) {
+                    // 3. 徘徊しながら後退: wanderAnchor の周囲を動きつつ、全体がZ軸手前(プレイヤー側)へ下がっていく
+                    enemy.wanderPhase += kDeltaTime * 2.5f;
+                    
+                    // 相対Z距離を徐々に減らす (プレイヤーへ向けてゆっくり近づいてくる＝下がっていくように見せる)
+                    // 秒速 15m で距離が縮まる (3秒で 45m 接近)
+                    enemy.relativeZ -= 15.0f * kDeltaTime;
+                    enemy.wanderAnchor.z = fighterWorldZ_ + enemy.relativeZ;
+                    
+                    float radiusX = 6.0f;
+                    float radiusY = 4.0f;
+                    enemy.position.x = enemy.wanderAnchor.x + std::cos(enemy.wanderPhase) * radiusX;
+                    enemy.position.y = enemy.wanderAnchor.y + std::sin(enemy.wanderPhase * 1.3f) * radiusY;
+                    enemy.position.z = enemy.wanderAnchor.z + std::sin(enemy.wanderPhase * 0.7f) * 3.0f;
+
+                    // 中央出現から一定時間 (3.0秒) 経過したら特攻開始
+                    if (enemy.stateTimer >= 3.0f) {
+                        enemy.state = Enemy::State::kDive;
+                        enemy.stateTimer = 0.0f;
+                        // 自機位置に向けて特攻方向を計算 (Z追従を解除してその瞬間の位置へ突進)
+                        Vector3 playerTarget = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldZ_ };
+                        Vector3 toPlayer = Subtract(playerTarget, enemy.position);
+                        enemy.diveDirection = Normalize(toPlayer);
+                        enemy.speed = 155.0f + boostForwardSpeed_; // プレイヤーの速度に合わせて特攻速度を上げる (ブースト対応)
+                    }
+                }
+                else if (enemy.state == Enemy::State::kDive) {
+                    // 4. 特攻状態: プレイヤーに向けて直線的に高速突進 (Z追従なし)
+                    enemy.position = Add(enemy.position, Scale(enemy.diveDirection, enemy.speed * kDeltaTime));
+                    
+                    // 特攻中の回転
+                    enemy.rotate.z += kDeltaTime * 18.0f;
+                    enemy.rotate.x += kDeltaTime * 6.0f;
+                    enemy.rotate.y += kDeltaTime * 4.0f;
+                    
+                    // プレイヤーを通り過ぎて後方20mに行ったら、非生存化してリポップ対象に
+                    if (enemy.position.z < fighterWorldZ_ - 20.0f) {
+                        enemy.isAlive = false;
+                    }
+                }
+            }
+        }
+
+        // ── 雑魚敵のグループごと個別全滅時のリポップ制御 ──
+        if (currentPhase_ != GamePhase::kBossFight && !isPhaseIntroActive) {
+            for (int g = 0; g < kNumGroups; ++g) {
+                bool anyEnemyAliveInGroup = false;
+                for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
+                    int enemyIdx = g * kEnemiesPerGroup + idx;
+                    if (enemies_[enemyIdx].isAlive) {
+                        anyEnemyAliveInGroup = true;
+                        break;
+                    }
+                }
+                // そのグループの敵が1体もいなくなったら、そのグループを前方にリポップする
+                if (!anyEnemyAliveInGroup) {
+                    RespawnEnemyGroup(g, fighterWorldZ_);
+                }
             }
         }
 
@@ -1850,7 +1995,8 @@ void GamePlayScene::Update() {
     animatedCubeTransformData_->World = animatedCubeBaseWorldMatrix;
 
     // ── ビルと床(Plane)の更新・再配置（オブジェクトプール） ──
-    if (sceneMode_ == SceneMode::kFighter) {
+    // ボス戦中は画面上に描画されないため、CPU処理（行列計算とバッファ更新）を完全にスキップして軽量化
+    if (sceneMode_ == SceneMode::kFighter && currentPhase_ != GamePhase::kBossFight) {
         float cameraZ = camera_->GetTransform().translate.z;
         float kBuildingInterval = 80.0f;
         float kFloorHeight = 10.0f; // 1階あたりのY軸高さの差分（ビルモデルの大きさに合わせて調整）
@@ -2238,7 +2384,7 @@ void GamePlayScene::Draw() {
             // 敵の描画（プレイヤーと同じ戦闘機モデルを使用）
             if (enemyModel_ && showEnemies_ && currentPhase_ != GamePhase::kBossFight) {
                 for (int i = 0; i < kMaxEnemies; ++i) {
-                    if (enemies_[i].isAlive) {
+                    if (enemies_[i].isAlive && enemies_[i].state != Enemy::State::kSideWait) {
                         commandList->SetGraphicsRootConstantBufferView(1, enemyTransformResources_[i]->GetGPUVirtualAddress());
                         enemyModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player/player.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                     }
@@ -2412,9 +2558,9 @@ void GamePlayScene::Draw() {
                 Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
                 Matrix4x4 viewProjSprite = Multiply(MakeIdentity4x4(), projectionSprite);
 
-                if (graphicsPipeline_ && graphicsPipeline_->GetObject3dRootSignature() && graphicsPipeline_->GetObject3dPipelineState()) {
-                    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
-                    commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+                if (graphicsPipeline_ && graphicsPipeline_->GetSpriteRootSignature() && graphicsPipeline_->GetSpritePipelineState()) {
+                    commandList->SetGraphicsRootSignature(graphicsPipeline_->GetSpriteRootSignature());
+                    commandList->SetPipelineState(graphicsPipeline_->GetSpritePipelineState());
 
                     if (phaseIntroSprite_) {
                         phaseIntroSprite_->Draw(commandList, viewProjSprite);
@@ -2608,9 +2754,24 @@ void GamePlayScene::ApplyGroupFormation(int groupIndex) {
         }
         
         enemy.localOffset = offset;
-        enemy.position.x = group.centerX + offset.x;
-        enemy.position.y = group.centerY + offset.y;
-        enemy.position.z = group.centerZ + offset.z;
+        
+        // 本来並ぶべきフォーメーション上のワールド座標を記録
+        enemy.wanderAnchor.x = group.centerX + offset.x;
+        enemy.wanderAnchor.y = group.centerY + offset.y;
+        enemy.wanderAnchor.z = group.centerZ + offset.z;
+        
+        // 初期状態は横側待機 (kSideWait)
+        enemy.state = Enemy::State::kSideWait;
+        enemy.stateTimer = 0.0f;
+        enemy.rotate = { 0.0f, 0.0f, 0.0f };
+        enemy.relativeZ = 220.0f;
+        
+        // 「ビルに隠れた状態から真ん中に現れる」を表現するため、初期X座標をビルの座標（X = -45m または +45m）に設定
+        // 小隊メンバーごとに左右のビルへ散らす
+        float spawnX = (idx % 2 == 0) ? -45.0f : 45.0f;
+        enemy.position.x = spawnX;
+        enemy.position.y = enemy.wanderAnchor.y;
+        enemy.position.z = enemy.wanderAnchor.z;
     }
 }
 
@@ -2621,10 +2782,13 @@ void GamePlayScene::RespawnEnemyGroup(int groupIndex, float playerZ) {
     std::uniform_int_distribution<int> distForm(0, (int)FormationType::kCount - 1);
     group.formation = (FormationType)distForm(randomEngine_);
     
-    // 中心位置を決定 (プレイヤーの前方 450m〜750m の位置)
+    // 中心位置を決定 (グループごとにZ出現位置の範囲を50mずつずらして波状にする)
     std::uniform_real_distribution<float> distX(-10.0f, 10.0f);
     std::uniform_real_distribution<float> distY(-5.0f, 10.0f);
-    std::uniform_real_distribution<float> distZ(450.0f, 750.0f);
+    
+    float minZ = 160.0f + (float)groupIndex * 50.0f;
+    float maxZ = 220.0f + (float)groupIndex * 50.0f;
+    std::uniform_real_distribution<float> distZ(minZ, maxZ);
     
     group.centerX = distX(randomEngine_);
     group.centerY = distY(randomEngine_);

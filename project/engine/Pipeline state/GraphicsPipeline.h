@@ -53,6 +53,9 @@ public:
     ID3D12PipelineState* GetVignettePipelineState() const { return vignettePipelineState_.Get(); }
     ID3D12PipelineState* GetBoxFilterPipelineState() const { return boxFilterPipelineState_.Get(); }
     ID3D12PipelineState* GetLuminanceOutlinePipelineState() const { return luminanceOutlinePipelineState_.Get(); }
+    // Sprite pipeline getters
+    ID3D12RootSignature* GetSpriteRootSignature() const { return spriteRootSignature_.Get(); }
+    ID3D12PipelineState* GetSpritePipelineState() const { return spritePipelineState_.Get(); }
     ID3D12PipelineState* GetRadialBlurPipelineState() const { return radialBlurPipelineState_.Get(); }
     ID3D12PipelineState* GetDissolvePipelineState() const { return dissolvePipelineState_.Get(); }
     ID3D12PipelineState* GetRandomPipelineState() const { return randomPipelineState_.Get(); }
@@ -107,7 +110,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> randomPipelineState_;
-	Microsoft::WRL::ComPtr<ID3D12RootSignature> dissolveRootSignature_;
+	    Microsoft::WRL::ComPtr<ID3D12RootSignature> dissolveRootSignature_;
+    // Sprite pipeline members
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> spriteRootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> spritePipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> depthOutlineRootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> depthOutlinePipelineState_;
 
