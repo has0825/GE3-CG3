@@ -280,7 +280,7 @@ private:
         float centerY; // 小隊の中心Y
         float centerZ; // 小隊の中心Z
     };
-    static const int kNumGroups = 3;       // 総グループ数
+    static const int kNumGroups = 2;       // 総グループ数
     static const int kEnemiesPerGroup = 5; // 1グループあたりの敵数
 
     struct Enemy {
@@ -313,7 +313,7 @@ private:
         float relativeZ = 120.0f;    // 追加：プレイヤーとの相対Z距離をキープするため
         Vector3 appearStartPos;      // 追加：出現合流開始時の初期位置を記憶するため
     };
-    static const int kMaxEnemies = 15; // 5体×3グループ = 計15体に調整
+    static const int kMaxEnemies = 10; // 5体×2グループ = 計10体に調整
     std::vector<Enemy> enemies_;
     EnemyGroup enemyGroups_[kNumGroups];
     Microsoft::WRL::ComPtr<ID3D12Resource> enemyTransformResources_[kMaxEnemies];

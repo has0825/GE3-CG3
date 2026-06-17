@@ -33,15 +33,19 @@ PixelShaderOutput main(VertexShaderOutput input)
         output.color.a = textureColor.a * gMaterial.color.a;
 
         // --- 【追加】環境マップ (Environment Map) の計算 ---
-        // カメラからピクセルへのベクトル
-        float32_t3 cameraToPosition = normalize(input.worldPosition - gCamera.worldPosition);
-        // 法線を使ってベクトルを反射
-        float32_t3 reflectedVector = reflect(cameraToPosition, normalize(input.normal));
-        // 環境マップからサンプリング
-        float32_t4 environmentColor = gEnvironmentTexture.Sample(gSampler, reflectedVector);
-        
-        // 映り込みの強さ（スケール）を掛けて加算
-        output.color.rgb += environmentColor.rgb * gMaterial.environmentCoefficient;
+        // 映り込みの強さ（スケール）が0より大きいときのみ環境マップを計算する (GPUサンプリング負荷削減)
+        if (gMaterial.environmentCoefficient > 0.0f)
+        {
+            // カメラからピクセルへのベクトル
+            float32_t3 cameraToPosition = normalize(input.worldPosition - gCamera.worldPosition);
+            // 法線を使ってベクトルを反射
+            float32_t3 reflectedVector = reflect(cameraToPosition, normalize(input.normal));
+            // 環境マップからサンプリング
+            float32_t4 environmentColor = gEnvironmentTexture.Sample(gSampler, reflectedVector);
+            
+            // 映り込みの強さ（スケール）を掛けて加算
+            output.color.rgb += environmentColor.rgb * gMaterial.environmentCoefficient;
+        }
         
     }
     else

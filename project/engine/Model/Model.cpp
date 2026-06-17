@@ -1,4 +1,5 @@
 #include "Model.h"
+#include "DirectXCommon.h"
 #include <cassert>
 #include <cstring>
 #include <windows.h>
@@ -343,30 +344,105 @@ void Model::Initialize(ID3D12Device* device, ModelCommonData* commonData) {
     transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
 }
 
+// 頂点/インデックスバッファをDEFAULTヒープ（VRAM）に作成してデータをアップロードするヘルパー関数
+Microsoft::WRL::ComPtr<ID3D12Resource> CreateDefaultBuffer(
+    ID3D12Device* device,
+    const void* initData,
+    UINT64 byteSize,
+    Microsoft::WRL::ComPtr<ID3D12Resource>& uploadBuffer) {
+
+    D3D12_HEAP_PROPERTIES defaultHeapProps{};
+    defaultHeapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    D3D12_RESOURCE_DESC bufferDesc{};
+    bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bufferDesc.Width = byteSize;
+    bufferDesc.Height = 1;
+    bufferDesc.DepthOrArraySize = 1;
+    bufferDesc.MipLevels = 1;
+    bufferDesc.SampleDesc.Count = 1;
+    bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> defaultBuffer;
+    HRESULT hr = device->CreateCommittedResource(
+        &defaultHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr,
+        IID_PPV_ARGS(&defaultBuffer));
+    assert(SUCCEEDED(hr));
+
+    D3D12_HEAP_PROPERTIES uploadHeapProps{};
+    uploadHeapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    hr = device->CreateCommittedResource(
+        &uploadHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&uploadBuffer));
+    assert(SUCCEEDED(hr));
+
+    void* mappedData = nullptr;
+    uploadBuffer->Map(0, nullptr, &mappedData);
+    std::memcpy(mappedData, initData, byteSize);
+    uploadBuffer->Unmap(0, nullptr);
+
+    DirectXCommon* dxCommon = DirectXCommon::GetInstance();
+    ID3D12CommandQueue* commandQueue = dxCommon->GetCommandQueue();
+    
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> tempAllocator;
+    device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&tempAllocator));
+    
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> tempCmdList;
+    device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, tempAllocator.Get(), nullptr, IID_PPV_ARGS(&tempCmdList));
+
+    tempCmdList->CopyBufferRegion(defaultBuffer.Get(), 0, uploadBuffer.Get(), 0, byteSize);
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = defaultBuffer.Get();
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    tempCmdList->ResourceBarrier(1, &barrier);
+
+    tempCmdList->Close();
+
+    ID3D12CommandList* cmdLists[] = { tempCmdList.Get() };
+    commandQueue->ExecuteCommandLists(1, cmdLists);
+
+    Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+    device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    HANDLE fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    commandQueue->Signal(fence.Get(), 1);
+    if (fence->GetCompletedValue() < 1) {
+        fence->SetEventOnCompletion(1, fenceEvent);
+        WaitForSingleObject(fenceEvent, INFINITE);
+    }
+    CloseHandle(fenceEvent);
+
+    return defaultBuffer;
+}
+
 void Model::Initialize(const ModelData& modelData, ID3D12Device* device) {
     vertices_ = modelData.vertices;
     indices_ = modelData.indices;
 
-    vertexResource_ = CreateBufferResource(device, sizeof(VertexData) * vertices_.size());
+    Microsoft::WRL::ComPtr<ID3D12Resource> vertexUploadBuffer;
+    vertexResource_ = CreateDefaultBuffer(device, vertices_.data(), sizeof(VertexData) * vertices_.size(), vertexUploadBuffer);
     vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
     vertexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(VertexData) * vertices_.size());
     vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
-    VertexData* vertexData = nullptr;
-    vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-    std::memcpy(vertexData, vertices_.data(), sizeof(VertexData) * vertices_.size());
-    vertexResource_->Unmap(0, nullptr);
-
+    Microsoft::WRL::ComPtr<ID3D12Resource> indexUploadBuffer;
     if (!indices_.empty()) {
-        indexResource_ = CreateBufferResource(device, sizeof(uint32_t) * indices_.size());
+        indexResource_ = CreateDefaultBuffer(device, indices_.data(), sizeof(uint32_t) * indices_.size(), indexUploadBuffer);
         indexBufferView_.BufferLocation = indexResource_->GetGPUVirtualAddress();
         indexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * indices_.size());
         indexBufferView_.Format = DXGI_FORMAT_R32_UINT;
-
-        uint32_t* indexData = nullptr;
-        indexResource_->Map(0, nullptr, reinterpret_cast<void**>(&indexData));
-        std::memcpy(indexData, indices_.data(), sizeof(uint32_t) * indices_.size());
-        indexResource_->Unmap(0, nullptr);
     }
 
     materialResource_ = CreateBufferResource(device, sizeof(Material));

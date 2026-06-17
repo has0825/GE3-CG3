@@ -308,10 +308,10 @@ void GamePlayScene::Initialize() {
         Enemy enemy;
         enemy.groupIndex = i / kEnemiesPerGroup;
         enemy.memberIndex = i % kEnemiesPerGroup;
-        enemy.scale = { 2.5f, 2.5f, 2.5f };
+        enemy.scale = { 3.8f, 3.8f, 3.8f };
         enemy.rotate = { 0.0f, 0.0f, 0.0f }; // モデルの向きを180度反転して修正
         enemy.isAlive = false;
-        enemy.radius = 3.5f;
+        enemy.radius = 5.0f;
         enemy.hp = 30.0f;
         enemy.maxHP = 30.0f;
         enemies_.push_back(enemy);
@@ -712,18 +712,6 @@ void GamePlayScene::Update() {
             phaseIntroTimer_ = -1.0f;
             phaseIntroSprite_.reset();
             numberIntroSprite_.reset();
-
-            // フェーズ切り替え直後の敵リフレッシュ：ボス戦以外で、フェーズ演出が終わった瞬間に全グループをリポップさせる
-            if (currentPhase_ != GamePhase::kBossFight) {
-                // 古い敵をすべて一旦非生存にクリア
-                for (auto& enemy : enemies_) {
-                    enemy.isAlive = false;
-                }
-                // 改めて全グループを前方にリポップ
-                for (int g = 0; g < kNumGroups; ++g) {
-                    RespawnEnemyGroup(g, fighterWorldZ_);
-                }
-            }
         }
 
         // スプライトの位置とサイズを更新
@@ -1554,7 +1542,7 @@ void GamePlayScene::Update() {
     }
 
     // ── 蜘蛛ボス（Big Spider）のトランスフォームとアニメーション更新 ──
-    if (bossBodyTransformData_) {
+    if (currentPhase_ == GamePhase::kBossFight && bossBodyTransformData_) {
         // 歩行速度が0より大きい時のみ、サイン波に同期した胴体の揺れ（上下バウンシング＆左右ロール）を計算
         float bodyBounce = 0.0f;
         float bodyRoll = 0.0f;
@@ -1995,24 +1983,26 @@ void GamePlayScene::Update() {
     animatedCubeTransformData_->World = animatedCubeBaseWorldMatrix;
 
     // ── ビルと床(Plane)の更新・再配置（オブジェクトプール） ──
-    // ボス戦中は画面上に描画されないため、CPU処理（行列計算とバッファ更新）を完全にスキップして軽量化
-    if (sceneMode_ == SceneMode::kFighter && currentPhase_ != GamePhase::kBossFight) {
+    // ボス戦中はビルが画面上に描画されないため、CPU処理（行列計算とバッファ更新）をスキップして軽量化。床はボス戦中も更新する。
+    if (sceneMode_ == SceneMode::kFighter) {
         float cameraZ = camera_->GetTransform().translate.z;
         float kBuildingInterval = 80.0f;
         float kFloorHeight = 10.0f; // 1階あたりのY軸高さの差分（ビルモデルの大きさに合わせて調整）
 
-        // ビルの画面外再配置
-        for (int i = 0; i < kMaxBuildings; ++i) {
-            // カメラの後方80mを超えたら、遥か前方（最前方のビルペアの先）に再配置
-            if (buildings_[i].position.z < cameraZ - 80.0f) {
-                buildings_[i].position.z += kMaxBuildings * kBuildingInterval * 0.5f; // 16棟 / 2 = 8ペア分前方に送る (640m)
-                
-                // 再配置した際にビルの階数(1〜5階)を再抽選する
-                buildings_[i].floors = 1 + (randomEngine_() % 5);
+        // ビルの画面外再配置（ボス戦中はビルが不要なためスキップ）
+        if (currentPhase_ != GamePhase::kBossFight) {
+            for (int i = 0; i < kMaxBuildings; ++i) {
+                // カメラの後方80mを超えたら、遥か前方（最前方のビルペアの先）に再配置
+                if (buildings_[i].position.z < cameraZ - 80.0f) {
+                    buildings_[i].position.z += kMaxBuildings * kBuildingInterval * 0.5f; // 16棟 / 2 = 8ペア分前方に送る (640m)
+                    
+                    // 再配置した際にビルの階数(1〜5階)を再抽選する
+                    buildings_[i].floors = 1 + (randomEngine_() % 5);
+                }
             }
         }
 
-        // 床の画面外再配置
+        // 床の画面外再配置（ボス戦中も進行感を維持するため、常に再配置する）
         float kFloorSizeZ = 200.0f;
         for (int i = 0; i < kNumFloors; ++i) {
             // カメラの後方200mを超えたら、最前方へ移動
@@ -2028,24 +2018,26 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 各ビルの各階数（フロア）ごとにワールド行列とWVP行列を計算
-        int cbIndex = 0;
-        for (int i = 0; i < kMaxBuildings; ++i) {
-            for (int f = 0; f < buildings_[i].floors; ++f) {
-                if (cbIndex >= kMaxBuildingCBs) break;
+        // 各ビルの各階数（フロア）ごとにワールド行列とWVP行列を計算（ボス戦中はビルが不要なためスキップ）
+        if (currentPhase_ != GamePhase::kBossFight) {
+            int cbIndex = 0;
+            for (int i = 0; i < kMaxBuildings; ++i) {
+                for (int f = 0; f < buildings_[i].floors; ++f) {
+                    if (cbIndex >= kMaxBuildingCBs) break;
 
-                // 1フロアごとの積み上げY座標を計算（等倍スケール10に対して高さを積み上げる）
-                Vector3 floorPos = buildings_[i].position;
-                floorPos.y = -20.0f + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
+                    // 1フロアごとの積み上げY座標を計算（等倍スケール10に対して高さを積み上げる）
+                    Vector3 floorPos = buildings_[i].position;
+                    floorPos.y = -20.0f + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
 
-                Matrix4x4 worldMatrix = MakeAffineMatrix(buildings_[i].scale, buildings_[i].rotate, floorPos);
-                buildingTransformData_[cbIndex]->World = worldMatrix;
-                buildingTransformData_[cbIndex]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
-                cbIndex++;
+                    Matrix4x4 worldMatrix = MakeAffineMatrix(buildings_[i].scale, buildings_[i].rotate, floorPos);
+                    buildingTransformData_[cbIndex]->World = worldMatrix;
+                    buildingTransformData_[cbIndex]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
+                    cbIndex++;
+                }
             }
         }
 
-        // 床(Plane)のワールド・WVP行列を計算
+        // 床(Plane)のワールド・WVP行列を計算（ボス戦中も進行感を維持するため、常に更新する）
         for (int i = 0; i < kNumFloors; ++i) {
             // plane.obj のサイズに合わせてXとZを200倍スケールにして広大な床にする
             Matrix4x4 worldMatrix = MakeAffineMatrix(Vector3{ 200.0f, 1.0f, 200.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, floorPositions_[i]);
@@ -2393,29 +2385,45 @@ void GamePlayScene::Draw() {
 
             // 蜘蛛ボス（Big Spider）の描画
             if (currentPhase_ == GamePhase::kBossFight) {
-                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
-                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+                float bossWorldZ = fighterWorldZ_ + bossZOffset_;
+                float cameraWorldZ = camera_->GetTransform().translate.z;
 
-                // 胴体の描画
-                if (bossBodyModel_ && bossBodyTransformResource_) {
-                    commandList->SetGraphicsRootConstantBufferView(1, bossBodyTransformResource_->GetGPUVirtualAddress());
-                    bossBodyModel_->DrawModel(
-                        commandList,
-                        TextureManager::GetInstance()->GetSrvHandleGPU("big Spider/big+Spider_basecolor.jpg"),
-                        TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
-                    );
-                }
+                // ボスがカメラより一定以上後ろ（手前）に通り過ぎていない場合のみ描画
+                if (bossWorldZ >= cameraWorldZ - 20.0f) {
+                    if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+                    if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
 
-                // 足の描画（8本の足をループで個別に描画）
-                if (bossLegModel_) {
-                    for (int i = 0; i < 8; ++i) {
-                        if (bossLegTransformResources_[i]) {
-                            commandList->SetGraphicsRootConstantBufferView(1, bossLegTransformResources_[i]->GetGPUVirtualAddress());
-                            bossLegModel_->DrawModel(
-                                commandList,
-                                TextureManager::GetInstance()->GetSrvHandleGPU("big Spider/big+spider+arm_basecolor.jpg"),
-                                TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
-                            );
+                    // 胴体の描画 (常にオリジナル高画質モデルを使用)
+                    if (bossBodyModel_ && bossBodyTransformResource_) {
+                        commandList->SetGraphicsRootConstantBufferView(1, bossBodyTransformResource_->GetGPUVirtualAddress());
+                        bossBodyModel_->DrawModel(
+                            commandList,
+                            TextureManager::GetInstance()->GetSrvHandleGPU("big Spider/big+Spider_basecolor.jpg"),
+                            TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+                        );
+                    }
+
+                    // 足の描画（常にオリジナル高画質モデルを使用 ＆ バインドを1回に集約して高速化）
+                    if (bossLegModel_) {
+                        D3D12_VERTEX_BUFFER_VIEW vbView = bossLegModel_->GetVertexBufferView();
+                        D3D12_INDEX_BUFFER_VIEW ibView = bossLegModel_->GetIndexBufferView();
+                        UINT indexCount = bossLegModel_->GetIndexCount();
+                        
+                        commandList->IASetVertexBuffers(0, 1, &vbView);
+                        commandList->IASetIndexBuffer(&ibView);
+                        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                        commandList->SetGraphicsRootConstantBufferView(0, bossLegModel_->GetMaterialResource()->GetGPUVirtualAddress());
+                        
+                        D3D12_GPU_DESCRIPTOR_HANDLE texHandle = TextureManager::GetInstance()->GetSrvHandleGPU("big Spider/big+spider+arm_basecolor.jpg");
+                        D3D12_GPU_DESCRIPTOR_HANDLE envHandle = TextureManager::GetInstance()->GetSrvHandleGPU("test.dds");
+                        commandList->SetGraphicsRootDescriptorTable(2, texHandle);
+                        commandList->SetGraphicsRootDescriptorTable(3, envHandle);
+
+                        for (int i = 0; i < 8; ++i) {
+                            if (bossLegTransformResources_[i]) {
+                                commandList->SetGraphicsRootConstantBufferView(1, bossLegTransformResources_[i]->GetGPUVirtualAddress());
+                                commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+                            }
                         }
                     }
                 }
