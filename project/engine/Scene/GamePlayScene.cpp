@@ -633,6 +633,33 @@ void GamePlayScene::Initialize() {
         }
         layoutFile.close();
     }
+
+    // ── デモ用データの初期化 ──
+    shotBeams_.resize(kMaxShotBeams);
+    for (int i = 0; i < kMaxShotBeams; ++i) {
+        shotBeams_[i].isAlive = false;
+    }
+
+    // フラッシュ演出用の定数バッファ生成とマッピング
+    flashMaterialResource_ = CreateBufferResource(device, sizeof(Material));
+    flashMaterialResource_->Map(0, nullptr, reinterpret_cast<void**>(&flashMaterialData_));
+    flashMaterialData_->color = { 1.0f, 1.0f, 1.0f, 0.0f }; // 初期は完全透明
+    flashMaterialData_->uvTransform = MakeIdentity4x4();
+
+    flashTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    flashTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&flashTransformData_));
+    flashTransformData_->WVP = MakeIdentity4x4();
+    flashTransformData_->World = MakeIdentity4x4();
+
+    // デモ用テクスチャのロード（フラッシュやヒットエフェクトで使うテクスチャを予め確保）
+    TextureManager::GetInstance()->LoadTexture("aiming.png");
+    flashSrvHandleGPU_ = TextureManager::GetInstance()->GetSrvHandleGPU("aiming.png");
+    
+    // 近接突撃用メンバの初期化
+    currentFighterPos_ = playerPos_;
+    attackMode_ = AttackMode::kShooting;
+    meleeState_ = MeleeState::kIdle;
+    digitalGlitchTimer_ = 0.0f;
 }
 
 void GamePlayScene::StartPhaseIntro(int phaseNum) {
@@ -658,6 +685,94 @@ void GamePlayScene::Finalize() {
 
 void GamePlayScene::Update() {
     float kDeltaTime = 1.0f / 60.0f;
+
+    if (isDemoMode_) {
+        UpdateDemo(kDeltaTime);
+        return;
+    }
+
+    // 0. 数字キーによるプリセット切り替え（通常プレイ用）
+    if (input_->IsKeyTriggered(DIK_1)) ApplyPreset(0);
+    else if (input_->IsKeyTriggered(DIK_2)) ApplyPreset(1);
+    else if (input_->IsKeyTriggered(DIK_3)) ApplyPreset(2);
+    else if (input_->IsKeyTriggered(DIK_4)) ApplyPreset(3);
+    else if (input_->IsKeyTriggered(DIK_5)) ApplyPreset(4);
+    else if (input_->IsKeyTriggered(DIK_6)) ApplyPreset(5);
+    else if (input_->IsKeyTriggered(DIK_7)) ApplyPreset(6);
+    else if (input_->IsKeyTriggered(DIK_8)) ApplyPreset(7);
+    else if (input_->IsKeyTriggered(DIK_9)) ApplyPreset(8);
+    else if (input_->IsKeyTriggered(DIK_0)) ApplyPreset(9);
+
+    // 0.5. 各種演出タイマーの更新と時間スケール（ヒットストップ）処理
+    if (hitstopTimer_ > 0.0f) {
+        hitstopTimer_ -= kDeltaTime;
+        kDeltaTime = kDeltaTime * 0.05f; // スローモーション化
+    }
+
+    if (cameraShakeTimer_ > 0.0f) {
+        cameraShakeTimer_ -= kDeltaTime;
+        if (cameraShakeTimer_ < 0.0f) cameraShakeTimer_ = 0.0f;
+        
+        float progress = cameraShakeTimer_ / (cameraShakeTimeMax_ > 0.0f ? cameraShakeTimeMax_ : 1.0f);
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        float currentIntensity = cameraShakeIntensity_ * (progress * progress);
+        
+        std::uniform_real_distribution<float> distShake(-1.0f, 1.0f);
+        if (selectedEffectPreset_ == 7) {
+            cameraShakeOffset_ = {
+                distShake(randomEngine_) * currentIntensity,
+                0.0f,
+                0.0f
+            };
+        } else {
+            cameraShakeOffset_ = {
+                distShake(randomEngine_) * currentIntensity,
+                distShake(randomEngine_) * currentIntensity,
+                distShake(randomEngine_) * currentIntensity
+            };
+        }
+    } else {
+        cameraShakeOffset_ = { 0.0f, 0.0f, 0.0f };
+    }
+
+    if (flashAlpha_ > 0.0f) {
+        float fadeSpeed = (selectedEffectPreset_ == 8) ? 1.5f : 3.5f;
+        flashAlpha_ -= kDeltaTime * fadeSpeed;
+        if (flashAlpha_ < 0.0f) flashAlpha_ = 0.0f;
+    }
+
+    if (useRadialBlur_ && blurIntensity_ > 0.0f) {
+        blurIntensity_ -= kDeltaTime * (maxBlurWidth_ / 0.25f);
+        if (blurIntensity_ < 0.0f) blurIntensity_ = 0.0f;
+        
+        activePostProcess_ = kRadialBlur;
+        if (radialBlurParamData_) {
+            radialBlurParamData_->center = { 0.5f, 0.5f };
+            radialBlurParamData_->blurWidth = -blurIntensity_;
+        }
+    } else {
+        if (activePostProcess_ == kRadialBlur) {
+            activePostProcess_ = kNone;
+        }
+    }
+
+    if (digitalGlitchTimer_ > 0.0f) {
+        digitalGlitchTimer_ -= kDeltaTime;
+        if (digitalGlitchTimer_ < 0.0f) digitalGlitchTimer_ = 0.0f;
+        
+        activePostProcess_ = kRandom;
+        if (randomParamResource_ && randomParamData_) {
+            randomParamData_->time = randomEffectTime_;
+            randomParamData_->noiseScale = 100.0f;
+            randomParamData_->noiseStrength = 0.85f;
+            randomParamData_->isColorNoise = false;
+            randomParamData_->isMultiplyNoise = false;
+        }
+    } else {
+        if (activePostProcess_ == kRandom) {
+            activePostProcess_ = kNone;
+        }
+    }
 
     // ゲームクリア/ゲームオーバー遷移判定
     if (bossHP_ <= 0.0f) {
@@ -764,7 +879,9 @@ void GamePlayScene::Update() {
         if (bossAppearanceTimer_ <= 0.0f) {
             bossAppearanceTimer_ = -1.0f;
             // 着地！画面シェイクと土煙・SE
-            cameraShake_ = 3.5f;
+            cameraShakeTimer_ = 0.50f;
+            cameraShakeIntensity_ = 3.5f;
+            cameraShakeTimeMax_ = 0.50f;
             if (audio_) {
                 audio_->PlayWave(jumpSE_, false, 2.0f); // 大音量で着地SE
             }
@@ -1293,8 +1410,7 @@ void GamePlayScene::Update() {
                         if (playerHP_ < 0.0f) playerHP_ = 0.0f;
 
                         // 被弾エフェクトとSE
-                        particleManager_->EmitHit(enemy.position);
-                        particleManager_->EmitRing(enemy.position);
+                        EmitHitEffect(enemy.position);
                         audio_->PlayWave(jumpSE_, false, 1.2f);
 
                         // 全滅リポップはUpdateの最後で一括判定するため、ここではリポップ処理を行わない
@@ -1336,7 +1452,7 @@ void GamePlayScene::Update() {
                     if (bossHP_ < 0.0f) bossHP_ = 0.0f;
 
                     // 被弾エフェクトとSE
-                    particleManager_->EmitHit(playerBullets_[i].position);
+                    EmitHitEffect(playerBullets_[i].position);
                     audio_->PlayWave(jumpSE_, false, 1.2f);
                 }
             }
@@ -1362,15 +1478,15 @@ void GamePlayScene::Update() {
                             // 全滅リポップはUpdateの最後で一括判定するため、ここではリポップ処理を行わない
 
                             // ★★★ 超ド派手爆破エフェクト！ ★★★
-                            particleManager_->EmitHit(deathPos);
+                            EmitHitEffect(deathPos);
+                            particleManager_->EmitCylinder(deathPos); // 撃破の大爆発用重ね合わせ
                             particleManager_->EmitRing(deathPos);
-                            particleManager_->EmitCylinder(deathPos);
 
                             // 爆破音を再生
                             audio_->PlayWave(jumpSE_, false, 1.5f);
                         } else {
                             // 生存時は小規模な被弾エフェクトとSE
-                            particleManager_->EmitHit(playerBullets_[i].position);
+                            EmitHitEffect(playerBullets_[i].position);
                             audio_->PlayWave(jumpSE_, false, 0.6f);
                         }
                         break;
@@ -1712,21 +1828,12 @@ void GamePlayScene::Update() {
 
     // 画面シェイク（カメラの振動）の適用
     Vector3 originalCamTranslate = camera_->GetTransform().translate;
-    if (cameraShake_ > 0.01f) {
-        std::uniform_real_distribution<float> dist(-cameraShake_, cameraShake_);
-        Vector3 shakeOffset = { dist(randomEngine_), dist(randomEngine_), 0.0f };
-        camera_->SetTranslate(Add(originalCamTranslate, shakeOffset));
-    }
+    camera_->SetTranslate(Add(originalCamTranslate, cameraShakeOffset_));
 
     camera_->Update();
     Matrix4x4 viewProjectionMatrix = camera_->GetViewProjectionMatrix();
 
-    if (cameraShake_ > 0.01f) {
-        camera_->SetTranslate(originalCamTranslate);
-        cameraShake_ *= 0.85f;
-    } else {
-        cameraShake_ = 0.0f;
-    }
+    camera_->SetTranslate(originalCamTranslate); // 描画後に座標を戻す
 
     // 蜘蛛ボスのWVP行列更新 (最新のカメラ行列を使用)
     if (bossBodyTransformData_) {
@@ -2258,6 +2365,11 @@ void GamePlayScene::Update() {
 }
 
 void GamePlayScene::Draw() {
+    if (isDemoMode_) {
+        DrawDemo();
+        return;
+    }
+
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
     // --- 1. RenderTextureへの描画開始 ---
@@ -2811,4 +2923,915 @@ void GamePlayScene::RespawnEnemyGroup(int groupIndex, float playerZ) {
     }
     
     ApplyGroupFormation(groupIndex);
+}
+
+void GamePlayScene::UpdateDemo(float deltaTime) {
+    // 0. 数字キーによるプリセット切り替え
+    if (input_->IsKeyTriggered(DIK_1)) ApplyPreset(0);
+    else if (input_->IsKeyTriggered(DIK_2)) ApplyPreset(1);
+    else if (input_->IsKeyTriggered(DIK_3)) ApplyPreset(2);
+    else if (input_->IsKeyTriggered(DIK_4)) ApplyPreset(3);
+    else if (input_->IsKeyTriggered(DIK_5)) ApplyPreset(4);
+    else if (input_->IsKeyTriggered(DIK_6)) ApplyPreset(5);
+    else if (input_->IsKeyTriggered(DIK_7)) ApplyPreset(6);
+    else if (input_->IsKeyTriggered(DIK_8)) ApplyPreset(7);
+    else if (input_->IsKeyTriggered(DIK_9)) ApplyPreset(8);
+    else if (input_->IsKeyTriggered(DIK_0)) ApplyPreset(9);
+
+    // 1. ヒットストップ処理
+    if (hitstopTimer_ > 0.0f) {
+        hitstopTimer_ -= deltaTime;
+        // ヒットストップ中は時間の進行を極端に遅くする（スローモーション化）
+        deltaTime = deltaTime * 0.05f;
+    }
+
+    // 2. カメラシェイク処理
+    if (cameraShakeTimer_ > 0.0f) {
+        cameraShakeTimer_ -= deltaTime;
+        if (cameraShakeTimer_ < 0.0f) cameraShakeTimer_ = 0.0f;
+        
+        float progress = cameraShakeTimer_ / (cameraShakeTimeMax_ > 0.0f ? cameraShakeTimeMax_ : 1.0f);
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        // 自乗でイージングアウトさせる
+        float currentIntensity = cameraShakeIntensity_ * (progress * progress);
+        
+        std::uniform_real_distribution<float> distShake(-1.0f, 1.0f);
+        if (selectedEffectPreset_ == 7) {
+            // 風竜巻は横揺れ（Xのみ）で煽られる表現
+            cameraShakeOffset_ = {
+                distShake(randomEngine_) * currentIntensity,
+                0.0f,
+                0.0f
+            };
+        } else {
+            cameraShakeOffset_ = {
+                distShake(randomEngine_) * currentIntensity,
+                distShake(randomEngine_) * currentIntensity,
+                distShake(randomEngine_) * currentIntensity
+            };
+        }
+    } else {
+        cameraShakeOffset_ = { 0.0f, 0.0f, 0.0f };
+    }
+
+    // カメラの座標と角度を設定して更新
+    camera_->GetTransform().translate = Add(cameraBasePos_, cameraShakeOffset_);
+    camera_->GetTransform().rotate = cameraBaseRot_;
+    camera_->Update();
+
+    // 3. インパクトフラッシュの更新
+    if (flashAlpha_ > 0.0f) {
+        // 神聖属性(Preset 8)はゆっくり余韻を残してフェードアウト、他は高速フェード
+        float fadeSpeed = (selectedEffectPreset_ == 8) ? 1.5f : 3.5f;
+        flashAlpha_ -= deltaTime * fadeSpeed;
+        if (flashAlpha_ < 0.0f) flashAlpha_ = 0.0f;
+    }
+
+    // 4. ラジアルブラーの更新
+    if (useRadialBlur_ && blurIntensity_ > 0.0f) {
+        blurIntensity_ -= deltaTime * (maxBlurWidth_ / 0.25f);
+        if (blurIntensity_ < 0.0f) blurIntensity_ = 0.0f;
+        
+        activePostProcess_ = kRadialBlur;
+        if (radialBlurParamData_) {
+            radialBlurParamData_->center = { 0.5f, 0.5f };
+            radialBlurParamData_->blurWidth = -blurIntensity_;
+        }
+    } else {
+        if (activePostProcess_ == kRadialBlur) {
+            activePostProcess_ = kNone;
+        }
+    }
+
+    // 4.5 デジタルバグ（グリッチノイズポストプロセス）の更新
+    if (digitalGlitchTimer_ > 0.0f) {
+        digitalGlitchTimer_ -= deltaTime;
+        if (digitalGlitchTimer_ < 0.0f) digitalGlitchTimer_ = 0.0f;
+        
+        activePostProcess_ = kRandom;
+        if (randomParamResource_ && randomParamData_) {
+            randomParamData_->time = randomEffectTime_;
+            randomParamData_->noiseScale = 100.0f;
+            randomParamData_->noiseStrength = 0.85f; // 強めのノイズ
+            randomParamData_->isColorNoise = false;
+            randomParamData_->isMultiplyNoise = false;
+        }
+    } else {
+        if (activePostProcess_ == kRandom) {
+            activePostProcess_ = kNone;
+        }
+    }
+
+    // 5. 攻撃モード制御 ＆ 近接突撃・ビーム射撃処理
+    if (input_->IsKeyTriggered(DIK_TAB)) {
+        attackMode_ = (attackMode_ == AttackMode::kShooting) ? AttackMode::kMelee : AttackMode::kShooting;
+        meleeState_ = MeleeState::kIdle;
+        meleeTimer_ = 0.0f;
+        currentFighterPos_ = playerPos_;
+    }
+
+    bool attackTrigger = input_->IsKeyTriggered(DIK_SPACE);
+    
+    // オートデモタイマー更新
+    if (autoPlay_) {
+        autoPlayTimer_ += deltaTime;
+        if (autoPlayTimer_ >= autoPlayInterval_) {
+            attackTrigger = true;
+            autoPlayTimer_ = 0.0f;
+        }
+    }
+
+    if (attackMode_ == AttackMode::kShooting) {
+        // ── 射撃モード ──
+        float hoverY = std::sin(randomEffectTime_ * 3.0f) * 0.15f;
+        currentFighterPos_ = playerPos_;
+        currentFighterPos_.y += hoverY;
+        fighterModel_->transform.rotate.z = 0.0f;
+        
+        if (attackTrigger) {
+            for (int i = 0; i < kMaxShotBeams; ++i) {
+                if (!shotBeams_[i].isAlive) {
+                    shotBeams_[i].position = playerPos_;
+                    Vector3 toTarget = Subtract(targetPos_, playerPos_);
+                    shotBeams_[i].velocity = Scale(Normalize(toTarget), 150.0f);
+                    shotBeams_[i].isAlive = true;
+                    if (audio_) {
+                        audio_->PlayWave(jumpSE_, false, 0.35f);
+                    }
+                    break;
+                }
+            }
+        }
+    } else {
+        // ── 近接突撃モード ──
+        const float kMeleeDashDuration = 0.12f; // より高速に（7〜8フレーム）
+        const float kMeleeHitDuration = 0.06f;
+        const float kMeleeReturnDuration = 0.30f;
+
+        if (meleeState_ == MeleeState::kIdle) {
+            currentFighterPos_ = playerPos_;
+            float hoverY = std::sin(randomEffectTime_ * 3.0f) * 0.15f;
+            currentFighterPos_.y += hoverY;
+            fighterModel_->transform.rotate.z = 0.0f;
+
+            if (attackTrigger) {
+                meleeState_ = MeleeState::kDash;
+                meleeTimer_ = 0.0f;
+                if (audio_) {
+                    audio_->PlayWave(jumpSE_, false, 0.7f);
+                }
+            }
+        }
+        
+        if (meleeState_ == MeleeState::kDash) {
+            meleeTimer_ += deltaTime;
+            float t = std::clamp(meleeTimer_ / kMeleeDashDuration, 0.0f, 1.0f);
+            
+            // イージング付き突進
+            currentFighterPos_.x = std::lerp(playerPos_.x, targetPos_.x, t * t);
+            currentFighterPos_.y = std::lerp(playerPos_.y, targetPos_.y, t * t);
+            currentFighterPos_.z = std::lerp(playerPos_.z, targetPos_.z - 1.5f, t * t);
+            
+            // バレルスピン
+            fighterModel_->transform.rotate.z = t * static_cast<float>(M_PI) * 4.0f;
+            
+            if (t >= 1.0f) {
+                meleeState_ = MeleeState::kHit;
+                meleeTimer_ = 0.0f;
+            }
+        }
+        
+        if (meleeState_ == MeleeState::kHit) {
+            currentFighterPos_ = targetPos_;
+            currentFighterPos_.z -= 1.5f;
+            
+            if (meleeTimer_ == 0.0f) {
+                EmitHitEffect(targetPos_);
+            }
+            
+            meleeTimer_ += deltaTime;
+            if (meleeTimer_ >= kMeleeHitDuration) {
+                meleeState_ = MeleeState::kReturn;
+                meleeTimer_ = 0.0f;
+            }
+        }
+        
+        if (meleeState_ == MeleeState::kReturn) {
+            meleeTimer_ += deltaTime;
+            float t = std::clamp(meleeTimer_ / kMeleeReturnDuration, 0.0f, 1.0f);
+            
+            // 元の位置に戻る
+            currentFighterPos_.x = std::lerp(targetPos_.x, playerPos_.x, t);
+            currentFighterPos_.y = std::lerp(targetPos_.y, playerPos_.y, t);
+            currentFighterPos_.z = std::lerp(targetPos_.z - 1.5f, playerPos_.z, t);
+            
+            // 回転を徐々に戻す
+            fighterModel_->transform.rotate.z = (1.0f - t) * static_cast<float>(M_PI) * 4.0f;
+            
+            if (t >= 1.0f) {
+                meleeState_ = MeleeState::kIdle;
+                meleeTimer_ = 0.0f;
+                fighterModel_->transform.rotate.z = 0.0f;
+            }
+        }
+    }
+
+    // ビーム前進と着弾判定
+    for (int i = 0; i < kMaxShotBeams; ++i) {
+        if (shotBeams_[i].isAlive) {
+            shotBeams_[i].position = Add(shotBeams_[i].position, Scale(shotBeams_[i].velocity, deltaTime));
+            
+            if (shotBeams_[i].position.z >= targetPos_.z - 0.5f) {
+                shotBeams_[i].isAlive = false;
+                EmitHitEffect(targetPos_);
+            }
+
+            if (bulletTransformResources_[i]) {
+                bulletTransformData_[i]->World = MakeAffineMatrix(Vector3{0.4f, 0.4f, 1.2f}, Vector3{0.0f, 0.0f, 0.0f}, shotBeams_[i].position);
+                bulletTransformData_[i]->WVP = Multiply(bulletTransformData_[i]->World, camera_->GetViewProjectionMatrix());
+            }
+        }
+    }
+
+    // 6. パーティクル更新
+    if (particleManager_) {
+        particleManager_->Update(
+            camera_->GetViewProjectionMatrix(),
+            camera_->GetBillboardMatrix(),
+            deltaTime,
+            camera_->GetTransform().translate.z,
+            playerPos_,
+            false,
+            false,
+            0,
+            targetPos_
+        );
+    }
+
+    if (gpuParticleManager_) {
+        gpuParticleManager_->Update(
+            camera_->GetViewProjectionMatrix(),
+            camera_->GetBillboardMatrix(),
+            deltaTime
+        );
+    }
+
+    // 7. 自機と標的の行列更新
+    if (fighterModel_ && fighterTransformResource_) {
+        fighterModel_->transform.translate = currentFighterPos_;
+        
+        float recoilPitch = 0.0f;
+        if (attackMode_ == AttackMode::kShooting && attackTrigger) recoilPitch = 0.12f;
+        else if (meleeState_ == MeleeState::kDash) recoilPitch = -0.2f;
+        
+        fighterModel_->transform.rotate.x = std::lerp(fighterModel_->transform.rotate.x, recoilPitch, 0.1f);
+        
+        fighterTransformData_->World = MakeAffineMatrix(
+            Vector3{0.5f, 0.5f, 0.5f},
+            fighterModel_->transform.rotate,
+            currentFighterPos_
+        );
+        fighterTransformData_->WVP = Multiply(fighterTransformData_->World, camera_->GetViewProjectionMatrix());
+    }
+
+    if (enemyModel_ && enemyTransformResources_[0]) {
+        float hoverY = std::cos(randomEffectTime_ * 2.0f) * 0.25f;
+        Vector3 renderTargetPos = targetPos_;
+        renderTargetPos.y += hoverY;
+        
+        Vector3 targetRot = { randomEffectTime_ * 0.5f, randomEffectTime_ * 0.8f, 0.0f };
+        enemyTransformData_[0]->World = MakeAffineMatrix(
+            Vector3{1.2f, 1.2f, 1.2f},
+            targetRot,
+            renderTargetPos
+        );
+        enemyTransformData_[0]->WVP = Multiply(enemyTransformData_[0]->World, camera_->GetViewProjectionMatrix());
+    }
+    
+    // スプライト（HPバー等）を非表示化するため、WVPを0行列にする
+    for (uint32_t i = 0; i < kHpBarInstanceCount; ++i) {
+        hpBarInstancingData_[i].WVP = MakeIdentity4x4();
+        hpBarInstancingData_[i].WVP.m[0][0] = 0.0f;
+        hpBarInstancingData_[i].WVP.m[1][1] = 0.0f;
+        hpBarInstancingData_[i].WVP.m[2][2] = 0.0f;
+        hpBarInstancingData_[i].WVP.m[3][3] = 0.0f;
+    }
+}
+
+void GamePlayScene::EmitHitEffect(const Vector3& pos) {
+    bool isMelee = (attackMode_ == AttackMode::kMelee);
+
+    if (isMelee) {
+        // ── 近接（打撃・斬撃）モード専用の豪華複合エフェクト ──
+        // 基本的な打撃衝撃波リングとシリンダーの重ね合わせ
+        particleManager_->EmitRing(pos);
+        particleManager_->EmitRing(Add(pos, { 0.0f, 0.0f, 0.8f })); // 二重衝撃波
+        particleManager_->EmitCylinder(pos);
+
+        switch (selectedEffectPreset_) {
+        case 0: // 通常近接
+            // 巨大な十字・X字斬撃軌跡と、重みのあるスパーク
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.5f, static_cast<int>(effectParticleCount_ * 1.2f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.2f, static_cast<int>(effectParticleCount_ * 0.8f), { 1.0f, 1.0f, 1.0f });
+            particleManager_->EmitCustomSparks(pos, effectParticleSpeed_ * 1.8f, static_cast<int>(effectParticleCount_ * 1.5f), effectBaseColor_, effectGravity_ + 0.5f);
+            break;
+
+        case 1: // 火炎近接
+            // 巨大炎スラッシュ ＋ 炎バースト ＋ 飛び散る残り火
+            particleManager_->EmitFlame(pos, effectParticleSpeed_ * 1.2f, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, { 1.0f, 0.3f, 0.0f });
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.4f, static_cast<int>(effectParticleCount_ * 0.8f), { 1.0f, 0.8f, 0.2f });
+            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitCustomSparks(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, effectBaseColor_, 0.6f);
+            break;
+
+        case 2: // 雷撃近接
+            // 雷刃十字斬 ＋ 四方からの放電スレッド収縮 ＋ 超高圧放電リング
+            particleManager_->EmitLightning(pos, effectParticleSpeed_ * 2.0f, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, { 0.2f, 0.9f, 1.0f });
+            particleManager_->EmitLaserThread(Add(pos, { -12.0f, 0.0f, 0.0f }), pos);
+            particleManager_->EmitLaserThread(Add(pos, { 12.0f, 0.0f, 0.0f }), pos);
+            particleManager_->EmitLaserThread(Add(pos, { 0.0f, -12.0f, 0.0f }), pos);
+            particleManager_->EmitLaserThread(Add(pos, { 0.0f, 12.0f, 0.0f }), pos);
+            particleManager_->EmitCylinder(pos);
+            break;
+
+        case 3: // 真空斬撃近接
+            // 鋭く交叉する真空の風刃（4枚刃） ＋ 多重真空リング
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.8f, static_cast<int>(effectParticleCount_ * 1.5f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_, { 0.7f, 1.0f, 0.8f });
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.3f, static_cast<int>(effectParticleCount_ * 0.8f), { 1.0f, 1.0f, 1.0f });
+            particleManager_->EmitRing(Add(pos, { 0.0f, 0.0f, -0.8f }));
+            particleManager_->EmitRing(Add(pos, { 0.0f, 0.0f, 0.8f }));
+            break;
+
+        case 4: // 特異点近接
+            // 重力吸い込みから瞬時に空間を切り裂く重力崩壊斬撃
+            particleManager_->EmitGravityVortex(pos, effectParticleSpeed_ * 0.9f, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitGravityOut(pos, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, { 0.6f, 0.1f, 0.9f });
+            particleManager_->EmitCylinder(pos);
+            break;
+
+        case 5: // 氷結近接
+            // 巨大氷華の破砕 ＋ 氷の鋭いクロス斬撃
+            particleManager_->EmitGlacial(pos, effectParticleSpeed_ * 1.2f, static_cast<int>(effectParticleCount_ * 1.4f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, { 0.5f, 0.8f, 1.0f });
+            particleManager_->EmitRing(pos);
+            particleManager_->EmitRing(Add(pos, { 0.0f, 0.0f, -1.0f }));
+            break;
+
+        case 6: // デジタル近接
+            // デジタルバグ ＋ マゼンタとグリーンの交差スライスカッター
+            particleManager_->EmitDigitalGlitch(pos, effectParticleSpeed_ * 1.3f, static_cast<int>(effectParticleCount_ * 1.4f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_, { 0.0f, 1.0f, 0.4f });
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_, { 1.0f, 0.0f, 0.8f });
+            particleManager_->EmitCylinder(pos);
+            break;
+
+        case 7: // 風竜巻近接
+            // 竜巻渦巻き ＋ 高速回転する風の斬撃
+            particleManager_->EmitAeroWind(pos, effectParticleSpeed_ * 1.2f, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.8f, effectParticleCount_, { 0.8f, 1.0f, 0.9f });
+            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitRing(pos);
+            break;
+
+        case 8: // 神聖近接
+            // 天から降り注ぐ極太の光の柱 ＋ 黄金の十字斬撃 ＋ 聖なる光輪
+            particleManager_->EmitHolyLight(pos, effectParticleSpeed_ * 1.2f, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, { 1.0f, 0.95f, 0.7f });
+            particleManager_->EmitLaserThread(Add(pos, { 0.0f, 25.0f, 0.0f }), pos);
+            particleManager_->EmitLaserThread(Add(pos, { -5.0f, 20.0f, -3.0f }), pos);
+            particleManager_->EmitLaserThread(Add(pos, { 5.0f, 20.0f, 3.0f }), pos);
+            particleManager_->EmitCylinder(pos);
+            break;
+
+        case 9: // カオス近接
+            // 混沌物質の炸裂 ＋ 闇の稲妻 ＋ 混沌の衝撃斬撃 ＋ 特異点渦
+            particleManager_->EmitChaosVoid(pos, effectParticleSpeed_ * 1.2f, static_cast<int>(effectParticleCount_ * 1.3f), effectBaseColor_);
+            particleManager_->EmitLightning(pos, effectParticleSpeed_ * 1.8f, static_cast<int>(effectParticleCount_ * 0.8f), { 0.8f, 0.0f, 0.9f });
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.6f, effectParticleCount_, { 0.4f, 0.0f, 0.6f });
+            particleManager_->EmitGravityVortex(pos, effectParticleSpeed_ * 0.8f, static_cast<int>(effectParticleCount_ * 0.6f), { 0.1f, 0.0f, 0.2f });
+            particleManager_->EmitCylinder(pos);
+            break;
+        }
+    } else {
+        // ── 射撃（ビームヒット）モードのエフェクト（既存） ──
+        switch (selectedEffectPreset_) {
+        case 0: // 通常スパーク
+            particleManager_->EmitCustomSparks(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_, effectGravity_);
+            particleManager_->EmitRing(pos);
+            break;
+            
+        case 1: // 火炎バースト
+            particleManager_->EmitFlame(pos, effectParticleSpeed_ * 0.8f, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitRing(pos);
+            particleManager_->EmitCustomSparks(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_ / 2, effectBaseColor_, 0.45f);
+            break;
+            
+        case 2: // 超高圧放電
+            particleManager_->EmitLightning(pos, effectParticleSpeed_ * 1.8f, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitLaserThread(Add(pos, {-8.0f,0.0f,0.0f}), pos);
+            particleManager_->EmitLaserThread(Add(pos, {8.0f,0.0f,0.0f}), pos);
+            particleManager_->EmitLaserThread(Add(pos, {0.0f,-8.0f,0.0f}), pos);
+            particleManager_->EmitLaserThread(Add(pos, {0.0f,8.0f,0.0f}), pos);
+            particleManager_->EmitCylinder(pos);
+            break;
+            
+        case 3: // 真空斬撃
+            particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitRing(pos);
+            particleManager_->EmitRing(Add(pos, {0.0f, 0.0f, 1.0f}));
+            break;
+            
+        case 4: // 特異点爆発
+            particleManager_->EmitGravityVortex(pos, effectParticleSpeed_ * 0.8f, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitRing(pos);
+            particleManager_->EmitGravityOut(pos, effectParticleCount_, effectBaseColor_);
+            break;
+
+        case 5: // 氷結・氷華
+            particleManager_->EmitGlacial(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitRing(pos);
+            particleManager_->EmitRing(Add(pos, {0.0f, 0.0f, -0.5f}));
+            break;
+            
+        case 6: // デジタルバグ
+            particleManager_->EmitDigitalGlitch(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitCylinder(pos);
+            break;
+
+        case 7: // 風・竜巻
+            particleManager_->EmitAeroWind(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitRing(pos);
+            particleManager_->EmitCylinder(pos);
+            break;
+            
+        case 8: // 神聖・天光
+            particleManager_->EmitHolyLight(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitLaserThread(Add(pos, {0.0f,15.0f,0.0f}), pos);
+            particleManager_->EmitLaserThread(Add(pos, {-3.0f,12.0f,-2.0f}), pos);
+            particleManager_->EmitLaserThread(Add(pos, {3.0f,12.0f,2.0f}), pos);
+            particleManager_->EmitCylinder(pos);
+            break;
+            
+        case 9: // カオスボイド・闇物質
+            particleManager_->EmitChaosVoid(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
+            particleManager_->EmitLightning(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_ / 2, {0.8f, 0.0f, 0.9f});
+            particleManager_->EmitGravityVortex(pos, effectParticleSpeed_ * 0.7f, effectParticleCount_ / 2, {0.1f, 0.0f, 0.2f});
+            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitRing(pos);
+            break;
+        }
+    }
+
+    // ── ダイナミック画面演出のトリガー（近接時は約1.5〜1.8倍に強化） ──
+    float shakeMultiplier = isMelee ? 1.6f : 1.0f;
+    float hitstopMultiplier = isMelee ? 1.8f : 1.0f;
+
+    cameraShakeTimer_ = cameraShakeTimeMax_ * shakeMultiplier;
+    hitstopTimer_ = hitstopTimeMax_ * hitstopMultiplier;
+    
+    // デジタルバグ（Preset 6）発生時の処理
+    if (selectedEffectPreset_ == 6) {
+        digitalGlitchTimer_ = 0.15f; // 一瞬画面をビリビリとバグらせる
+    }
+
+    if (useRadialBlur_) {
+        blurIntensity_ = maxBlurWidth_ * (isMelee ? 1.5f : 1.0f);
+    }
+    if (useImpactFlash_) {
+        flashAlpha_ = isMelee ? 0.80f : 0.55f; // 近接はフラッシュ強め
+        if (selectedEffectPreset_ == 1) flashColor_ = {1.0f, 0.4f, 0.1f, 1.0f};
+        else if (selectedEffectPreset_ == 2) flashColor_ = {0.2f, 0.8f, 1.0f, 1.0f};
+        else if (selectedEffectPreset_ == 4) flashColor_ = {0.15f, 0.0f, 0.25f, 1.0f}; // 特異点は暗い黒紫色
+        else if (selectedEffectPreset_ == 5) flashColor_ = {0.4f, 0.75f, 1.0f, 1.0f};
+        else if (selectedEffectPreset_ == 8) flashColor_ = {1.0f, 0.95f, 0.5f, 1.0f};
+        else if (selectedEffectPreset_ == 9) flashColor_ = {0.35f, 0.0f, 0.55f, 1.0f};
+        else flashColor_ = {1.0f, 1.0f, 1.0f, 1.0f};
+    } else {
+        flashAlpha_ = 0.0f;
+    }
+}
+
+void GamePlayScene::DrawDemo() {
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    // 1. RenderTextureへの描画開始
+    postProcess_->PreDraw();
+
+    // 3Dモデル用パイプライン設定
+    if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
+        commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
+
+        ID3D12DescriptorHeap* heaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
+        commandList->SetDescriptorHeaps(1, heaps);
+
+        if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+        if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+
+        // プレイヤー戦闘機の描画
+        if (fighterModel_ && fighterTransformResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, fighterTransformResource_->GetGPUVirtualAddress());
+            fighterModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player2/Player_basecolor.JPEG"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+        }
+
+        // 標的の描画
+        if (enemyModel_ && enemyTransformResources_[0]) {
+            commandList->SetGraphicsRootConstantBufferView(1, enemyTransformResources_[0]->GetGPUVirtualAddress());
+            enemyModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("Player/player.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+        }
+
+        // ビームの描画
+        if (debugSphereModel_) {
+            for (int i = 0; i < kMaxShotBeams; ++i) {
+                if (shotBeams_[i].isAlive) {
+                    commandList->SetGraphicsRootConstantBufferView(1, bulletTransformResources_[i]->GetGPUVirtualAddress());
+                    debugSphereModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                }
+            }
+        }
+    }
+
+    // パーティクルの描画（半透明）
+    if (showParticles_ && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        BlendMode blendMode = useAdditiveBlend_ ? kBlendModeAdd : kBlendModeNormal;
+        if (graphicsPipeline_->GetPipelineState(blendMode)) {
+            commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
+            
+            particleManager_->Draw(
+                commandList,
+                particleModel_.get(),
+                ringModel_.get(),
+                cylinderModel_.get(),
+                textureSrvHandleGPU_,
+                gradationSrvHandleGPU_,
+                textSrvHandleGPU_
+            );
+        }
+    }
+
+    // 画面インパクトフラッシュの描画（半透明ブレンド）
+    if (flashAlpha_ > 0.0f && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+            commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
+            
+            Vector4 colorWithAlpha = { flashColor_.x, flashColor_.y, flashColor_.z, flashAlpha_ };
+            
+            float flashZ = camera_->GetTransform().translate.z + 1.5f;
+            Matrix4x4 worldMatrix = MakeAffineMatrix(Vector3{120.0f, 120.0f, 1.0f}, Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, flashZ});
+            
+            aimingInstancingData_->World = worldMatrix;
+            aimingInstancingData_->WVP = Multiply(worldMatrix, camera_->GetViewProjectionMatrix());
+            aimingInstancingData_->color = colorWithAlpha;
+            aimingInstancingData_->uvTransform = MakeIdentity4x4();
+            
+            if (particleModel_) {
+                particleModel_->Draw(commandList, 1, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), aimingInstancingSrvHandleGPU_);
+            }
+        }
+    }
+
+    // 2. RenderTextureへの描画終了 ＆ ポストプロセス適用
+    postProcess_->PostDraw();
+
+    // 描画先をバックバッファに戻す
+    D3D12_CPU_DESCRIPTOR_HANDLE backBufferHandle = dxCommon_->GetCurrentBackBufferRtvHandle();
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dxCommon_->GetDsvHandle();
+    commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
+
+    // SrvManagerのデスクリプタヒープをセット
+    SrvManager::GetInstance()->PreDraw();
+
+    // 適切なパイプラインを選択
+    ID3D12PipelineState* pso = nullptr;
+    switch (activePostProcess_) {
+    case kNone:
+    default:
+        pso = graphicsPipeline_->GetFullscreenPipelineState();
+        break;
+    case kGrayscale:
+        pso = graphicsPipeline_->GetGrayscalePipelineState();
+        break;
+    case kSepia:
+        pso = graphicsPipeline_->GetSepiaPipelineState();
+        break;
+    case kVignette:
+        pso = graphicsPipeline_->GetVignettePipelineState();
+        break;
+    case kBoxFilter:
+        pso = graphicsPipeline_->GetBoxFilterPipelineState();
+        break;
+    case kOutline:
+        pso = graphicsPipeline_->GetDepthOutlinePipelineState();
+        break;
+    case kRadialBlur:
+        pso = graphicsPipeline_->GetRadialBlurPipelineState();
+        break;
+    case kDissolve:
+        pso = graphicsPipeline_->GetDissolvePipelineState();
+        break;
+    case kRandom:
+        pso = graphicsPipeline_->GetRandomPipelineState();
+        break;
+    }
+
+    // Fullscreenパイプラインで描画
+    commandList->SetPipelineState(pso);
+    if (activePostProcess_ == kDissolve) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDissolveRootSignature());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, activeNoiseSrvIndex_);
+        commandList->SetGraphicsRootConstantBufferView(2, dissolveParamResource_->GetGPUVirtualAddress());
+    } else if (activePostProcess_ == kOutline) {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDepthOutlineRootSignature());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex()); // t0: カラー
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, depthSrvIndex_);               // t1: 深度
+    } else {
+        commandList->SetGraphicsRootSignature(graphicsPipeline_->GetFullscreenRootSignature());
+        SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
+        if (activePostProcess_ == kVignette && vignetteParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kRadialBlur && radialBlurParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, radialBlurParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kRandom && randomParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, randomParamResource_->GetGPUVirtualAddress());
+        }
+    }
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    commandList->DrawInstanced(3, 1, 0, 0);
+
+    // 3. ImGuiデモパネル
+#ifdef USE_IMGUI
+    ImGui::SetNextWindowSize(ImVec2(480, 580), ImGuiCond_FirstUseEver);
+    ImGui::Begin("SPECTACULAR HIT EFFECT SHOWCASE", nullptr, ImGuiWindowFlags_NoCollapse);
+
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "CG4 HIT EFFECT PREVIEWER");
+    ImGui::Separator();
+
+    // 攻撃モード切り替えUI
+    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Attack Mode Selection: [TAB key to toggle]");
+    const char* modeNames[] = { "Shooting Mode (射撃ビーム)", "Melee Mode (打撃・斬撃近接突撃)" };
+    int currentModeInt = static_cast<int>(attackMode_);
+    if (ImGui::Combo("Attack Mode", &currentModeInt, modeNames, IM_ARRAYSIZE(modeNames))) {
+        attackMode_ = static_cast<AttackMode>(currentModeInt);
+        meleeState_ = MeleeState::kIdle;
+        meleeTimer_ = 0.0f;
+        currentFighterPos_ = playerPos_;
+    }
+
+    if (attackMode_ == AttackMode::kMelee) {
+        const char* stateStr = "Unknown";
+        ImVec4 stateColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        switch (meleeState_) {
+        case MeleeState::kIdle:   stateStr = "Idle (待機中)"; stateColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f); break;
+        case MeleeState::kDash:   stateStr = "Dash (超高速突進中)"; stateColor = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); break;
+        case MeleeState::kHit:    stateStr = "Hit (衝突・エフェクト発生)"; stateColor = ImVec4(1.0f, 0.2f, 0.2f, 1.0f); break;
+        case MeleeState::kReturn: stateStr = "Return (元の位置へ帰還中)"; stateColor = ImVec4(0.2f, 0.8f, 1.0f, 1.0f); break;
+        }
+        ImGui::Text("Melee State: ");
+        ImGui::SameLine();
+        ImGui::TextColored(stateColor, "%s", stateStr);
+    } else {
+        ImGui::Text("Shooting Status: Ready");
+    }
+    ImGui::Separator();
+
+    ImGui::Text("Effect Presets:");
+    const char* presetNames[] = {
+        "Standard Sparks (通常火花) [1]",
+        "Flame Burst (火炎バースト) [2]",
+        "Volt Lightning Strike (超高圧放電) [3]",
+        "Sonic Blade Slash (真空斬撃) [4]",
+        "Gravity Singularity (特異点爆発) [5]",
+        "Glacial Freeze (氷結・氷華) [6]",
+        "Digital Glitch (デジタルバグ) [7]",
+        "Aero Wind (風・竜巻) [8]",
+        "Holy Light (神聖・天光) [9]",
+        "Chaos Void (カオスボイド・闇物質) [0]"
+    };
+    if (ImGui::Combo("Preset", &selectedEffectPreset_, presetNames, IM_ARRAYSIZE(presetNames))) {
+        ApplyPreset(selectedEffectPreset_);
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Sparks Parameters:");
+    ImGui::SliderInt("Particle Count", &effectParticleCount_, 10, 150);
+    ImGui::SliderFloat("Particle Speed", &effectParticleSpeed_, 5.0f, 40.0f, "%.1f");
+    ImGui::SliderFloat("Gravity Multiplier", &effectGravity_, 0.0f, 1.5f, "%.2f");
+    ImGui::ColorEdit3("Base Color", &effectBaseColor_.x);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Dynamic Screen Impact Effects:");
+    ImGui::SliderFloat("Shake Intensity", &cameraShakeIntensity_, 0.0f, 5.0f, "%.1f");
+    ImGui::SliderFloat("Shake Duration", &cameraShakeTimeMax_, 0.1f, 0.8f, "%.2f");
+
+    ImGui::SliderFloat("Hitstop Duration", &hitstopTimeMax_, 0.0f, 0.4f, "%.2f");
+
+    ImGui::Spacing();
+    ImGui::Checkbox("Enable Radial Blur", &useRadialBlur_);
+    ImGui::SliderFloat("Max Blur Width", &maxBlurWidth_, 0.0f, 0.15f, "%.3f");
+
+    ImGui::Checkbox("Enable Impact Flash", &useImpactFlash_);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    ImGui::Checkbox("Auto-play Mode (自動連続再生)", &autoPlay_);
+    if (autoPlay_) {
+        ImGui::SliderFloat("Auto-play Interval", &autoPlayInterval_, 0.3f, 4.0f, "%.1f s");
+    }
+
+    ImGui::Spacing();
+    
+    // モードによってラベルと挙動を変更
+    std::string buttonLabel = (attackMode_ == AttackMode::kShooting) 
+        ? "EMIT BEAM SHOT! (SPACE key)" 
+        : "EXECUTE MELEE DASH! (SPACE key)";
+        
+    if (ImGui::Button(buttonLabel.c_str(), ImVec2(-1, 40))) {
+        if (attackMode_ == AttackMode::kShooting) {
+            for (int i = 0; i < kMaxShotBeams; ++i) {
+                if (!shotBeams_[i].isAlive) {
+                    shotBeams_[i].position = playerPos_;
+                    Vector3 toTarget = Subtract(targetPos_, playerPos_);
+                    shotBeams_[i].velocity = Scale(Normalize(toTarget), 150.0f);
+                    shotBeams_[i].isAlive = true;
+                    if (audio_) {
+                        audio_->PlayWave(jumpSE_, false, 0.35f);
+                    }
+                    break;
+                }
+            }
+        } else {
+            if (meleeState_ == MeleeState::kIdle) {
+                meleeState_ = MeleeState::kDash;
+                meleeTimer_ = 0.0f;
+                if (audio_) {
+                    audio_->PlayWave(jumpSE_, false, 0.7f);
+                }
+            }
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), 
+        "Controls:\n"
+        "[TAB] key: Toggle Attack Mode (Shooting / Melee)\n"
+        "[SPACE] key: Trigger Attack / Dash\n"
+        "[1] - [0] keys: Select Effect Preset\n"
+        "[Z/C] key: Rotate Free Camera Left/Right");
+    
+    ImGui::End();
+#endif
+}
+
+void GamePlayScene::ApplyPreset(int presetIndex) {
+    selectedEffectPreset_ = presetIndex;
+    
+    switch (presetIndex) {
+    case 0: // 通常スパーク
+        effectBaseColor_ = {1.0f, 0.6f, 0.1f};
+        effectParticleCount_ = 60;
+        effectParticleSpeed_ = 15.0f;
+        effectGravity_ = 0.0f;
+        cameraShakeIntensity_ = 1.5f;
+        cameraShakeTimeMax_ = 0.30f;
+        hitstopTimeMax_ = 0.08f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.04f;
+        useImpactFlash_ = true;
+        flashColor_ = {1.0f, 1.0f, 1.0f, 1.0f};
+        break;
+    case 1: // 火炎バースト
+        effectBaseColor_ = {1.0f, 0.35f, 0.0f};
+        effectParticleCount_ = 100;
+        effectParticleSpeed_ = 12.0f;
+        effectGravity_ = -0.1f;
+        cameraShakeIntensity_ = 2.8f;
+        cameraShakeTimeMax_ = 0.45f;
+        hitstopTimeMax_ = 0.12f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.06f;
+        useImpactFlash_ = true;
+        flashColor_ = {1.0f, 0.4f, 0.1f, 1.0f};
+        break;
+    case 2: // 超高圧放電
+        effectBaseColor_ = {0.1f, 0.8f, 1.0f};
+        effectParticleCount_ = 75;
+        effectParticleSpeed_ = 28.0f;
+        effectGravity_ = 0.0f;
+        cameraShakeIntensity_ = 2.0f;
+        cameraShakeTimeMax_ = 0.15f;
+        hitstopTimeMax_ = 0.03f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.08f;
+        useImpactFlash_ = true;
+        flashColor_ = {0.2f, 0.8f, 1.0f, 1.0f};
+        break;
+    case 3: // 真空斬撃 (揺れなし・フラッシュなし・ストップなし)
+        effectBaseColor_ = {0.2f, 1.0f, 0.4f};
+        effectParticleCount_ = 50;
+        effectParticleSpeed_ = 22.0f;
+        effectGravity_ = 0.0f;
+        cameraShakeIntensity_ = 0.0f;
+        cameraShakeTimeMax_ = 0.0f;
+        hitstopTimeMax_ = 0.0f;
+        useRadialBlur_ = false;
+        maxBlurWidth_ = 0.0f;
+        useImpactFlash_ = false;
+        flashColor_ = {1.0f, 1.0f, 1.0f, 1.0f};
+        break;
+    case 4: // 特異点重力爆発 (時間差重揺れ・暗黒フラッシュ)
+        effectBaseColor_ = {0.6f, 0.1f, 0.9f};
+        effectParticleCount_ = 120;
+        effectParticleSpeed_ = 18.0f;
+        effectGravity_ = 0.8f;
+        cameraShakeIntensity_ = 2.5f;
+        cameraShakeTimeMax_ = 0.60f;
+        hitstopTimeMax_ = 0.20f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.12f;
+        useImpactFlash_ = true;
+        flashColor_ = {0.15f, 0.0f, 0.25f, 1.0f}; // 暗い黒紫色
+        break;
+    case 5: // 氷結・氷華 (揺れなし・最大フリーズ・冷気フラッシュ)
+        effectBaseColor_ = {0.7f, 0.9f, 1.0f};
+        effectParticleCount_ = 80;
+        effectParticleSpeed_ = 8.0f;
+        effectGravity_ = 0.02f;
+        cameraShakeIntensity_ = 0.0f;
+        cameraShakeTimeMax_ = 0.0f;
+        hitstopTimeMax_ = 0.30f;
+        useRadialBlur_ = false;
+        maxBlurWidth_ = 0.0f;
+        useImpactFlash_ = true;
+        flashColor_ = {0.4f, 0.75f, 1.0f, 1.0f};
+        break;
+    case 6: // デジタルバグ (物理シェイクなし・フラッシュなし・ノイズ画面バグ)
+        effectBaseColor_ = {0.0f, 1.0f, 0.3f};
+        effectParticleCount_ = 90;
+        effectParticleSpeed_ = 25.0f;
+        effectGravity_ = 0.0f;
+        cameraShakeIntensity_ = 0.0f;
+        cameraShakeTimeMax_ = 0.0f;
+        hitstopTimeMax_ = 0.0f;
+        useRadialBlur_ = false;
+        maxBlurWidth_ = 0.0f;
+        useImpactFlash_ = false;
+        flashColor_ = {0.0f, 1.0f, 0.2f, 1.0f};
+        break;
+    case 7: // 風・竜巻 (緩い横揺れ・フラッシュなし)
+        effectBaseColor_ = {0.6f, 0.95f, 0.75f};
+        effectParticleCount_ = 70;
+        effectParticleSpeed_ = 18.0f;
+        effectGravity_ = -0.05f;
+        cameraShakeIntensity_ = 0.8f;
+        cameraShakeTimeMax_ = 0.30f;
+        hitstopTimeMax_ = 0.04f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.045f;
+        useImpactFlash_ = false;
+        flashColor_ = {0.7f, 1.0f, 0.8f, 1.0f};
+        break;
+    case 8: // 神聖・天光 (揺れなし・神々しい黄金フラッシュ)
+        effectBaseColor_ = {1.0f, 0.95f, 0.6f};
+        effectParticleCount_ = 80;
+        effectParticleSpeed_ = 14.0f;
+        effectGravity_ = 0.05f;
+        cameraShakeIntensity_ = 0.0f;
+        cameraShakeTimeMax_ = 0.0f;
+        hitstopTimeMax_ = 0.10f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.09f;
+        useImpactFlash_ = true;
+        flashColor_ = {1.0f, 0.95f, 0.5f, 1.0f};
+        break;
+    case 9: // カオスボイド・闇物質 (最大全軸揺れ・長ヒットストップ)
+        effectBaseColor_ = {0.45f, 0.05f, 0.75f};
+        effectParticleCount_ = 130;
+        effectParticleSpeed_ = 20.0f;
+        effectGravity_ = 0.5f;
+        cameraShakeIntensity_ = 4.0f;
+        cameraShakeTimeMax_ = 0.75f;
+        hitstopTimeMax_ = 0.25f;
+        useRadialBlur_ = true;
+        maxBlurWidth_ = 0.14f;
+        useImpactFlash_ = true;
+        flashColor_ = {0.35f, 0.0f, 0.55f, 1.0f};
+        break;
+    }
 }

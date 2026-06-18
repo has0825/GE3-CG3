@@ -14,16 +14,7 @@ struct D3DResourceLeakChecker {
 };
 
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
-    // ワーキングディレクトリの自動調整
-    if (!std::filesystem::exists("Resources/gradationLine.png")) {
-        if (std::filesystem::exists("project/Resources/gradationLine.png")) {
-            std::filesystem::current_path("project");
-        } else if (std::filesystem::exists("../project/Resources/gradationLine.png")) {
-            std::filesystem::current_path("../project");
-        } else if (std::filesystem::exists("../Resources/gradationLine.png")) {
-            std::filesystem::current_path("..");
-        }
-    }
+    std::filesystem::current_path("C:/Users/k024g/Desktop/GE3&CG3/project");
 
     D3DResourceLeakChecker leakChecker;
 

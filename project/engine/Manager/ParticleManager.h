@@ -26,6 +26,8 @@ public:
         float lifeTime;
         float currentTime;
         Matrix4x4 uvTransform;
+        float gravity = 0.0f; // 重力加速度の倍率
+        int effectType = 0;   // エフェクトの種類識別子
         
         enum class Type {
             kBillboard, // ビルボード板ポリゴン
@@ -62,6 +64,19 @@ public:
     void EmitRing(const Vector3& emitterPos);
     void EmitCylinder(const Vector3& emitterPos);
     void EmitLaserThread(const Vector3& emitterPos, const Vector3& targetPos);
+    
+    // 新規追加の派手なエフェクト
+    void EmitFlame(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitLightning(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitSlash(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitGravityVortex(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitGravityOut(const Vector3& emitterPos, int count, const Vector3& color);
+    void EmitCustomSparks(const Vector3& emitterPos, float speed, int count, const Vector3& color, float gravity);
+    void EmitGlacial(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitDigitalGlitch(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitAeroWind(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitHolyLight(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitChaosVoid(const Vector3& emitterPos, float speed, int count, const Vector3& color);
 
 private:
     // 個別のパーティクル生成用のヘルパー関数（自律オブジェクトプール用）

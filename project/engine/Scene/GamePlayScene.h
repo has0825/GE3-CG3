@@ -71,6 +71,12 @@ public:
     void Finalize() override;
     void Update() override;
     void Draw() override;
+    
+    // デモシーン用メソッド
+    void UpdateDemo(float deltaTime);
+    void DrawDemo();
+    void EmitHitEffect(const Vector3& pos);
+    void ApplyPreset(int presetIndex);
 
 private:
     Particle MakeNewParticle(int type, const Vector3& emitterPos);
@@ -511,4 +517,78 @@ private:
     float playerCollisionRadius_ = 2.0f;
     float playerSpeedX_ = 25.0f;
     float playerSpeedY_ = 20.0f;
+
+    // ── ヒットエフェクト・デモ用メンバ変数 ──
+    bool isDemoMode_ = true;                 // デモモードフラグ
+    bool autoPlay_ = true;                  // オートデモ再生フラグ
+    float autoPlayTimer_ = 0.0f;             // オートデモタイマー
+    float autoPlayInterval_ = 1.0f;          // オートデモ間隔 (秒)
+
+    // カメラシェイク
+    Vector3 cameraBasePos_ = { 0.0f, 6.0f, -25.0f }; // カメラ基準座標
+    Vector3 cameraBaseRot_ = { 0.15f, 0.0f, 0.0f };  // カメラ基準回転
+    float cameraShakeIntensity_ = 1.5f;      // シェイク基本強度
+    float cameraShakeTimeMax_ = 0.35f;       // シェイク時間 (秒)
+    float cameraShakeTimer_ = 0.0f;          // 現在のシェイクタイマー
+    Vector3 cameraShakeOffset_ = { 0.0f, 0.0f, 0.0f }; // シェイクオフセット値
+
+    // ヒットストップ
+    float hitstopTimeMax_ = 0.08f;           // ヒットストップ時間 (秒)
+    float hitstopTimer_ = 0.0f;              // 現在のヒットストップタイマー
+
+    // 画面インパクトフラッシュ (Color Flash)
+    bool useImpactFlash_ = true;             // フラッシュ有効フラグ
+    float flashAlpha_ = 0.0f;                // フラッシュ不透明度 (0.0〜1.0)
+    Vector4 flashColor_ = { 1.0f, 1.0f, 1.0f, 1.0f }; // フラッシュ色
+
+    // ラジアルブラー
+    bool useRadialBlur_ = true;              // ラジアルブラー有効フラグ
+    float blurIntensity_ = 0.0f;             // 現在のブラー強度
+    float maxBlurWidth_ = 0.04f;             // 最大ブラー幅
+
+    // エフェクト調整パラメータ (ImGui)
+    int selectedEffectPreset_ = 1;           // 選択中プリセット (0: 通常, 1: 火炎, 2: 雷撃, 3: 斬撃, 4: 重力)
+    int effectParticleCount_ = 60;           // パーティクル射出数
+    float effectParticleSpeed_ = 15.0f;      // パーティクル初期速度
+    float effectGravity_ = 0.0f;             // パーティクル重力影響度
+    Vector3 effectBaseColor_ = { 1.0f, 0.6f, 0.1f }; // エフェクトベースカラー
+
+    // 標的（ターゲット）とプレイヤーの位置設定
+    Vector3 targetPos_ = { 0.0f, 0.0f, 15.0f }; // 標的座標
+    Vector3 playerPos_ = { 0.0f, -3.0f, -5.0f }; // プレイヤー座標
+
+    // デモ用ビーム
+    struct ShotBeam {
+        Vector3 position;
+        Vector3 velocity;
+        bool isAlive;
+    };
+    static const int kMaxShotBeams = 10;
+    std::vector<ShotBeam> shotBeams_;
+    
+    // スプライト描画に必要な定数バッファ (フラッシュ用)
+    Microsoft::WRL::ComPtr<ID3D12Resource> flashMaterialResource_;
+    Material* flashMaterialData_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> flashTransformResource_;
+    TransformationMatrix* flashTransformData_ = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE flashSrvHandleGPU_{};
+
+public:
+    enum class AttackMode {
+        kShooting, // 射撃（ビーム）
+        kMelee     // 近接（打撃・斬撃）
+    };
+    enum class MeleeState {
+        kIdle,
+        kDash,     // 標的に向かって超高速突進
+        kHit,      // 衝突した瞬間（ヒットストップなど）
+        kReturn    // 元の位置に戻る
+    };
+
+private:
+    AttackMode attackMode_ = AttackMode::kShooting;
+    MeleeState meleeState_ = MeleeState::kIdle;
+    float meleeTimer_ = 0.0f;
+    Vector3 currentFighterPos_ = { 0.0f, -3.0f, -5.0f };
+    float digitalGlitchTimer_ = 0.0f;
 };
