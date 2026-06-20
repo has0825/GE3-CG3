@@ -288,7 +288,7 @@ void ParticleManager::EmitHit(const Vector3& emitterPos) {
     }
 }
 
-void ParticleManager::EmitRing(const Vector3& emitterPos) {
+void ParticleManager::EmitRing(const Vector3& emitterPos, const Vector3& color) {
     // 2. 衝撃波リング 2枚
     int ringCount = 2;
     for (uint32_t r = 0; r < kRingInstanceCount && ringCount > 0; ++r) {
@@ -304,12 +304,9 @@ void ParticleManager::EmitRing(const Vector3& emitterPos) {
             ringParticles_[r].position = emitterPos;
             ringParticles_[r].velocity = { 0.0f, 0.0f, 0.0f };
             
-            float ringCol = distColor(randomEngine_);
-            if (ringCol < 0.5f) {
-                ringParticles_[r].color = { 1.0f, 0.7f, 0.1f, 1.0f }; // ゴールデンオレンジ
-            } else {
-                ringParticles_[r].color = { 1.0f, 0.3f, 0.05f, 1.0f }; // ディープレッド
-            }
+            // 指定された色にランダムな明度変化を加えて反映
+            float brightness = 0.7f + distColor(randomEngine_) * 0.3f;
+            ringParticles_[r].color = { color.x * brightness, color.y * brightness, color.z * brightness, 1.0f };
             
             ringParticles_[r].lifeTime = 0.5f + distColor(randomEngine_) * 0.5f;
             ringParticles_[r].currentTime = 0.0f;
@@ -320,7 +317,7 @@ void ParticleManager::EmitRing(const Vector3& emitterPos) {
     }
 }
 
-void ParticleManager::EmitCylinder(const Vector3& emitterPos) {
+void ParticleManager::EmitCylinder(const Vector3& emitterPos, const Vector3& color) {
     // 3. 閃光シリンダー 1本
     int cylinderCount = 1;
     for (uint32_t c = 0; c < kCylinderInstanceCount && cylinderCount > 0; ++c) {
@@ -342,12 +339,9 @@ void ParticleManager::EmitCylinder(const Vector3& emitterPos) {
                 distCylVel(randomEngine_)
             };
 
-            float cylCol = distColor(randomEngine_);
-            if (cylCol < 0.5f) {
-                cylinderParticles_[c].color = { 1.0f, 0.5f, 0.05f, 1.0f }; // 炎のオレンジ
-            } else {
-                cylinderParticles_[c].color = { 1.0f, 0.8f, 0.3f, 1.0f }; // 黄金色の閃光
-            }
+            // 指定された色にランダムな明度変化を加えて反映
+            float brightness = 0.8f + distColor(randomEngine_) * 0.2f;
+            cylinderParticles_[c].color = { color.x * brightness, color.y * brightness, color.z * brightness, 1.0f };
 
             cylinderParticles_[c].lifeTime = 0.6f + distColor(randomEngine_) * 0.6f;
             cylinderParticles_[c].currentTime = 0.0f;
@@ -1122,6 +1116,194 @@ void ParticleManager::EmitChaosVoid(const Vector3& emitterPos, float speed, int 
             particles_[p].color.y = color.y;
             particles_[p].color.z = color.z;
             emitCount--;
+        }
+    }
+}
+
+void ParticleManager::EmitWhiteCross(const Vector3& emitterPos) {
+    // 空きスロット（非アクティブ）を探し、無ければ最も寿命が尽きかけているアクティブスロットを強制上書きするヘルパー
+    auto find_slot = [this]() -> uint32_t {
+        // 1. 非アクティブスロットの検索
+        for (uint32_t p = 0; p < kNumInstances; ++p) {
+            if (particles_[p].currentTime >= particles_[p].lifeTime) {
+                return p;
+            }
+        }
+        // 2. 最も寿命が進んでいる（currentTime / lifeTime が最大）アクティブスロットの検索
+        uint32_t bestIdx = 0;
+        float maxProgress = -1.0f;
+        for (uint32_t p = 0; p < kNumInstances; ++p) {
+            float progress = particles_[p].currentTime / particles_[p].lifeTime;
+            if (progress > maxProgress) {
+                maxProgress = progress;
+                bestIdx = p;
+            }
+        }
+        return bestIdx;
+    };
+
+    // 1. 中心（コア）に巨大な白い丸型パーティクル粒子を複数重ねて、中心部がまばゆく輝くコアを作る
+    for (int i = 0; i < 25; ++i) {
+        uint32_t p = find_slot();
+        particles_[p].position = emitterPos;
+        particles_[p].velocity = { 0.0f, 0.0f, 0.0f };
+        std::uniform_real_distribution<float> distScale(12.0f, 24.0f);
+        float sc = distScale(randomEngine_);
+        particles_[p].scale = { sc, sc, sc };
+        particles_[p].rotate = { 0.0f, 0.0f, 0.0f };
+        particles_[p].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        particles_[p].lifeTime = 0.5f + (float)i * 0.03f;
+        particles_[p].currentTime = 0.0f;
+        particles_[p].uvTransform = MakeIdentity4x4();
+        particles_[p].gravity = 0.0f;
+        particles_[p].effectType = 21; // 21: 丸型パーティクル
+        particles_[p].type = Particle::Type::kBillboard;
+    }
+
+    // 2. 十字の方向（上、下、左、右）に高密度で綺麗な丸型パーティクル粒子を射出
+    Vector3 crossDirs[4] = {
+        { 0.0f, 1.0f, 0.0f },  // 上
+        { 0.0f, -1.0f, 0.0f }, // 下
+        { -1.0f, 0.0f, 0.0f }, // 左
+        { 1.0f, 0.0f, 0.0f }   // 右
+    };
+
+    // 各方向に90発ずつ（計360発）
+    for (int d = 0; d < 4; ++d) {
+        for (int c = 0; c < 90; ++c) {
+            uint32_t p = find_slot();
+
+            // 速度の分布（中心近くにとどまる遅いものから、遠くへ吹き飛ぶ高速なものまで分散させて綺麗な光線を引く）
+            std::uniform_real_distribution<float> distSpeed(15.0f, 160.0f);
+            // 横ブレ（ノイズ）は極めて小さくして綺麗な直線にする
+            std::uniform_real_distribution<float> distNoise(-0.25f, 0.25f);
+            std::uniform_real_distribution<float> distLife(0.8f, 1.3f);
+            std::uniform_real_distribution<float> distScale(3.0f, 8.5f); // 粒子の大きさ
+
+            float speed = distSpeed(randomEngine_);
+            Vector3 vel = {
+                crossDirs[d].x * speed + distNoise(randomEngine_),
+                crossDirs[d].y * speed + distNoise(randomEngine_),
+                crossDirs[d].z * speed + distNoise(randomEngine_)
+            };
+
+            particles_[p].position = emitterPos;
+            particles_[p].velocity = vel;
+            float sc = distScale(randomEngine_);
+            particles_[p].scale = { sc, sc, sc };
+            particles_[p].rotate = { 0.0f, 0.0f, 0.0f };
+            particles_[p].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+            particles_[p].lifeTime = distLife(randomEngine_);
+            particles_[p].currentTime = 0.0f;
+            particles_[p].uvTransform = MakeIdentity4x4();
+            particles_[p].gravity = 0.0f;
+            particles_[p].effectType = 21;
+            particles_[p].type = Particle::Type::kBillboard;
+        }
+    }
+
+    // 3. 斜め4方向にも少し少なめ・遅めに射出して、全体の綺麗な星型の炸裂感を整える
+    Vector3 diagonalDirs[4] = {
+        { 0.707f, 0.707f, 0.0f },   // 右上
+        { 0.707f, -0.707f, 0.0f },  // 右下
+        { -0.707f, 0.707f, 0.0f },  // 左上
+        { -0.707f, -0.707f, 0.0f }  // 左下
+    };
+
+    // 各方向に45発ずつ（計180発）
+    for (int d = 0; d < 4; ++d) {
+        for (int c = 0; c < 45; ++c) {
+            uint32_t p = find_slot();
+
+            std::uniform_real_distribution<float> distSpeed(10.0f, 90.0f); // 少し遅め
+            std::uniform_real_distribution<float> distNoise(-0.2f, 0.2f);
+            std::uniform_real_distribution<float> distLife(0.6f, 1.0f);
+            std::uniform_real_distribution<float> distScale(2.0f, 5.0f);
+
+            float speed = distSpeed(randomEngine_);
+            Vector3 vel = {
+                diagonalDirs[d].x * speed + distNoise(randomEngine_),
+                diagonalDirs[d].y * speed + distNoise(randomEngine_),
+                diagonalDirs[d].z * speed + distNoise(randomEngine_)
+            };
+
+            particles_[p].position = emitterPos;
+            particles_[p].velocity = vel;
+            float sc = distScale(randomEngine_);
+            particles_[p].scale = { sc, sc, sc };
+            particles_[p].rotate = { 0.0f, 0.0f, 0.0f };
+            particles_[p].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+            particles_[p].lifeTime = distLife(randomEngine_);
+            particles_[p].currentTime = 0.0f;
+            particles_[p].uvTransform = MakeIdentity4x4();
+            particles_[p].gravity = 0.0f;
+            particles_[p].effectType = 13; // 13: 高速点滅キラキラ明滅
+            particles_[p].type = Particle::Type::kBillboard;
+        }
+    }
+}
+
+void ParticleManager::Clear() {
+    for (uint32_t i = 0; i < kNumInstances; ++i) {
+        particles_[i].currentTime = particles_[i].lifeTime;
+        particles_[i].color.w = 0.0f;
+    }
+}
+
+void ParticleManager::EmitMegaRing(const Vector3& emitterPos, const Vector3& color) {
+    int ringCount = 2; // 2枚重ねの多重衝撃波リング
+    for (uint32_t r = 0; r < kRingInstanceCount && ringCount > 0; ++r) {
+        if (ringParticles_[r].currentTime >= ringParticles_[r].lifeTime) {
+            std::uniform_real_distribution<float> distRingScale(15.0f, 30.0f); // 巨大な初期サイズ
+            std::uniform_real_distribution<float> distRingRot(-M_PI, M_PI);
+            std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+
+            float ringInitScale = distRingScale(randomEngine_);
+            ringParticles_[r].scale = { ringInitScale, ringInitScale, 1.0f };
+            ringParticles_[r].rotate = { 0.0f, 0.0f, distRingRot(randomEngine_) };
+            ringParticles_[r].position = emitterPos;
+            ringParticles_[r].velocity = { 0.0f, 0.0f, 0.0f };
+            
+            float brightness = 0.8f + distColor(randomEngine_) * 0.2f;
+            ringParticles_[r].color = { color.x * brightness, color.y * brightness, color.z * brightness, 1.0f };
+            
+            ringParticles_[r].lifeTime = 0.7f + distColor(randomEngine_) * 0.3f;
+            ringParticles_[r].currentTime = 0.0f;
+            ringParticles_[r].uvTransform = MakeIdentity4x4();
+
+            ringCount--;
+        }
+    }
+}
+
+void ParticleManager::EmitMegaCylinder(const Vector3& emitterPos, const Vector3& color) {
+    int cylinderCount = 1;
+    for (uint32_t c = 0; c < kCylinderInstanceCount && cylinderCount > 0; ++c) {
+        if (cylinderParticles_[c].currentTime >= cylinderParticles_[c].lifeTime) {
+            std::uniform_real_distribution<float> distCylScale(15.0f, 35.0f); // 巨大な円柱
+            std::uniform_real_distribution<float> distCylRot(-M_PI, M_PI);
+            std::uniform_real_distribution<float> distCylVel(-10.0f, 10.0f);
+            std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+
+            float cylSc = distCylScale(randomEngine_);
+            cylinderParticles_[c].scale = { cylSc, cylSc, cylSc };
+            cylinderParticles_[c].rotate = { distCylRot(randomEngine_), distCylRot(randomEngine_), distCylRot(randomEngine_) };
+            cylinderParticles_[c].position = emitterPos;
+            
+            cylinderParticles_[c].velocity = {
+                distCylVel(randomEngine_),
+                4.0f + std::abs(distCylVel(randomEngine_)),
+                distCylVel(randomEngine_)
+            };
+
+            float brightness = 0.8f + distColor(randomEngine_) * 0.2f;
+            cylinderParticles_[c].color = { color.x * brightness, color.y * brightness, color.z * brightness, 1.0f };
+
+            cylinderParticles_[c].lifeTime = 0.8f + distColor(randomEngine_) * 0.4f;
+            cylinderParticles_[c].currentTime = 0.0f;
+            cylinderParticles_[c].uvTransform = MakeIdentity4x4();
+
+            cylinderCount--;
         }
     }
 }

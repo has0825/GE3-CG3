@@ -428,7 +428,7 @@ private:
     float bossBodyScale_ = 39.21f;       // 胴体ボディ(big+Spider.obj)専用の独立スケール
     float bossLegScale_ = 30.91f;        // 足モデル(big+spider+arm.obj)専用の独立スケール
     float bossZOffset_ = 169.0f;       // プレイヤーとの距離
-    float bossYOffset_ = -8.5f;       // 接地高さ
+    float bossYOffset_ = 10.0f;       // 接地高さ
     float bossBodyRotY_ = 273.0f;      // ボス胴体のY回転(プレイヤーに向けるため)
     
     // 左右対称な4対の足の配置パラメータ (ユーザーがImGuiで完全個別調整可能)
@@ -512,14 +512,14 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE spiderWebSrvHandleGPU_{};
 
     // プレイヤーパラメータ
-    float playerLimitX_ = 35.0f;
-    float playerLimitY_ = 25.0f;
+    float playerLimitX_ = 20.0f;
+    float playerLimitY_ = 12.0f;
     float playerCollisionRadius_ = 2.0f;
     float playerSpeedX_ = 25.0f;
     float playerSpeedY_ = 20.0f;
 
     // ── ヒットエフェクト・デモ用メンバ変数 ──
-    bool isDemoMode_ = true;                 // デモモードフラグ
+    bool isDemoMode_ = false;                 // デモモードフラグ
     bool autoPlay_ = true;                  // オートデモ再生フラグ
     float autoPlayTimer_ = 0.0f;             // オートデモタイマー
     float autoPlayInterval_ = 1.0f;          // オートデモ間隔 (秒)
@@ -531,6 +531,7 @@ private:
     float cameraShakeTimeMax_ = 0.35f;       // シェイク時間 (秒)
     float cameraShakeTimer_ = 0.0f;          // 現在のシェイクタイマー
     Vector3 cameraShakeOffset_ = { 0.0f, 0.0f, 0.0f }; // シェイクオフセット値
+    float activeShakeIntensity_ = 0.0f;      // 現在適用されているシェイク強度
 
     // ヒットストップ
     float hitstopTimeMax_ = 0.08f;           // ヒットストップ時間 (秒)
@@ -591,4 +592,17 @@ private:
     float meleeTimer_ = 0.0f;
     Vector3 currentFighterPos_ = { 0.0f, -3.0f, -5.0f };
     float digitalGlitchTimer_ = 0.0f;
+
+    // ── ボス死亡演出用 ──
+    bool isBossDefeatedSequence_ = false;
+    float bossDefeatTimer_ = 0.0f;
+    bool isDefeatBulletActive_ = false;
+    Vector3 defeatBulletPos_ = { 0.0f, 0.0f, 0.0f };
+    Vector3 defeatBulletVel_ = { 0.0f, 0.0f, 0.0f };
+    float defeatBulletSize_ = 0.8f; // トドメの弾サイズ
+    Microsoft::WRL::ComPtr<ID3D12Resource> defeatBulletTransformResource_;
+    TransformationMatrix* defeatBulletTransformData_ = nullptr;
+    bool isBossModelVisible_ = true; // ボス自体の表示フラグ
+    bool hasHitBoss_ = false; // ボスにヒットしたか
+    float bossDefeatHitTimer_ = 0.0f; // ヒット後の経過時間タイマー
 };

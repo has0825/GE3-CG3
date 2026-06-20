@@ -61,8 +61,8 @@ public:
 
     // エフェクト発生用API
     void EmitHit(const Vector3& emitterPos);
-    void EmitRing(const Vector3& emitterPos);
-    void EmitCylinder(const Vector3& emitterPos);
+    void EmitRing(const Vector3& emitterPos, const Vector3& color = { 1.0f, 0.5f, 0.1f });
+    void EmitCylinder(const Vector3& emitterPos, const Vector3& color = { 1.0f, 0.5f, 0.1f });
     void EmitLaserThread(const Vector3& emitterPos, const Vector3& targetPos);
     
     // 新規追加の派手なエフェクト
@@ -77,6 +77,10 @@ public:
     void EmitAeroWind(const Vector3& emitterPos, float speed, int count, const Vector3& color);
     void EmitHolyLight(const Vector3& emitterPos, float speed, int count, const Vector3& color);
     void EmitChaosVoid(const Vector3& emitterPos, float speed, int count, const Vector3& color);
+    void EmitWhiteCross(const Vector3& emitterPos);
+    void Clear();
+    void EmitMegaRing(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
+    void EmitMegaCylinder(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
 
 private:
     // 個別のパーティクル生成用のヘルパー関数（自律オブジェクトプール用）

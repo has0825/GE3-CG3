@@ -61,8 +61,8 @@ void GamePlayScene::Initialize() {
         // ファイルが無ければデフォルト値で作成しておく
         std::ofstream outfile("Resources/player_params.txt");
         if (outfile.is_open()) {
-            outfile << "LIMIT_X=35.0\n";
-            outfile << "LIMIT_Y=25.0\n";
+            outfile << "LIMIT_X=20.0\n";
+            outfile << "LIMIT_Y=12.0\n";
             outfile << "COLLISION_RADIUS=2.0\n";
             outfile << "SPEED_X=25.0\n";
             outfile << "SPEED_Y=20.0\n";
@@ -250,6 +250,7 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->LoadTexture("test.dds");
     TextureManager::GetInstance()->LoadTexture("circle2.png");
     TextureManager::GetInstance()->LoadTexture("gradationLine.png");
+    TextureManager::GetInstance()->LoadTexture("douro.jpg");
     TextureManager::GetInstance()->LoadTexture("human/white.png");
     TextureManager::GetInstance()->LoadTexture("aiming.png");
     TextureManager::GetInstance()->LoadTexture("Player2/Player_basecolor.JPEG");
@@ -284,6 +285,20 @@ void GamePlayScene::Initialize() {
         bulletTransformData_[i]->WVP = MakeIdentity4x4();
         bulletTransformData_[i]->World = MakeIdentity4x4();
     }
+
+    // トドメ巨大弾用トランスフォーム
+    defeatBulletTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    defeatBulletTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&defeatBulletTransformData_));
+    defeatBulletTransformData_->WVP = MakeIdentity4x4();
+    defeatBulletTransformData_->World = MakeIdentity4x4();
+
+    // 死亡演出フラグの初期化
+    isBossDefeatedSequence_ = false;
+    bossDefeatTimer_ = 0.0f;
+    isDefeatBulletActive_ = false;
+    isBossModelVisible_ = true;
+    hasHitBoss_ = false;
+    bossDefeatHitTimer_ = 0.0f;
 
     // 敵小隊と敵の初期化（オブジェクトプール・無限フォーメーションスポーン式）
 
@@ -362,7 +377,7 @@ void GamePlayScene::Initialize() {
 
     // ── 床(Plane)の初期化とバッファ生成 ──
     floorModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/plane.obj", device));
-    TextureManager::GetInstance()->LoadTexture("gradationLine.png");
+    TextureManager::GetInstance()->LoadTexture("douro.jpg");
 
     float kFloorSizeZ = 200.0f;
     for (int i = 0; i < kNumFloors; ++i) {
@@ -715,7 +730,7 @@ void GamePlayScene::Update() {
         
         float progress = cameraShakeTimer_ / (cameraShakeTimeMax_ > 0.0f ? cameraShakeTimeMax_ : 1.0f);
         progress = std::clamp(progress, 0.0f, 1.0f);
-        float currentIntensity = cameraShakeIntensity_ * (progress * progress);
+        float currentIntensity = activeShakeIntensity_ * (progress * progress);
         
         std::uniform_real_distribution<float> distShake(-1.0f, 1.0f);
         if (selectedEffectPreset_ == 7) {
@@ -775,10 +790,178 @@ void GamePlayScene::Update() {
     }
 
     // ゲームクリア/ゲームオーバー遷移判定
-    if (bossHP_ <= 0.0f) {
-        SceneManager::GetInstance()->ChangeScene("CLEAR");
-        return;
+    if (bossHP_ <= 0.0f && !isBossDefeatedSequence_) {
+        isBossDefeatedSequence_ = true;
+        bossDefeatTimer_ = 0.0f;
+        hasHitBoss_ = false;
+        isBossModelVisible_ = true;
+        isDefeatBulletActive_ = false;
+        bossDefeatHitTimer_ = 0.0f;
+        
+        // パーティクルを一旦すべてクリア
+        if (particleManager_) {
+            particleManager_->Clear();
+        }
+        
+        // プレイヤーの速度を通常に戻し、バレルロールやブーストを強制解除
+        isBarrelRolling_ = false;
+        isBoosting_ = false;
+        boostBlurWidth_ = 0.0f;
+        boostForwardSpeed_ = kNormalSpeed;
+        
+        // プレイヤーの弾をすべて消去（寿命切れにする）
+        for (auto& b : playerBullets_) {
+            b.currentTime = b.lifeTime;
+        }
+        // ボスの蜘蛛の巣弾などをクリア
+        bossWebBullets_.clear();
     }
+
+    if (isBossDefeatedSequence_) {
+        bossDefeatTimer_ += kDeltaTime;
+        
+        // カメラトランスフォームの参照を取得
+        EulerTransform& camTrans = camera_->GetTransform();
+        
+        // 1. 自機を画面中央（X=0, Y=0）に滑らかに補間移動
+        if (fighterModel_) {
+            fighterModel_->transform.translate.x = std::lerp(fighterModel_->transform.translate.x, 0.0f, 0.1f);
+            fighterModel_->transform.translate.y = std::lerp(fighterModel_->transform.translate.y, 0.0f, 0.1f);
+            fighterModel_->transform.rotate.x = std::lerp(fighterModel_->transform.rotate.x, 0.0f, 0.1f);
+            fighterModel_->transform.rotate.y = std::lerp(fighterModel_->transform.rotate.y, 0.0f, 0.1f);
+            fighterModel_->transform.rotate.z = std::lerp(fighterModel_->transform.rotate.z, 0.0f, 0.1f);
+            
+            // プレイヤーのロール・ピッチもリセット
+            playerRotationRoll_ = std::lerp(playerRotationRoll_, 0.0f, 0.1f);
+            playerRotationPitch_ = std::lerp(playerRotationPitch_, 0.0f, 0.1f);
+        }
+        
+        // 自機とカメラのZ前進は継続（ボスの位置との整合性を保つため）
+        fighterWorldZ_ += boostForwardSpeed_ * kDeltaTime;
+        camTrans.translate.z = fighterWorldZ_ - 65.0f;
+        
+        // スターフォックス風のカメラX/Y追従も中央に戻す
+        camTrans.translate.x = std::lerp(camTrans.translate.x, 0.0f, 0.08f);
+        camTrans.translate.y = std::lerp(camTrans.translate.y, 0.0f, 0.08f);
+        camTrans.rotate.x = std::lerp(camTrans.rotate.x, 0.0f, 0.08f);
+        camTrans.rotate.y = std::lerp(camTrans.rotate.y, 0.0f, 0.08f);
+        camTrans.rotate.z = std::lerp(camTrans.rotate.z, 0.0f, 0.08f);
+
+        // 2. トドメの巨大弾の自動発射 (0.8秒時点)
+        if (bossDefeatTimer_ >= 0.8f && !isDefeatBulletActive_ && !hasHitBoss_) {
+            isDefeatBulletActive_ = true;
+            
+            // 自機のワールド位置
+            Vector3 fighterWorldPos = {
+                camTrans.translate.x + (fighterModel_ ? fighterModel_->transform.translate.x : 0.0f),
+                camTrans.translate.y - 3.0f + (fighterModel_ ? fighterModel_->transform.translate.y : 0.0f),
+                fighterWorldZ_
+            };
+            
+            defeatBulletPos_ = fighterWorldPos;
+            
+            // ボスのワールド位置
+            float bodyBounce = 0.0f;
+            if (bossLegSwingSpeed_ > 0.0f) {
+                bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+            }
+            Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+            
+            // 弾の速度ベクトル (ボスへ向かう方向)
+            Vector3 dir = Normalize(Subtract(bossPos, defeatBulletPos_));
+            float bulletSpeed = 380.0f; // より高速に射撃
+            defeatBulletVel_ = Scale(dir, bulletSpeed);
+            
+            // 発射SE
+            if (audio_) {
+                audio_->PlayWave(jumpSE_, false, 1.2f);
+            }
+        }
+        
+        // 3. トドメの巨大弾の更新とヒット判定
+        if (isDefeatBulletActive_) {
+            defeatBulletPos_ = Add(defeatBulletPos_, Scale(defeatBulletVel_, kDeltaTime));
+            
+            // トレイルパーティクル (白く輝くスパークを毎フレーム放出)
+            for (int i = 0; i < 2; ++i) {
+                particleManager_->EmitHolyLight(defeatBulletPos_, 2.0f, 1, {1.0f, 1.0f, 1.0f});
+            }
+            
+            // ボスのワールド位置
+            float bodyBounce = 0.0f;
+            if (bossLegSwingSpeed_ > 0.0f) {
+                bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+            }
+            Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+            
+            // 衝突判定 (ボスの衝突半径または弾がボスを追い抜いたか)
+            Vector3 diff = Subtract(defeatBulletPos_, bossPos);
+            float dist = Length(diff);
+            if (dist <= bossCollisionRadius_ || defeatBulletPos_.z >= bossPos.z) {
+                isDefeatBulletActive_ = false;
+                hasHitBoss_ = true;
+                isBossModelVisible_ = false; // ボスを消滅させる
+                bossDefeatHitTimer_ = 0.0f;  // ヒットした瞬間からタイマーを開始
+                
+                // 大きく白い十字Particleエフェクトを発生
+                particleManager_->EmitWhiteCross(bossPos);
+                
+                // 白い超巨大多重衝撃波リングと巨大シリンダーエフェクトを追加してかっこよく演出
+                particleManager_->EmitMegaRing(bossPos, {1.0f, 1.0f, 1.0f});
+                particleManager_->EmitMegaCylinder(bossPos, {1.0f, 1.0f, 1.0f});
+                
+                // 周囲に飛び散る純白の激しいスパークエフェクトを追加
+                particleManager_->EmitFlame(bossPos, 20.0f, 30, {1.0f, 1.0f, 1.0f});
+                
+                // 大爆発SE
+                if (audio_) {
+                    audio_->PlayWave(jumpSE_, false, 2.0f);
+                }
+                
+                // 画面インパクトフラッシュ (真っ白に)
+                flashAlpha_ = 1.0f;
+                flashColor_ = { 1.0f, 1.0f, 1.0f, 1.0f };
+                
+                // 強烈なラジアルブラーによる爆発の衝撃波画面の歪み表現
+                useRadialBlur_ = true;
+                blurIntensity_ = 0.12f;
+                maxBlurWidth_ = 0.12f;
+                
+                // 画面シェイクを2倍に強化して重厚な爆発振動を表現
+                cameraShakeTimer_ = 0.80f;
+                cameraShakeIntensity_ = 10.0f;
+                activeShakeIntensity_ = 10.0f;
+                cameraShakeTimeMax_ = 0.80f;
+            }
+        }
+        
+        // 被弾後タイマーのカウントを進める
+        if (hasHitBoss_) {
+            bossDefeatHitTimer_ += kDeltaTime;
+        }
+        
+        // フラッシュの減衰速度をトドメ演出中はさらにゆっくりにする（かつ最初は最大で維持）
+        if (flashAlpha_ > 0.0f) {
+            float originalFade = kDeltaTime * ((selectedEffectPreset_ == 8) ? 1.5f : 3.5f);
+            
+            // 命中後0.4秒間はフラッシュを完全に1.0f（最大値）にロックして輝かせる
+            if (bossDefeatHitTimer_ < 0.4f) {
+                flashAlpha_ = 1.0f;
+            } else {
+                // その後、非常にゆっくりフェードアウトさせる（減衰速度 0.6f）
+                float desiredFade = kDeltaTime * 0.6f;
+                flashAlpha_ += (originalFade - desiredFade);
+                flashAlpha_ = (std::min)(flashAlpha_, 1.0f);
+            }
+        }
+
+        // 4. クリアシーンへの遷移判定 (撃破ヒット後、さらに2.0秒演出を持たせる)
+        if (hasHitBoss_ && bossDefeatHitTimer_ >= 2.0f) {
+            SceneManager::GetInstance()->ChangeScene("CLEAR");
+            return;
+        }
+    }
+    
     if (playerHP_ <= 0.0f) {
         SceneManager::GetInstance()->ChangeScene("GAMEOVER");
         return;
@@ -881,6 +1064,7 @@ void GamePlayScene::Update() {
             // 着地！画面シェイクと土煙・SE
             cameraShakeTimer_ = 0.50f;
             cameraShakeIntensity_ = 3.5f;
+            activeShakeIntensity_ = 3.5f;
             cameraShakeTimeMax_ = 0.50f;
             if (audio_) {
                 audio_->PlayWave(jumpSE_, false, 2.0f); // 大音量で着地SE
@@ -1111,6 +1295,15 @@ void GamePlayScene::Update() {
         }
     }
 
+    // Bキーでボスシーン（kBossFightフェーズ）へ即座にスキップ
+    if (input_->IsKeyTriggered(DIK_B)) {
+        if (currentPhase_ != GamePhase::kBossFight) {
+            currentPhase_ = GamePhase::kBossFight;
+            bossAppearanceTimer_ = 3.0f; // ボス登場演出（落下）開始（3秒）
+            phaseTimer_ = 0.0f;          // 通常フェーズのタイマーをリセット
+        }
+    }
+
     if (sceneMode_ == SceneMode::kCamera) {
         // 右クリックが押されている間（ドラッグ中）だけカメラを回転させる（カーソルロック）
         if (input_->IsMousePressed(1)) {
@@ -1173,7 +1366,7 @@ void GamePlayScene::Update() {
         // --- 戦闘機（レールシューター）モード ---
 
         // ── ブースト処理（LSHIFTで発動、バレルロール終了と同時に自動で戻る） ────────────────
-        if (input_->IsKeyTriggered(DIK_LSHIFT) && !(phaseIntroTimer_ >= 0.0f)) {
+        if (input_->IsKeyTriggered(DIK_LSHIFT) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_) {
             if (!isBarrelRolling_) {
                 isBoosting_ = true;
                 isBarrelRolling_ = true;
@@ -1226,7 +1419,7 @@ void GamePlayScene::Update() {
         // ── 3. 自機の横/縦移動（画面内相対）─────────────────────────
         if (fighterModel_) {
             Vector3 inputDir = {0,0,0};
-            if (!(phaseIntroTimer_ >= 0.0f)) {
+            if (!(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_) {
                 if (input_->IsKeyPressed(DIK_W)) inputDir.y += 1.0f;
                 if (input_->IsKeyPressed(DIK_S)) inputDir.y -= 1.0f;
                 if (input_->IsKeyPressed(DIK_A)) inputDir.x -= 1.0f;
@@ -1340,7 +1533,7 @@ void GamePlayScene::Update() {
             aimReticlePos_.z = std::lerp(aimReticlePos_.z, targetReticlePos.z, aimLerpSpeed);
             Vector3 reticlePos = aimReticlePos_;
 
-            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f)) {
+            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_) {
                 Vector3 leftWing  = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
                 Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
 
@@ -1479,8 +1672,11 @@ void GamePlayScene::Update() {
 
                             // ★★★ 超ド派手爆破エフェクト！ ★★★
                             EmitHitEffect(deathPos);
-                            particleManager_->EmitCylinder(deathPos); // 撃破の大爆発用重ね合わせ
-                            particleManager_->EmitRing(deathPos);
+                            // プリセット5(氷結)・8(神聖)以外のときは属性色のシリンダーとリングを重ね合わせて撃破を強調
+                            if (selectedEffectPreset_ != 5 && selectedEffectPreset_ != 8) {
+                                particleManager_->EmitCylinder(deathPos, effectBaseColor_);
+                                particleManager_->EmitRing(deathPos, effectBaseColor_);
+                            }
 
                             // 爆破音を再生
                             audio_->PlayWave(jumpSE_, false, 1.5f);
@@ -1498,7 +1694,7 @@ void GamePlayScene::Update() {
 }
 
     // ── 蜘蛛ボス（Big Spider）の攻撃AIと攻撃更新 ──
-    if (currentPhase_ == GamePhase::kBossFight) {
+    if (currentPhase_ == GamePhase::kBossFight && !isBossDefeatedSequence_) {
         bossActionTimer_ += kDeltaTime;
 
         // 攻撃周期：2.5秒ごとに攻撃を切り替える（高速化）
@@ -1658,7 +1854,7 @@ void GamePlayScene::Update() {
     }
 
     // ── 蜘蛛ボス（Big Spider）のトランスフォームとアニメーション更新 ──
-    if (currentPhase_ == GamePhase::kBossFight && bossBodyTransformData_) {
+    if (currentPhase_ == GamePhase::kBossFight && bossBodyTransformData_ && isBossModelVisible_) {
         // 歩行速度が0より大きい時のみ、サイン波に同期した胴体の揺れ（上下バウンシング＆左右ロール）を計算
         float bodyBounce = 0.0f;
         float bodyRoll = 0.0f;
@@ -2029,6 +2225,22 @@ void GamePlayScene::Update() {
         }
     }
 
+    // トドメ巨大弾のWVPの更新
+    if (defeatBulletTransformData_) {
+        if (isDefeatBulletActive_) {
+            Matrix4x4 bulletWorld = MakeAffineMatrix(
+                Vector3{ defeatBulletSize_, defeatBulletSize_, defeatBulletSize_ },
+                Vector3{ 0.0f, 0.0f, 0.0f },
+                defeatBulletPos_
+            );
+            defeatBulletTransformData_->World = bulletWorld;
+            defeatBulletTransformData_->WVP = Multiply(bulletWorld, viewProjectionMatrix);
+        } else {
+            defeatBulletTransformData_->World = MakeIdentity4x4();
+            defeatBulletTransformData_->WVP = MakeIdentity4x4();
+        }
+    }
+
     if (playerModel_) {
         // アニメーションの更新 (DeltaTimeは固定60fpsとする)
         playerModel_->UpdateAnimation(kDeltaTime);
@@ -2096,8 +2308,8 @@ void GamePlayScene::Update() {
         float kBuildingInterval = 80.0f;
         float kFloorHeight = 10.0f; // 1階あたりのY軸高さの差分（ビルモデルの大きさに合わせて調整）
 
-        // ビルの画面外再配置（ボス戦中はビルが不要なためスキップ）
-        if (currentPhase_ != GamePhase::kBossFight) {
+        // ビルの画面外再配置（ボス戦中も進行感を出すため常に処理）
+        {
             for (int i = 0; i < kMaxBuildings; ++i) {
                 // カメラの後方80mを超えたら、遥か前方（最前方のビルペアの先）に再配置
                 if (buildings_[i].position.z < cameraZ - 80.0f) {
@@ -2125,8 +2337,8 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 各ビルの各階数（フロア）ごとにワールド行列とWVP行列を計算（ボス戦中はビルが不要なためスキップ）
-        if (currentPhase_ != GamePhase::kBossFight) {
+        // 各ビルの各階数（フロア）ごとにワールド行列とWVP行列を計算
+        {
             int cbIndex = 0;
             for (int i = 0; i < kMaxBuildings; ++i) {
                 for (int f = 0; f < buildings_[i].floors; ++f) {
@@ -2146,8 +2358,10 @@ void GamePlayScene::Update() {
 
         // 床(Plane)のワールド・WVP行列を計算（ボス戦中も進行感を維持するため、常に更新する）
         for (int i = 0; i < kNumFloors; ++i) {
-            // plane.obj のサイズに合わせてXとZを200倍スケールにして広大な床にする
-            Matrix4x4 worldMatrix = MakeAffineMatrix(Vector3{ 200.0f, 1.0f, 200.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, floorPositions_[i]);
+            // plane.obj をX軸中心に-90度回転させてXZ平面にし、道路用のスケール（幅30、長さ100）を適用
+            Vector3 roadScale = { 100.0f, 40.0f, 1.0f };
+            Vector3 roadRotate = { 1.57079632f, 1.57079632f, 0.0f };
+            Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, roadRotate, floorPositions_[i]);
             floorTransformData_[i]->World = worldMatrix;
             floorTransformData_[i]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
         }
@@ -2177,7 +2391,7 @@ void GamePlayScene::Update() {
         camera_->GetTransform().translate.z,
         fighterWorldPos,
         isBoosting_,
-        (sceneMode_ == SceneMode::kFighter),
+        (sceneMode_ == SceneMode::kFighter && !isBossDefeatedSequence_),
         currentEffect_,
         emitterPos_
     );
@@ -2456,12 +2670,12 @@ void GamePlayScene::Draw() {
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
                 for (int i = 0; i < kNumFloors; ++i) {
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
-                    floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("gradationLine.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                    floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                 }
             }
 
-            // ビル(Building)描画
-            if (buildingModel_ && currentPhase_ != GamePhase::kBossFight) {
+            // ビル(Building)描画（ボス戦中も進行感を出すため描画）
+            if (buildingModel_) {
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
                 int cbIndex = 0;
@@ -2485,6 +2699,12 @@ void GamePlayScene::Draw() {
                 }
             }
 
+            // トドメ巨大弾の描画
+            if (isDefeatBulletActive_ && debugSphereModel_ && defeatBulletTransformResource_) {
+                commandList->SetGraphicsRootConstantBufferView(1, defeatBulletTransformResource_->GetGPUVirtualAddress());
+                debugSphereModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+            }
+
             // 敵の描画（プレイヤーと同じ戦闘機モデルを使用）
             if (enemyModel_ && showEnemies_ && currentPhase_ != GamePhase::kBossFight) {
                 for (int i = 0; i < kMaxEnemies; ++i) {
@@ -2496,7 +2716,7 @@ void GamePlayScene::Draw() {
             }
 
             // 蜘蛛ボス（Big Spider）の描画
-            if (currentPhase_ == GamePhase::kBossFight) {
+            if (currentPhase_ == GamePhase::kBossFight && isBossModelVisible_) {
                 float bossWorldZ = fighterWorldZ_ + bossZOffset_;
                 float cameraWorldZ = camera_->GetTransform().translate.z;
 
@@ -2904,7 +3124,7 @@ void GamePlayScene::RespawnEnemyGroup(int groupIndex, float playerZ) {
     
     // 中心位置を決定 (グループごとにZ出現位置の範囲を50mずつずらして波状にする)
     std::uniform_real_distribution<float> distX(-10.0f, 10.0f);
-    std::uniform_real_distribution<float> distY(-5.0f, 10.0f);
+    std::uniform_real_distribution<float> distY(5.0f, 20.0f);
     
     float minZ = 160.0f + (float)groupIndex * 50.0f;
     float maxZ = 220.0f + (float)groupIndex * 50.0f;
@@ -2953,7 +3173,7 @@ void GamePlayScene::UpdateDemo(float deltaTime) {
         float progress = cameraShakeTimer_ / (cameraShakeTimeMax_ > 0.0f ? cameraShakeTimeMax_ : 1.0f);
         progress = std::clamp(progress, 0.0f, 1.0f);
         // 自乗でイージングアウトさせる
-        float currentIntensity = cameraShakeIntensity_ * (progress * progress);
+        float currentIntensity = activeShakeIntensity_ * (progress * progress);
         
         std::uniform_real_distribution<float> distShake(-1.0f, 1.0f);
         if (selectedEffectPreset_ == 7) {
@@ -3321,13 +3541,13 @@ void GamePlayScene::EmitHitEffect(const Vector3& pos) {
         switch (selectedEffectPreset_) {
         case 0: // 通常スパーク
             particleManager_->EmitCustomSparks(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_, effectGravity_);
-            particleManager_->EmitRing(pos);
+            particleManager_->EmitRing(pos, effectBaseColor_);
             break;
             
         case 1: // 火炎バースト
             particleManager_->EmitFlame(pos, effectParticleSpeed_ * 0.8f, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitCylinder(pos);
-            particleManager_->EmitRing(pos);
+            particleManager_->EmitCylinder(pos, effectBaseColor_);
+            particleManager_->EmitRing(pos, effectBaseColor_);
             particleManager_->EmitCustomSparks(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_ / 2, effectBaseColor_, 0.45f);
             break;
             
@@ -3337,68 +3557,59 @@ void GamePlayScene::EmitHitEffect(const Vector3& pos) {
             particleManager_->EmitLaserThread(Add(pos, {8.0f,0.0f,0.0f}), pos);
             particleManager_->EmitLaserThread(Add(pos, {0.0f,-8.0f,0.0f}), pos);
             particleManager_->EmitLaserThread(Add(pos, {0.0f,8.0f,0.0f}), pos);
-            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitCylinder(pos, effectBaseColor_);
             break;
             
         case 3: // 真空斬撃
             particleManager_->EmitSlash(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitRing(pos);
-            particleManager_->EmitRing(Add(pos, {0.0f, 0.0f, 1.0f}));
+            particleManager_->EmitRing(pos, effectBaseColor_);
+            particleManager_->EmitRing(Add(pos, {0.0f, 0.0f, 1.0f}), effectBaseColor_);
             break;
             
         case 4: // 特異点爆発
             particleManager_->EmitGravityVortex(pos, effectParticleSpeed_ * 0.8f, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitCylinder(pos);
-            particleManager_->EmitRing(pos);
+            particleManager_->EmitCylinder(pos, effectBaseColor_);
+            particleManager_->EmitRing(pos, effectBaseColor_);
             particleManager_->EmitGravityOut(pos, effectParticleCount_, effectBaseColor_);
             break;
 
         case 5: // 氷結・氷華
             particleManager_->EmitGlacial(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitRing(pos);
-            particleManager_->EmitRing(Add(pos, {0.0f, 0.0f, -0.5f}));
             break;
             
         case 6: // デジタルバグ
             particleManager_->EmitDigitalGlitch(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitCylinder(pos);
             break;
 
         case 7: // 風・竜巻
             particleManager_->EmitAeroWind(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitRing(pos);
-            particleManager_->EmitCylinder(pos);
+            particleManager_->EmitRing(pos, effectBaseColor_);
+            particleManager_->EmitCylinder(pos, effectBaseColor_);
             break;
             
         case 8: // 神聖・天光
             particleManager_->EmitHolyLight(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
-            particleManager_->EmitLaserThread(Add(pos, {0.0f,15.0f,0.0f}), pos);
-            particleManager_->EmitLaserThread(Add(pos, {-3.0f,12.0f,-2.0f}), pos);
-            particleManager_->EmitLaserThread(Add(pos, {3.0f,12.0f,2.0f}), pos);
-            particleManager_->EmitCylinder(pos);
             break;
             
         case 9: // カオスボイド・闇物質
             particleManager_->EmitChaosVoid(pos, effectParticleSpeed_, effectParticleCount_, effectBaseColor_);
             particleManager_->EmitLightning(pos, effectParticleSpeed_ * 1.5f, effectParticleCount_ / 2, {0.8f, 0.0f, 0.9f});
             particleManager_->EmitGravityVortex(pos, effectParticleSpeed_ * 0.7f, effectParticleCount_ / 2, {0.1f, 0.0f, 0.2f});
-            particleManager_->EmitCylinder(pos);
-            particleManager_->EmitRing(pos);
+            particleManager_->EmitCylinder(pos, effectBaseColor_);
+            particleManager_->EmitRing(pos, effectBaseColor_);
             break;
         }
     }
 
-    // ── ダイナミック画面演出のトリガー（近接時は約1.5〜1.8倍に強化） ──
-    float shakeMultiplier = isMelee ? 1.6f : 1.0f;
+    // ── ダイナミック画面演出のトリガー（近接時は約1.5〜1.8倍に強化。射撃時は強さを20%に抑えプレイしやすく調整） ──
+    float shakeMultiplier = isMelee ? 1.6f : 0.8f;
     float hitstopMultiplier = isMelee ? 1.8f : 1.0f;
 
+    activeShakeIntensity_ = cameraShakeIntensity_ * (isMelee ? 1.6f : 0.20f);
     cameraShakeTimer_ = cameraShakeTimeMax_ * shakeMultiplier;
-    hitstopTimer_ = hitstopTimeMax_ * hitstopMultiplier;
+    hitstopTimer_ = isMelee ? (hitstopTimeMax_ * hitstopMultiplier) : 0.0f;
     
-    // デジタルバグ（Preset 6）発生時の処理
-    if (selectedEffectPreset_ == 6) {
-        digitalGlitchTimer_ = 0.15f; // 一瞬画面をビリビリとバグらせる
-    }
+    // デジタルバグ（Preset 6）の砂嵐演出は無効化 (ユーザー要求により削除)
 
     if (useRadialBlur_) {
         blurIntensity_ = maxBlurWidth_ * (isMelee ? 1.5f : 1.0f);
@@ -3616,7 +3827,7 @@ void GamePlayScene::DrawDemo() {
         "Sonic Blade Slash (真空斬撃) [4]",
         "Gravity Singularity (特異点爆発) [5]",
         "Glacial Freeze (氷結・氷華) [6]",
-        "Digital Glitch (デジタルバグ) [7]",
+        "Cyber Spiral (サイバースパイラル) [7]",
         "Aero Wind (風・竜巻) [8]",
         "Holy Light (神聖・天光) [9]",
         "Chaos Void (カオスボイド・闇物質) [0]"
