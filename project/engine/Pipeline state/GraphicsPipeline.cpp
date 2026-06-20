@@ -1,5 +1,6 @@
 #include "GraphicsPipeline.h"
 #include "DataTypes.h"
+#include "WinApp.h"
 #include <cassert>
 #include <format>
 #include <fstream>
@@ -1032,6 +1033,9 @@ Microsoft::WRL::ComPtr<IDxcBlob> GraphicsPipeline::CompileShader(
 	IDxcCompiler3* dxcCompiler,
 	IDxcIncludeHandler* includeHandler)
 {
+	// 起動時の動的コンパイルによる一時フリーズでの「応答なし」状態を防ぐためにメッセージ処理を行う
+	WinApp::GetInstance()->ProcessMessage();
+
 	std::wstring fullPath = filePath;
 	if (filePath.find(L'/') == std::wstring::npos && filePath.find(L'\\') == std::wstring::npos) {
 		fullPath = L"Resources/shaders/" + filePath;
