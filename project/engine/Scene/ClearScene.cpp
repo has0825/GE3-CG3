@@ -21,6 +21,7 @@ void ClearScene::Initialize() {
 
     // テクスチャロード
     TextureManager::GetInstance()->LoadTexture("Clear/Clear.png");
+    TextureManager::GetInstance()->LoadTexture("Player2/Player_basecolor.JPEG");
     TextureManager::GetInstance()->LoadTexture("test.dds"); // 環境マップ用
     TextureManager::GetInstance()->LoadTexture("circle2.png");
     TextureManager::GetInstance()->LoadTexture("gradationLine.png");
@@ -44,11 +45,24 @@ void ClearScene::Initialize() {
     clearModel_->transform.rotate = { 0.0f, 3.14159265f, 0.0f };
     clearModel_->transform.translate = { 0.0f, 0.0f, 20.0f }; // 遠く、中央付近に配置
 
+    // 背景を飛ぶプレイヤーモデルのロード
+    playerModel_ = Model::LoadGLTF("Resources/Player2/Player.obj", device);
+    if (playerModel_) {
+        playerModel_->transform.scale = { 3.0f, 3.0f, 3.0f }; // 奥を飛ぶので小さく
+        playerModel_->transform.rotate = { 0.0f, 1.57f, 0.0f }; // 右向き
+        playerModel_->transform.translate = { -40.0f, -2.0f, 25.0f }; // 左奥からスタート
+    }
+
     // 定数バッファの作成
     transformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
     transformResource_->Map(0, nullptr, reinterpret_cast<void**>(&transformData_));
     transformData_->WVP = MakeIdentity4x4();
     transformData_->World = MakeIdentity4x4();
+
+    playerTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    playerTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&playerTransformData_));
+    playerTransformData_->WVP = MakeIdentity4x4();
+    playerTransformData_->World = MakeIdentity4x4();
 
     directionalLightResource_ = CreateBufferResource(device, sizeof(DirectionalLight));
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData_));
@@ -159,6 +173,35 @@ void ClearScene::Update() {
     transformData_->World = worldMatrix;
     transformData_->WVP = wvpMatrix;
 
+    // 背景を飛ぶプレイヤーの更新
+    time_ += kDeltaTime;
+    if (playerModel_ && playerTransformData_) {
+        // 8秒で画面の左から右に飛び去るようにする
+        float duration = 8.0f;
+        float t = std::fmod(time_, duration) / duration;
+        
+        // X座標: -60.0f から 60.0f へ移動
+        float startX = -60.0f;
+        float endX = 60.0f;
+        playerModel_->transform.translate.x = startX + (endX - startX) * t;
+        
+        // Y座標: サイン波で少し上下に揺らす
+        playerModel_->transform.translate.y = 5.0f + std::sin(time_ * 2.0f) * 2.5f;
+        
+        // Z座標: 奥側
+        playerModel_->transform.translate.z = 30.0f;
+        
+        // 回転: 右に進んでいる(rotate.y = 1.57f)状態で、ピッチ(X軸)とロール(Z軸)を揺らす
+        playerModel_->transform.rotate.x = std::sin(time_ * 3.0f) * 0.15f; // ピッチ
+        playerModel_->transform.rotate.y = 1.57f; // 右向き
+        playerModel_->transform.rotate.z = -0.1f + std::cos(time_ * 2.0f) * 0.08f; // ロール
+        
+        Matrix4x4 playerWorldMatrix = MakeAffineMatrix(playerModel_->transform.scale, playerModel_->transform.rotate, playerModel_->transform.translate);
+        Matrix4x4 playerWvpMatrix = Multiply(playerWorldMatrix, Multiply(viewMatrix, projectionMatrix));
+        playerTransformData_->World = playerWorldMatrix;
+        playerTransformData_->WVP = playerWvpMatrix;
+    }
+
     cameraDataCB_->worldPosition = camera_->GetTransform().translate;
 
     // スペースキーでタイトルに戻る
@@ -191,6 +234,16 @@ void ClearScene::Draw() {
             clearModel_->DrawModel(
                 commandList,
                 TextureManager::GetInstance()->GetSrvHandleGPU("Clear/Clear.png"),
+                TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
+            );
+        }
+
+        // ── プレイヤーモデルの描画 ──
+        if (playerTransformResource_) commandList->SetGraphicsRootConstantBufferView(1, playerTransformResource_->GetGPUVirtualAddress());
+        if (playerModel_) {
+            playerModel_->DrawModel(
+                commandList,
+                TextureManager::GetInstance()->GetSrvHandleGPU("Player2/Player_basecolor.JPEG"),
                 TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
             );
         }

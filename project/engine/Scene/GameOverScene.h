@@ -6,6 +6,7 @@
 #include "GraphicsPipeline.h"
 #include "D3D12Util.h"
 #include "DataTypes.h"
+#include "Sprite.h"
 #include <memory>
 #include <wrl.h>
 
@@ -45,4 +46,30 @@ private:
     std::unique_ptr<Model> floorModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResource_;
     TransformationMatrix* floorTransformData_ = nullptr;
+
+    // 選択UI用モデル
+    std::unique_ptr<Model> titleheModel_;
+    std::unique_ptr<Model> restartModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> titleheTransformResource_;
+    TransformationMatrix* titleheTransformData_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> restartTransformResource_;
+    TransformationMatrix* restartTransformData_ = nullptr;
+
+    // 白フラッシュ用スプライト
+    std::unique_ptr<Sprite> whiteFlashSprite_;
+
+    // 選択状態と遷移用変数
+    enum class Selection {
+        kRestart,
+        kTitlehe
+    } selection_ = Selection::kRestart;
+
+    enum class TransitionPhase {
+        kNone,
+        kToTitle,
+        kToRestart
+    } transitionPhase_ = TransitionPhase::kNone;
+
+    float transitionTimer_ = 0.0f;
+    const float kTransitionTime = 1.0f;
 };

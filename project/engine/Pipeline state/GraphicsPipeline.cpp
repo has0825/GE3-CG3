@@ -349,6 +349,23 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	}
 	assert(SUCCEEDED(hr));
 
+	// Object3d アルファブレンド用パイプラインステートの作成
+	obj3dBlendDesc.RenderTarget[0].BlendEnable = TRUE;
+	obj3dBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	obj3dBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	obj3dBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	obj3dBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	obj3dBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	obj3dBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	obj3dPsoDesc.BlendState = obj3dBlendDesc;
+
+	hr = device->CreateGraphicsPipelineState(&obj3dPsoDesc, IID_PPV_ARGS(&object3dBlendNormalPipelineState_));
+	if (FAILED(hr)) {
+		Log(logStream_, "Failed to Create Object3d BlendNormal PipelineState.\n");
+		assert(false);
+	}
+	assert(SUCCEEDED(hr));
+
 	// --- Skinning用パイプラインの作成 ---
 	D3D12_ROOT_SIGNATURE_DESC skinningRootDesc{};
 	skinningRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;

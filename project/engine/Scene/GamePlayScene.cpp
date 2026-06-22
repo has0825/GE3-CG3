@@ -6,6 +6,7 @@
 #include "DataTypes.h"
 #include "TextureManager.h"
 #include "SrvManager.h"
+#include "DirectXCommon.h"
 #include <algorithm>
 #include <fstream>
 #include <string>
@@ -40,6 +41,9 @@ static Vector3 TransformNormal(const Vector3& v, const Matrix4x4& m) {
 }
 
 void GamePlayScene::Initialize() {
+    // クリアカラーのリセット (デフォルトの青緑系に戻す)
+    DirectXCommon::GetInstance()->SetClearColor(0.1f, 0.25f, 0.5f, 1.0f);
+
     // プレイヤーパラメータをファイルから読み込む
     std::ifstream paramFile("Resources/player_params.txt");
     if (paramFile.is_open()) {

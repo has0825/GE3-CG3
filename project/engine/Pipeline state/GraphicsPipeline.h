@@ -35,6 +35,7 @@ public:
     // ★追加：Object3d（キャラクターモデル）用のゲッター
     ID3D12RootSignature* GetObject3dRootSignature() const { return object3dRootSignature_.Get(); }
     	ID3D12PipelineState* GetObject3dPipelineState() { return object3dPipelineState_.Get(); }
+        ID3D12PipelineState* GetObject3dBlendNormalPipelineState() { return object3dBlendNormalPipelineState_.Get(); }
 	ID3D12RootSignature* GetSkinningRootSignature() { return skinningRootSignature_.Get(); }
 	ID3D12PipelineState* GetSkinningPipelineState() { return skinningPipelineState_.Get(); }
 	ID3D12RootSignature* GetComputeRootSignature() { return computeRootSignature_.Get(); }
@@ -86,6 +87,7 @@ private:
     // ★追加：Object3d（キャラクターモデル）用のメンバ変数
     Microsoft::WRL::ComPtr<ID3D12RootSignature> object3dRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dBlendNormalPipelineState_;
 
     	Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningRootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;

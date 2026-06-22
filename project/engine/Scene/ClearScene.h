@@ -57,4 +57,10 @@ private:
     };
     std::vector<ActiveFirework> activeFireworks_;
     float fireworkSpawnTimer_ = 0.0f;
+
+    // 背景飛行プレイヤー用モデル
+    std::unique_ptr<Model> playerModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> playerTransformResource_;
+    TransformationMatrix* playerTransformData_ = nullptr;
+    float time_ = 0.0f;
 };
