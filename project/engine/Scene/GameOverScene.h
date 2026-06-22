@@ -35,4 +35,14 @@ private:
     };
     Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
     CameraDataCB* cameraDataCB_ = nullptr;
+
+    // プレイヤーモデル描画用
+    std::unique_ptr<Model> playerModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> playerTransformResource_;
+    TransformationMatrix* playerTransformData_ = nullptr;
+
+    // 床モデル描画用
+    std::unique_ptr<Model> floorModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResource_;
+    TransformationMatrix* floorTransformData_ = nullptr;
 };

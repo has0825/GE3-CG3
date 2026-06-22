@@ -81,6 +81,8 @@ public:
     void Clear();
     void EmitMegaRing(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
     void EmitMegaCylinder(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
+    void EmitFirework(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
+    void EmitFireworkTrail(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
 
 private:
     // 個別のパーティクル生成用のヘルパー関数（自律オブジェクトプール用）

@@ -104,6 +104,7 @@ public:
     void SetEnvironmentCoefficient(float coefficient);
     void SetColor(const Vector4& color);
     void UpdateAnimation(float deltaTime);
+    void SetLightingEnabled(bool enabled);
 
     // ── 高速描画用のゲッターを追加 ──
     D3D12_VERTEX_BUFFER_VIEW GetVertexBufferView() const { return commonData_ ? commonData_->vertexBufferView : vertexBufferView_; }

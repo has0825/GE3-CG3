@@ -47,6 +47,13 @@ public:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
         D3D12_DESCRIPTOR_HEAP_TYPE type, UINT numDescriptors, bool shaderVisible);
 
+    void SetClearColor(float r, float g, float b, float a) {
+        clearColor_[0] = r;
+        clearColor_[1] = g;
+        clearColor_[2] = b;
+        clearColor_[3] = a;
+    }
+
 private:
     DirectXCommon() = default;
     ~DirectXCommon() = default;
@@ -84,14 +91,8 @@ private:
     D3D12_VIEWPORT viewport_{};
     D3D12_RECT scissorRect_{};
     bool isFirstFrame_ = true;
-
-    // 深度バッファの現在のリソース状態（不整合なバリアを防ぐために追跡）
     D3D12_RESOURCE_STATES depthStencilState_ = D3D12_RESOURCE_STATE_DEPTH_WRITE;
 
-    // DirectXCommon.h の public 部分に追加
-
-// DirectXCommon.h の public 部分に追加
-
-
-
+private:
+    float clearColor_[4] = { 0.1f, 0.25f, 0.5f, 1.0f };
 };

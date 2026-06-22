@@ -25,15 +25,42 @@ PixelShaderOutput main(VertexShaderOutput input)
     if (gMaterial.enableLighting != 0)
     {
         // --- 既存のPunctual Light (Directional Light) の計算 ---
-        float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
-        float cos = pow(NdotL * 0.5f + 0.5f, 2.0f); // Half Lambert
-        float32_t3 lightingColor = gDirectionalLight.color.rgb * gDirectionalLight.intensity * cos;
+        float32_t3 dirLightingColor = float32_t3(0.0f, 0.0f, 0.0f);
+        if (gDirectionalLight.intensity > 0.0f) {
+            float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
+            float cos = pow(NdotL * 0.5f + 0.5f, 2.0f); // Half Lambert
+            dirLightingColor = gDirectionalLight.color.rgb * gDirectionalLight.intensity * cos;
+        }
+
+        // --- スポットライト의 計算 ---
+        float32_t3 spotLightingColor = float32_t3(0.0f, 0.0f, 0.0f);
+        if (gDirectionalLight.enableSpotLight != 0)
+        {
+            float32_t3 spotLightDirection = normalize(gDirectionalLight.spotLightPos - input.worldPosition);
+            float distance = length(gDirectionalLight.spotLightPos - input.worldPosition);
+            float cosAngle = dot(-spotLightDirection, normalize(gDirectionalLight.spotLightDir));
+            
+            if (cosAngle > gDirectionalLight.spotLightCosAngle)
+            {
+                // 距離減衰
+                float attenuation = saturate(1.0f - (distance / gDirectionalLight.spotLightRange));
+                // コーンの境界付近を滑らかにする (フォールオフ)
+                float angleFalloff = saturate((cosAngle - gDirectionalLight.spotLightCosAngle) / (1.0f - gDirectionalLight.spotLightCosAngle));
+                
+                // 拡散反射
+                float NdotLSpot = dot(normalize(input.normal), spotLightDirection);
+                float cosSpot = pow(NdotLSpot * 0.5f + 0.5f, 2.0f);
+                
+                spotLightingColor = gDirectionalLight.spotLightColor.rgb * gDirectionalLight.spotLightIntensity * cosSpot * attenuation * angleFalloff;
+            }
+        }
+        
+        float32_t3 lightingColor = dirLightingColor + spotLightingColor;
         
         output.color.rgb = textureColor.rgb * gMaterial.color.rgb * lightingColor;
         output.color.a = textureColor.a * gMaterial.color.a;
 
         // --- 【追加】環境マップ (Environment Map) の計算 ---
-        // 映り込みの強さ（スケール）が0より大きいときのみ環境マップを計算する (GPUサンプリング負荷削減)
         if (gMaterial.environmentCoefficient > 0.0f)
         {
             // カメラからピクセルへのベクトル

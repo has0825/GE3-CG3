@@ -6,8 +6,10 @@
 #include "GraphicsPipeline.h"
 #include "D3D12Util.h"
 #include "DataTypes.h"
+#include "ParticleManager.h"
 #include <memory>
 #include <wrl.h>
+#include <vector>
 
 // ゲームクリアシーン
 class ClearScene : public BaseScene {
@@ -35,4 +37,24 @@ private:
     };
     Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
     CameraDataCB* cameraDataCB_ = nullptr;
+
+    // パーティクル管理用
+    std::unique_ptr<ParticleManager> particleManager_;
+    std::unique_ptr<Model> particleModel_;
+    std::unique_ptr<Model> ringModel_;
+    std::unique_ptr<Model> cylinderModel_;
+    D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandle_{};
+    D3D12_GPU_DESCRIPTOR_HANDLE gradationSrvHandle_{};
+    D3D12_GPU_DESCRIPTOR_HANDLE textSrvHandle_{};
+
+    // 打ち上げ花火管理用
+    struct ActiveFirework {
+        Vector3 position;
+        Vector3 velocity;
+        float timer;
+        float maxTime;
+        Vector3 color;
+    };
+    std::vector<ActiveFirework> activeFireworks_;
+    float fireworkSpawnTimer_ = 0.0f;
 };

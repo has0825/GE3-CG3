@@ -23,12 +23,21 @@ struct Camera
     float32_t3 worldPosition;
 };
 
-// 平行光源データ（必要に応じてPointLightなどもここに追加）
+// 平行光源・スポットライト兼用光源データ
 struct DirectionalLight
 {
     float32_t4 color;
     float32_t3 direction;
     float32_t intensity;
+    
+    int32_t enableSpotLight;
+    float32_t3 spotLightPos;
+    float32_t spotLightRange;
+    float32_t3 spotLightDir;
+    float32_t spotLightCosAngle;
+    float32_t3 spotLightColor;
+    float32_t spotLightIntensity;
+    float32_t3 padding;
 };
 
 // スキニングデータ

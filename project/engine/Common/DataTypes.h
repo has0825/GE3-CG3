@@ -85,7 +85,18 @@ struct DirectionalLight {
 	Vector4 color;
 	Vector3 direction;
 	float intensity;
+	
+	// スポットライト拡張用
+	int enableSpotLight;
+	Vector3 spotLightPos;
+	float spotLightRange;
+	Vector3 spotLightDir;
+	float spotLightCosAngle;
+	Vector3 spotLightColor;
+	float spotLightIntensity;
+	float padding[3];
 };
+
 
 // カメラ（CBuffer用）
 struct CameraData {

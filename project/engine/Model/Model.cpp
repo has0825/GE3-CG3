@@ -727,3 +727,12 @@ void Model::DrawSkinningModel(
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     commandList->ResourceBarrier(1, &barrier);
 }
+
+void Model::SetLightingEnabled(bool enabled) {
+    if (materialResource_) {
+        Material* materialData = nullptr;
+        materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+        materialData->enableLighting = enabled ? 1 : 0;
+        materialResource_->Unmap(0, nullptr);
+    }
+}

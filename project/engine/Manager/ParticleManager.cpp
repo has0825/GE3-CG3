@@ -578,6 +578,26 @@ ParticleManager::Particle ParticleManager::MakeNewParticle(
         }
         break;
 
+    case 60: // kTypeFirework (花火の火花)
+        {
+            particle.position = emitterPos;
+            std::uniform_real_distribution<float> distScale(0.3f, 0.7f);
+            float sc = distScale(randomEngine_);
+            particle.scale = { sc, sc, sc };
+            particle.type = Particle::Type::kBillboard;
+        }
+        break;
+
+    case 61: // kTypeFireworkTrail (花火の打ち上げ軌跡用の火の粉)
+        {
+            particle.position = emitterPos;
+            std::uniform_real_distribution<float> distScale(0.1f, 0.3f);
+            float sc = distScale(randomEngine_);
+            particle.scale = { sc, sc, sc };
+            particle.type = Particle::Type::kBillboard;
+        }
+        break;
+
     case 5: // kTypeFlameBurst (火炎バースト)
         {
             std::uniform_real_distribution<float> distSpread(-0.5f, 0.5f);
@@ -1307,3 +1327,54 @@ void ParticleManager::EmitMegaCylinder(const Vector3& emitterPos, const Vector3&
         }
     }
 }
+
+void ParticleManager::EmitFirework(const Vector3& emitterPos, const Vector3& color) {
+    int emitCount = 80;
+    for (uint32_t p = 0; p < kNumInstances && emitCount > 0; ++p) {
+        if (particles_[p].currentTime >= particles_[p].lifeTime) {
+            particles_[p] = MakeNewParticle(60, emitterPos, 0.0f, {0,0,0}, false);
+            
+            std::uniform_real_distribution<float> distTheta(0.0f, 2.0f * 3.14159265f);
+            std::uniform_real_distribution<float> distPhi(0.0f, 3.14159265f);
+            std::uniform_real_distribution<float> distSpeed(5.0f, 15.0f);
+            
+            float theta = distTheta(randomEngine_);
+            float phi = distPhi(randomEngine_);
+            float speed = distSpeed(randomEngine_);
+            
+            particles_[p].velocity = {
+                speed * std::sin(phi) * std::cos(theta),
+                speed * std::cos(phi),
+                speed * std::sin(phi) * std::sin(theta)
+            };
+            
+            particles_[p].color = { color.x, color.y, color.z, 1.0f };
+            particles_[p].gravity = 0.2f;
+            particles_[p].lifeTime = 1.0f + std::uniform_real_distribution<float>(0.0f, 0.8f)(randomEngine_);
+            emitCount--;
+        }
+    }
+    
+    EmitRing(emitterPos, color);
+}
+
+void ParticleManager::EmitFireworkTrail(const Vector3& emitterPos, const Vector3& color) {
+    int emitCount = 3;
+    for (uint32_t p = 0; p < kNumInstances && emitCount > 0; ++p) {
+        if (particles_[p].currentTime >= particles_[p].lifeTime) {
+            particles_[p] = MakeNewParticle(61, emitterPos, 0.0f, {0,0,0}, false);
+            
+            std::uniform_real_distribution<float> distVel(-1.5f, 1.5f);
+            particles_[p].velocity = {
+                distVel(randomEngine_),
+                -2.0f - std::uniform_real_distribution<float>(0.0f, 2.0f)(randomEngine_),
+                distVel(randomEngine_)
+            };
+            
+            particles_[p].color = { color.x, color.y, color.z, 1.0f };
+            particles_[p].gravity = 0.1f;
+            particles_[p].lifeTime = 0.4f + std::uniform_real_distribution<float>(0.0f, 0.3f)(randomEngine_);
+            emitCount--;
+        }
+    }
+}
