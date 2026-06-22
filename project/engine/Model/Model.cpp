@@ -217,6 +217,7 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
     }
 
     // メッシュの解析
+    uint32_t vertexOffset = 0;
     for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
         aiMesh* mesh = scene->mMeshes[i];
         
@@ -248,9 +249,9 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
             }
         }
 
-        // 頂点解析
-        modelData.vertices.clear();
-        modelData.vertices.resize(mesh->mNumVertices);
+        // 頂点解析 (累積追加するように変更)
+        size_t prevSize = modelData.vertices.size();
+        modelData.vertices.resize(prevSize + mesh->mNumVertices);
         for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
             aiVector3D& position = mesh->mVertices[v];
             
@@ -258,7 +259,7 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
             aiVector3D normal = mesh->HasNormals() ? mesh->mNormals[v] : aiVector3D(0.0f, 1.0f, 0.0f);
             aiVector3D texcoord = mesh->HasTextureCoords(0) ? mesh->mTextureCoords[0][v] : aiVector3D(0.0f, 0.0f, 0.0f);
             
-            VertexData& vertex = modelData.vertices[v];
+            VertexData& vertex = modelData.vertices[prevSize + v];
             vertex = {}; // ゼロ初期化
 
             // 元の座標系に戻す（Assimpのフラグに任せる）
@@ -274,14 +275,16 @@ std::unique_ptr<Model> Model::LoadGLTF(const std::string& filename, ID3D12Device
             }
         }
 
-        // インデックス解析
+        // インデックス解析 (現在のメッシュの頂点オフセットを加算)
         for (unsigned int j = 0; j < mesh->mNumFaces; j++) {
             aiFace& face = mesh->mFaces[j];
             assert(face.mNumIndices == 3);
             for (unsigned int k = 0; k < face.mNumIndices; k++) {
-                modelData.indices.push_back(face.mIndices[k]);
+                modelData.indices.push_back(face.mIndices[k] + vertexOffset);
             }
         }
+
+        vertexOffset += mesh->mNumVertices;
     }
 
     // アニメーションの読み込み（最初の1つ）
