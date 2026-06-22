@@ -6,6 +6,9 @@
 #include "DirectXCommon.h"
 
 void GameOverScene::Initialize() {
+    // 前のシーンのリソースを即座に解放
+    SceneManager::GetInstance()->ClearPreviousScene();
+
     input_ = Input::GetInstance();
     graphicsPipeline_ = GraphicsPipeline::GetInstance();
     DirectXCommon* dxCommon = DirectXCommon::GetInstance();

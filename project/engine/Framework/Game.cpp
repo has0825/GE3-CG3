@@ -17,7 +17,7 @@ void Game::Initialize() {
 
     // get() で生ポインタを渡す（所有権は移さない）
     SceneManager::GetInstance()->SetFactory(sceneFactory_.get());
-    SceneManager::GetInstance()->ChangeScene("GAMEPLAY");
+    SceneManager::GetInstance()->ChangeScene("TITLE");
 }
 
 void Game::Finalize() {

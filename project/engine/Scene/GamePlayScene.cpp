@@ -1110,6 +1110,8 @@ void GamePlayScene::Update() {
             transitionThreshold_ = 0.0f;
             isTransitioning_ = false;
             activePostProcess_ = kNone;
+            // 前のシーンのメモリを完全に解放
+            SceneManager::GetInstance()->ClearPreviousScene();
         }
         dissolveParamData_->threshold = transitionThreshold_;
     }
@@ -2931,6 +2933,14 @@ void GamePlayScene::Draw() {
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferHandle = dxCommon_->GetCurrentBackBufferRtvHandle();
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dxCommon_->GetDsvHandle();
     commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
+
+    if (isTransitioning_) {
+        // 前シーンの3D描画が、今シーンのオブジェクトの深度値で遮蔽されるのを防ぐために深度バッファをクリア
+        commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+        SceneManager::GetInstance()->DrawPreviousScene();
+        // 前のシーンの描画でコンテキスト状態が変更されている可能性があるため再設定
+        commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
+    }
 
     // SrvManagerのデスクリプタヒープをセット
     SrvManager::GetInstance()->PreDraw();

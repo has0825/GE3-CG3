@@ -54,9 +54,6 @@ void Input::Finalize() {
 
 // 2. 毎フレーム処理
 void Input::Update() {
-    // 前フレームのキー状態を保存 (トリガー判定のため)
-    std::memcpy(prevKeys_, keys_, sizeof(keys_));
-
     // キーボードの入力を取得開始 (制御権の取得)
     HRESULT hr = keyboard_->Acquire();
 
@@ -65,15 +62,30 @@ void Input::Update() {
         hr = keyboard_->Acquire();
         if (FAILED(hr)) {
             // それでも失敗したら、今フレームの更新は諦める
+            wasAcquired_ = false;
             return;
         }
     }
 
-    // キー状態の取得 (現在の状態を keys_ に格納)
-    hr = keyboard_->GetDeviceState(sizeof(keys_), keys_);
+    // キー状態の取得 (現在の状態を一時バッファに格納)
+    BYTE currentKeys[256] = {};
+    hr = keyboard_->GetDeviceState(sizeof(currentKeys), currentKeys);
     if (FAILED(hr)) {
         // 取得失敗
+        wasAcquired_ = false;
         return;
+    }
+
+    if (!wasAcquired_) {
+        // 前回取得に失敗していた、またはこれが最初の取得成功フレームなら、
+        // 前フレームとの差分を作らないように両方のバッファを現在の状態で初期化する
+        std::memcpy(keys_, currentKeys, sizeof(keys_));
+        std::memcpy(prevKeys_, currentKeys, sizeof(prevKeys_));
+        wasAcquired_ = true;
+    } else {
+        // 通常の更新 (前フレームの状態を保存し、新入力を反映)
+        std::memcpy(prevKeys_, keys_, sizeof(keys_));
+        std::memcpy(keys_, currentKeys, sizeof(keys_));
     }
 
     // マウスホイールの更新

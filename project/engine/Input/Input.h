@@ -90,4 +90,6 @@ private:
     BYTE prevKeys_[256] = {};
     // マウスホイールのデルタ値
     int32_t wheelDelta_ = 0;
+    // 前回デバイス入力を正常取得できたかどうかのフラグ
+    bool wasAcquired_ = false;
 };

@@ -24,6 +24,7 @@ private:
     std::unique_ptr<Camera> camera_;
     std::unique_ptr<Model> titleModel_;
     std::unique_ptr<Skybox> skybox_;
+    uint32_t inputDelay_ = 24; // シーン開始時の誤判定防止用のディレイカウンタ
 
     Microsoft::WRL::ComPtr<ID3D12Resource> transformResource_;
     TransformationMatrix* transformData_ = nullptr;

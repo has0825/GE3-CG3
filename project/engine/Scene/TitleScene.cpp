@@ -6,6 +6,11 @@
 #include "DirectXCommon.h"
 
 void TitleScene::Initialize() {
+    // 前のシーンのリソースを即座に解放
+    SceneManager::GetInstance()->ClearPreviousScene();
+
+    inputDelay_ = 24; // 起動時等の誤トリガーを防ぐため、開始時はディレイを設ける
+
     input_ = Input::GetInstance();
     graphicsPipeline_ = GraphicsPipeline::GetInstance();
     DirectXCommon* dxCommon = DirectXCommon::GetInstance();
@@ -66,9 +71,13 @@ void TitleScene::Update() {
 
     cameraDataCB_->worldPosition = camera_->GetTransform().translate;
 
-    // スペースキーでゲームプレイシーンへ遷移
-    if (input_->IsKeyTriggered(DIK_SPACE)) {
-        SceneManager::GetInstance()->ChangeScene("GAMEPLAY");
+    if (inputDelay_ > 0) {
+        inputDelay_--;
+    } else {
+        // スペースキーでゲームプレイシーンへ遷移
+        if (input_->IsKeyTriggered(DIK_SPACE)) {
+            SceneManager::GetInstance()->ChangeScene("GAMEPLAY");
+        }
     }
 }
 
