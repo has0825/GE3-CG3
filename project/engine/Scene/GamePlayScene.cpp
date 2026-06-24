@@ -393,6 +393,20 @@ void GamePlayScene::Initialize() {
         floorPositions_[i] = { 0.0f, -20.0f, (float)i * kFloorSizeZ };
     }
 
+    // ── 背景(Plane)の初期化とバッファ生成 ──
+    TextureManager::GetInstance()->LoadTexture("haikei/Green.png");
+    TextureManager::GetInstance()->LoadTexture("haikei/Red.png");
+    backgroundModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/plane.obj", device));
+    backgroundTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    backgroundTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&backgroundTransformData_));
+    backgroundTransformData_->WVP = MakeIdentity4x4();
+    backgroundTransformData_->World = MakeIdentity4x4();
+    activeBackgroundTex_ = 0;
+    backgroundScale_ = { 1000.0f, 600.0f, 1.0f };
+    backgroundRotate_ = { 0.0f, 0.0f, 0.0f };
+    backgroundZOffset_ = 450.0f;
+    backgroundYOffset_ = 0.0f;
+
     // レティクル(エイミング)用バッファ
     aimingInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU));
     aimingInstancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&aimingInstancingData_));
@@ -1136,6 +1150,19 @@ void GamePlayScene::Update() {
         ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "BOSS FIGHT ACTIVE");
     }
 
+    // ── 背景切り替えとパラメータ調整 ──
+    ImGui::Separator();
+    ImGui::Text("Background Control");
+    const char* bgNames[] = { "Green.png (Green)", "Red.png (Red)" };
+    ImGui::Combo("Background Texture", &activeBackgroundTex_, bgNames, IM_ARRAYSIZE(bgNames));
+    if (ImGui::Button("Switch Background Texture (B)")) {
+        activeBackgroundTex_ = (activeBackgroundTex_ + 1) % 2;
+    }
+    ImGui::DragFloat3("Background Scale", &backgroundScale_.x, 10.0f, 1.0f, 5000.0f, "%.1f");
+    ImGui::DragFloat3("Background Rotate", &backgroundRotate_.x, 0.01f, -6.28f, 6.28f, "%.2f");
+    ImGui::DragFloat("Background Y Offset", &backgroundYOffset_, 1.0f, -500.0f, 500.0f, "%.1f");
+    ImGui::DragFloat("Background Z Offset", &backgroundZOffset_, 10.0f, 50.0f, 2000.0f, "%.1f");
+
     // ── プレイヤーHP調整 ──
     ImGui::Separator();
     ImGui::Text("Player HP Status");
@@ -1505,6 +1532,13 @@ void GamePlayScene::Update() {
                 fighterWorldPos
             );
 
+            // ── 背景テクスチャの切り替え ──
+            if (input_->IsKeyTriggered(DIK_B)) {
+                activeBackgroundTex_ = (activeBackgroundTex_ + 1) % 2;
+            }
+
+
+
             // ── プレイヤーのリアルタイム座標をファイル出力（5フレームに1回） ──
             static int syncCounter = 0;
             if (++syncCounter % 5 == 0) {
@@ -1602,7 +1636,24 @@ void GamePlayScene::Update() {
 
                     Vector3 diff = Subtract(fighterWorldPos, enemy.position);
                     float dist = Length(diff);
-                    if (dist <= (enemy.radius + playerCollisionRadius_)) { // 自機半径
+                    
+                    bool hit = false;
+                    if (dist <= (enemy.radius + playerCollisionRadius_)) {
+                        hit = true;
+                    }
+                    // 特攻状態におけるすり抜け防止判定
+                    else if (enemy.state == Enemy::State::kDive) {
+                        float frameMovement = enemy.speed * kDeltaTime;
+                        float zDiff = enemy.position.z - fighterWorldPos.z;
+                        if (std::abs(zDiff) < (frameMovement * 0.75f + 3.0f)) {
+                            float distXY = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+                            if (distXY <= (enemy.radius + playerCollisionRadius_)) {
+                                hit = true;
+                            }
+                        }
+                    }
+
+                    if (hit) {
                         // 敵を撃破
                         enemy.isAlive = false;
                         playerHP_ -= 10.0f;
@@ -1611,8 +1662,6 @@ void GamePlayScene::Update() {
                         // 被弾エフェクトとSE
                         EmitHitEffect(enemy.position);
                         audio_->PlayWave(jumpSE_, false, 1.2f);
-
-                        // 全滅リポップはUpdateの最後で一括判定するため、ここではリポップ処理を行わない
                     }
                 }
             }
@@ -2047,6 +2096,14 @@ void GamePlayScene::Update() {
         }
     }
 
+    // ── 背景(Plane)のワールド・WVP行列を計算 ──
+    if (backgroundModel_ && backgroundTransformData_) {
+        Vector3 bgPos = { 0.0f, backgroundYOffset_, fighterWorldZ_ + backgroundZOffset_ };
+        Matrix4x4 bgWorld = MakeAffineMatrix(backgroundScale_, backgroundRotate_, bgPos);
+        backgroundTransformData_->World = bgWorld;
+        backgroundTransformData_->WVP = Multiply(bgWorld, viewProjectionMatrix);
+    }
+
     // 敵キャラのワールド行列・WVPの更新
     EulerTransform& camTransForEnemy = camera_->GetTransform();
 
@@ -2056,8 +2113,8 @@ void GamePlayScene::Update() {
         Vector3 fighterWorldPos = { 0.0f, 0.0f, 0.0f };
         if (fighterModel_) {
             fighterWorldPos = {
-                fighterModel_->transform.translate.x,
-                fighterModel_->transform.translate.y,
+                camTransForEnemy.translate.x + fighterModel_->transform.translate.x,
+                camTransForEnemy.translate.y - 3.0f + fighterModel_->transform.translate.y,
                 fighterWorldZ_
             };
         }
@@ -2678,6 +2735,15 @@ void GamePlayScene::Draw() {
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                 }
+            }
+
+            // 背景(Plane)描画
+            if (backgroundModel_ && backgroundTransformResource_) {
+                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+                commandList->SetGraphicsRootConstantBufferView(1, backgroundTransformResource_->GetGPUVirtualAddress());
+                std::string bgTex = (activeBackgroundTex_ == 0) ? "haikei/Green.png" : "haikei/Red.png";
+                backgroundModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU(bgTex), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
             }
 
             // ビル(Building)描画（ボス戦中も進行感を出すため描画）

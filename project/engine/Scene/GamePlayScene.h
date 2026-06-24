@@ -352,6 +352,16 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
     TransformationMatrix* floorTransformData_[kNumFloors] = { nullptr };
 
+    // 背景(Plane)用
+    std::unique_ptr<Model> backgroundModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> backgroundTransformResource_;
+    TransformationMatrix* backgroundTransformData_ = nullptr;
+    int activeBackgroundTex_ = 0; // 0: Green, 1: Red
+    Vector3 backgroundScale_ = { 1000.0f, 600.0f, 1.0f };
+    Vector3 backgroundRotate_ = { 0.0f, 0.0f, 0.0f };
+    float backgroundZOffset_ = 450.0f;
+    float backgroundYOffset_ = 0.0f;
+
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
     
     // プレイヤーの戦闘機用
