@@ -363,49 +363,58 @@ void GamePlayScene::Initialize() {
     float kBuildingInterval = 80.0f;
     for (int i = 0; i < kMaxBuildings; ++i) {
         Building building;
-        bool isLeft = (i % 2 == 0);
-        building.position.x = isLeft ? -45.0f : 45.0f;
+        
+        // 4列に並べる: 0:内側左, 1:内側右, 2:外側左, 3:外側右
+        int columnType = i % 4;
+        if (columnType == 0) building.position.x = -45.0f;
+        else if (columnType == 1) building.position.x = 45.0f;
+        else if (columnType == 2) building.position.x = -85.0f;
+        else building.position.x = 85.0f;
         
         // 積み重ねる階数を 1〜5 階でランダム設定
         building.floors = 1 + (randomEngine_() % 5); 
         building.scale = { 10.0f, 10.0f, 10.0f }; // ビル1階分の等倍スケール
         building.rotate = { 0.0f, 0.0f, 0.0f };
         
-        int pairIndex = i / 2;
-        building.position.z = 50.0f + (float)pairIndex * kBuildingInterval;
+        int groupIndex = i / 4;
+        building.position.z = 50.0f + (float)groupIndex * kBuildingInterval;
         // 積み重ねるため、個々のY座標は Update 内で計算されるため、基準値のみ設定
-        building.position.y = -20.0f; 
+        building.position.y = kFloorY; 
 
         buildings_.push_back(building);
     }
 
     // ── 床(Plane)の初期化とバッファ生成 ──
+    // 3列（中央・右・左）分のバッファを確保し、各列を kRoadColumnXOffset ずつX方向にオフセットして並べる
     floorModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/plane.obj", device));
     TextureManager::GetInstance()->LoadTexture("douro.jpg");
 
-    float kFloorSizeZ = 200.0f;
-    for (int i = 0; i < kNumFloors; ++i) {
-        floorTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
-        floorTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&floorTransformData_[i]));
-        floorTransformData_[i]->WVP = MakeIdentity4x4();
-        floorTransformData_[i]->World = MakeIdentity4x4();
+    // X方向オフセット: lane=0→中央(0), lane=1→右(+offset), lane=2→左(-offset)
+    const float laneOffsets[kNumRoadLanes] = { 0.0f, +kRoadColumnXOffset, -kRoadColumnXOffset };
+    for (int lane = 0; lane < kNumRoadLanes; ++lane) {
+        for (int col = 0; col < kNumFloorColumns; ++col) {
+            int idx = lane * kNumFloorColumns + col;
+            floorTransformResources_[idx] = CreateBufferResource(device, sizeof(TransformationMatrix));
+            floorTransformResources_[idx]->Map(0, nullptr, reinterpret_cast<void**>(&floorTransformData_[idx]));
+            floorTransformData_[idx]->WVP   = MakeIdentity4x4();
+            floorTransformData_[idx]->World = MakeIdentity4x4();
 
-        floorPositions_[i] = { 0.0f, -20.0f, (float)i * kFloorSizeZ };
+            floorPositions_[idx] = { laneOffsets[lane], kFloorY, (float)col * kFloorSizeZ };
+        }
     }
 
-    // ── 背景(Plane)の初期化とバッファ生成 ──
+    // ── 天球(SkyDome)の初期化とバッファ生成 ──
+    // 球の内側からテクスチャを見る形式のため、カリングが逆向きのモデルを使用
     TextureManager::GetInstance()->LoadTexture("haikei/Green.png");
     TextureManager::GetInstance()->LoadTexture("haikei/Red.png");
-    backgroundModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/plane.obj", device));
-    backgroundTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
-    backgroundTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&backgroundTransformData_));
-    backgroundTransformData_->WVP = MakeIdentity4x4();
-    backgroundTransformData_->World = MakeIdentity4x4();
+    skydomeModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/skydome/SkyDome.obj", device));
+    skydomeTransformRes_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    skydomeTransformRes_->Map(0, nullptr, reinterpret_cast<void**>(&skydomeTransformData_));
+    skydomeTransformData_->WVP   = MakeIdentity4x4();
+    skydomeTransformData_->World = MakeIdentity4x4();
     activeBackgroundTex_ = 0;
-    backgroundScale_ = { 1000.0f, 600.0f, 1.0f };
-    backgroundRotate_ = { 0.0f, 0.0f, 0.0f };
-    backgroundZOffset_ = 450.0f;
-    backgroundYOffset_ = 0.0f;
+    bgUvScrollX_ = 0.0f;
+    bgUvScrollY_ = 0.0f;
 
     // レティクル(エイミング)用バッファ
     aimingInstancingResource_ = CreateBufferResource(device, sizeof(ParticleForGPU));
@@ -648,11 +657,11 @@ void GamePlayScene::Initialize() {
         for (int i = 0; i < kNumFloors; ++i) {
             layoutFile << "FLOOR," 
                        << floorPositions_[i].x << "," << floorPositions_[i].y << "," << floorPositions_[i].z << ","
-                       << 200.0f << "," << 1.0f << "," << 200.0f << "\n";
+                       << 300.0f << "," << 1.0f << "," << kFloorSizeZ << "\n";
         }
         // 自機初期位置の出力
         layoutFile << "PLAYER," 
-                   << 0.0f << "," << -3.0f << "," << fighterWorldZ_ << ","
+                   << 0.0f << "," << kFighterYOffset << "," << fighterWorldZ_ << ","
                    << 10.0f << "," << 10.0f << "," << 10.0f << ","
                    << 0.0f << "," << 0.0f << "," << 0.0f << "\n";
         // 敵の初期位置の出力
@@ -1152,16 +1161,14 @@ void GamePlayScene::Update() {
 
     // ── 背景切り替えとパラメータ調整 ──
     ImGui::Separator();
-    ImGui::Text("Background Control");
+    ImGui::Text("SkyDome Control");
     const char* bgNames[] = { "Green.png (Green)", "Red.png (Red)" };
-    ImGui::Combo("Background Texture", &activeBackgroundTex_, bgNames, IM_ARRAYSIZE(bgNames));
-    if (ImGui::Button("Switch Background Texture (B)")) {
-        activeBackgroundTex_ = (activeBackgroundTex_ + 1) % 2;
+    ImGui::Combo("Sky Texture", &activeBackgroundTex_, bgNames, IM_ARRAYSIZE(bgNames));
+    if (ImGui::Button("Switch Sky Texture (T key)")) {
+        activeBackgroundTex_ = (activeBackgroundTex_ + 1) % kNumSkyTextures;
     }
-    ImGui::DragFloat3("Background Scale", &backgroundScale_.x, 10.0f, 1.0f, 5000.0f, "%.1f");
-    ImGui::DragFloat3("Background Rotate", &backgroundRotate_.x, 0.01f, -6.28f, 6.28f, "%.2f");
-    ImGui::DragFloat("Background Y Offset", &backgroundYOffset_, 1.0f, -500.0f, 500.0f, "%.1f");
-    ImGui::DragFloat("Background Z Offset", &backgroundZOffset_, 10.0f, 50.0f, 2000.0f, "%.1f");
+    ImGui::DragFloat("Sky UV Scroll X", &bgUvScrollX_, 0.001f, 0.0f, 1.0f, "%.3f");
+    ImGui::DragFloat("Sky UV Scroll Y", &bgUvScrollY_, 0.001f, 0.0f, 1.0f, "%.3f");
 
     // ── プレイヤーHP調整 ──
     ImGui::Separator();
@@ -1532,9 +1539,9 @@ void GamePlayScene::Update() {
                 fighterWorldPos
             );
 
-            // ── 背景テクスチャの切り替え ──
-            if (input_->IsKeyTriggered(DIK_B)) {
-                activeBackgroundTex_ = (activeBackgroundTex_ + 1) % 2;
+            // ── 背景テクスチャの切り替え（Tキー）──
+            if (input_->IsKeyTriggered(DIK_T)) {
+                activeBackgroundTex_ = (activeBackgroundTex_ + 1) % kNumSkyTextures;
             }
 
 
@@ -2096,12 +2103,37 @@ void GamePlayScene::Update() {
         }
     }
 
-    // ── 背景(Plane)のワールド・WVP行列を計算 ──
-    if (backgroundModel_ && backgroundTransformData_) {
-        Vector3 bgPos = { 0.0f, backgroundYOffset_, fighterWorldZ_ + backgroundZOffset_ };
-        Matrix4x4 bgWorld = MakeAffineMatrix(backgroundScale_, backgroundRotate_, bgPos);
-        backgroundTransformData_->World = bgWorld;
-        backgroundTransformData_->WVP = Multiply(bgWorld, viewProjectionMatrix);
+    // ── 天球(SkyDome)のワールド・WVP行列を計算 ──
+    // 天球は常にカメラ中心に配置。球の内側からテクスチャを見るため継ぎ目は背面（見えない）に来る
+    if (skydomeModel_ && skydomeTransformData_) {
+        // カメラ位置に追従させる（常にカメラ中心）
+        EulerTransform& cam = camera_->GetTransform();
+        Vector3 skyPos = { cam.translate.x, cam.translate.y, cam.translate.z };
+        Vector3 skyScale  = { kSkydomeScale, kSkydomeScale, kSkydomeScale };
+        Vector3 skyRotate = { 0.0f, 0.0f, 0.0f };
+
+        Matrix4x4 skyWorld = MakeAffineMatrix(skyScale, skyRotate, skyPos);
+        skydomeTransformData_->World = skyWorld;
+        skydomeTransformData_->WVP   = Multiply(skyWorld, viewProjectionMatrix);
+
+        // X・Y方向UVスクロールで雲を流す（天球なので折り返し線は球の背面＝常に画面外）
+        bgUvScrollX_ += kBgUvScrollSpeedX * kDeltaTime;
+        bgUvScrollY_ += kBgUvScrollSpeedY * kDeltaTime;
+        if (bgUvScrollX_ > 1.0f) bgUvScrollX_ -= 1.0f;
+        if (bgUvScrollY_ > 1.0f) bgUvScrollY_ -= 1.0f;
+
+        Matrix4x4 uvTranslate = MakeTranslateMatrix({ bgUvScrollX_, bgUvScrollY_, 0.0f });
+
+        // 天球マテリアルのUVトランスフォームを更新
+        ID3D12Resource* materialRes = skydomeModel_->GetMaterialResource();
+        if (materialRes) {
+            ::Material* materialData = nullptr;
+            materialRes->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+            if (materialData) {
+                materialData->uvTransform = uvTranslate;
+            }
+            materialRes->Unmap(0, nullptr);
+        }
     }
 
     // 敵キャラのワールド行列・WVPの更新
@@ -2368,15 +2400,13 @@ void GamePlayScene::Update() {
     // ボス戦中はビルが画面上に描画されないため、CPU処理（行列計算とバッファ更新）をスキップして軽量化。床はボス戦中も更新する。
     if (sceneMode_ == SceneMode::kFighter) {
         float cameraZ = camera_->GetTransform().translate.z;
-        float kBuildingInterval = 80.0f;
-        float kFloorHeight = 10.0f; // 1階あたりのY軸高さの差分（ビルモデルの大きさに合わせて調整）
 
         // ビルの画面外再配置（ボス戦中も進行感を出すため常に処理）
         {
             for (int i = 0; i < kMaxBuildings; ++i) {
-                // カメラの後方80mを超えたら、遥か前方（最前方のビルペアの先）に再配置
-                if (buildings_[i].position.z < cameraZ - 80.0f) {
-                    buildings_[i].position.z += kMaxBuildings * kBuildingInterval * 0.5f; // 16棟 / 2 = 8ペア分前方に送る (640m)
+                // カメラの後方(間隔分)を超えたら、遥か前方（最前方のビルペアの先）に再配置
+                if (buildings_[i].position.z < cameraZ - kBuildingInterval) {
+                    buildings_[i].position.z += (float)kMaxBuildings * kBuildingInterval * 0.25f;
                     
                     // 再配置した際にビルの階数(1〜5階)を再抽選する
                     buildings_[i].floors = 1 + (randomEngine_() % 5);
@@ -2385,18 +2415,23 @@ void GamePlayScene::Update() {
         }
 
         // 床の画面外再配置（ボス戦中も進行感を維持するため、常に再配置する）
-        float kFloorSizeZ = 200.0f;
-        for (int i = 0; i < kNumFloors; ++i) {
-            // カメラの後方200mを超えたら、最前方へ移動
-            if (floorPositions_[i].z < cameraZ - 200.0f) {
-                // 最も前方にある床のZ座標を見つける
-                float maxZ = -9999.0f;
-                for (int j = 0; j < kNumFloors; ++j) {
-                    if (floorPositions_[j].z > maxZ) {
-                        maxZ = floorPositions_[j].z;
-                    }
+        // 各列（中央・右・左）ごとにZ方向のみスクロールさせ、X座標は変えない
+        for (int lane = 0; lane < kNumRoadLanes; ++lane) {
+            // この列の中でZが最大のタイルを探す
+            float laneMaxZ = -9999.0f;
+            for (int col = 0; col < kNumFloorColumns; ++col) {
+                int idx = lane * kNumFloorColumns + col;
+                if (floorPositions_[idx].z > laneMaxZ) {
+                    laneMaxZ = floorPositions_[idx].z;
                 }
-                floorPositions_[i].z = maxZ + kFloorSizeZ;
+            }
+            // カメラ後方に出たタイルを前方へ再配置（X座標はそのまま保持）
+            for (int col = 0; col < kNumFloorColumns; ++col) {
+                int idx = lane * kNumFloorColumns + col;
+                if (floorPositions_[idx].z < cameraZ - kFloorSizeZ) {
+                    floorPositions_[idx].z = laneMaxZ + kFloorSizeZ;
+                    laneMaxZ = floorPositions_[idx].z; // 複数タイルが同フレームで再配置される場合に備えて更新
+                }
             }
         }
 
@@ -2409,7 +2444,7 @@ void GamePlayScene::Update() {
 
                     // 1フロアごとの積み上げY座標を計算（等倍スケール10に対して高さを積み上げる）
                     Vector3 floorPos = buildings_[i].position;
-                    floorPos.y = -20.0f + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
+                    floorPos.y = kFloorY + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
 
                     Matrix4x4 worldMatrix = MakeAffineMatrix(buildings_[i].scale, buildings_[i].rotate, floorPos);
                     buildingTransformData_[cbIndex]->World = worldMatrix;
@@ -2419,14 +2454,17 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 床(Plane)のワールド・WVP行列を計算（ボス戦中も進行感を維持するため、常に更新する）
-        for (int i = 0; i < kNumFloors; ++i) {
-            // plane.obj をX軸中心に-90度回転させてXZ平面にし、道路用のスケール（幅30、長さ100）を適用
-            Vector3 roadScale = { 100.0f, 40.0f, 1.0f };
-            Vector3 roadRotate = { 1.57079632f, 1.57079632f, 0.0f };
-            Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, roadRotate, floorPositions_[i]);
-            floorTransformData_[i]->World = worldMatrix;
-            floorTransformData_[i]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
+        // 床(Plane)のワールド・WVP行列を計算（全列・全タイル分を更新）
+        {
+            // 回転後: X → Z方向（奥行き）, Y → X方向（幅）
+            // kRoadDepthScale と kFloorSizeZ を一致させてZファイティングを防止
+            const Vector3 roadScale  = { kRoadDepthScale, kRoadWidthScale, 1.0f };
+            const Vector3 roadRotate = { 1.57079632f, 1.57079632f, 0.0f };
+            for (int i = 0; i < kNumFloors; ++i) {
+                Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, roadRotate, floorPositions_[i]);
+                floorTransformData_[i]->World = worldMatrix;
+                floorTransformData_[i]->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
+            }
         }
     }
 
@@ -2737,13 +2775,13 @@ void GamePlayScene::Draw() {
                 }
             }
 
-            // 背景(Plane)描画
-            if (backgroundModel_ && backgroundTransformResource_) {
+            // 天球(SkyDome)描画 ── 最初に描画して他のすべてのオブジェクトより背面に置く
+            if (skydomeModel_ && skydomeTransformRes_) {
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-                commandList->SetGraphicsRootConstantBufferView(1, backgroundTransformResource_->GetGPUVirtualAddress());
-                std::string bgTex = (activeBackgroundTex_ == 0) ? "haikei/Green.png" : "haikei/Red.png";
-                backgroundModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU(bgTex), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                commandList->SetGraphicsRootConstantBufferView(1, skydomeTransformRes_->GetGPUVirtualAddress());
+                std::string skyTex = (activeBackgroundTex_ == 0) ? "haikei/Green.png" : "haikei/Red.png";
+                skydomeModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU(skyTex), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
             }
 
             // ビル(Building)描画（ボス戦中も進行感を出すため描画）

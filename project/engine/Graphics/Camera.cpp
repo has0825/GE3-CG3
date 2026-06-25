@@ -9,8 +9,8 @@ Camera::Camera(int windowWidth, int windowHeight) {
 	};
 	fov_ = 0.45f;
 	aspectRatio_ = (float)windowWidth / (float)windowHeight;
-	nearClip_ = 5.0f;    // ニアクリップを上げ、Z精度を手前から中・遠距離へ解放
-	farClip_ = 1500.0f;  // 実際の描画範囲をカバーするファークリップに広げる
+	nearClip_ = 5.0f;     // ニアクリップを上げ、Z精度を手前から中・遠距離へ解放
+	farClip_ = 12000.0f;  // 天球（半径10000m）をカバーできるよう大きく広げる
 
 	// 初回計算
 	Update();

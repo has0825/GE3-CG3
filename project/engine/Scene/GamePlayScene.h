@@ -338,8 +338,8 @@ private:
         Vector3 rotate;
         int floors; // 階数
     };
-    static const int kMaxBuildings = 16;
-    static const int kMaxBuildingCBs = 120;
+    static const int kMaxBuildings = 160;
+    static const int kMaxBuildingCBs = 800;
     std::vector<Building> buildings_;
     std::unique_ptr<Model> buildingModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> buildingTransformResources_[kMaxBuildingCBs];
@@ -347,20 +347,50 @@ private:
 
     // 床(Plane)用
     std::unique_ptr<Model> floorModel_;
-    static const int kNumFloors = 4;
+    // 1列分のZ方向タイル数（中央・左・右の3列分バッファを確保）
+    static const int kNumFloorColumns = 16;              // Z方向のタイル数
+    static const int kNumRoadLanes    = 3;               // 左・中央・右の3列
+    static const int kNumFloors       = kNumFloorColumns * kNumRoadLanes; // 合計バッファ数
     Vector3 floorPositions_[kNumFloors];
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
     TransformationMatrix* floorTransformData_[kNumFloors] = { nullptr };
 
-    // 背景(Plane)用
-    std::unique_ptr<Model> backgroundModel_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> backgroundTransformResource_;
-    TransformationMatrix* backgroundTransformData_ = nullptr;
-    int activeBackgroundTex_ = 0; // 0: Green, 1: Red
-    Vector3 backgroundScale_ = { 1000.0f, 600.0f, 1.0f };
-    Vector3 backgroundRotate_ = { 0.0f, 0.0f, 0.0f };
-    float backgroundZOffset_ = 450.0f;
-    float backgroundYOffset_ = 0.0f;
+    // 床・ビル用の追加定数
+    static constexpr float kFloorSizeZ = 200.0f;
+    static constexpr float kBuildingInterval = 80.0f;
+    static constexpr float kFloorHeight = 10.0f;
+    static constexpr float kFloorY = -20.0f;
+    // roadScale の回転後の意味: X → Z方向（奥行き）, Y → X方向（幅）
+    // plane.objは弦 -1～+1 = 2ユニット幅なので、実際幅 = Yスケール × 2
+    static constexpr float kRoadDepthScale  = 100.0f; // Z方向の長さ（タイル間隔に合わせてZファイティングを防止）
+    static constexpr float kRoadWidthScale  = 40.0f;  // Yスケール（元の道路幅・テクスチャ割り付けなし）
+    // plane.obj幅 = 2ユニットなので、実際ワールド幅 = kRoadWidthScale * 2 = 80m
+    // 左右列のXオフセット: 中央からタイル1枚分（=80m）ずらして並べる
+    static constexpr float kRoadColumnXOffset = 80.0f; // 列間X方向間隔（実ワールド幅に一致させて隙間をなくす）
+
+    // 背景雲UVスクロール速度定数
+    static constexpr float kBgUvScrollSpeedX = 0.016f; // X方向スクロール速度（1秒あたりのUVオフセット）
+    static constexpr float kBgUvScrollSpeedY = 0.008f; // Y方向スクロール速度（1秒あたりのUVオフセット）
+
+    // 天球(SkyDome)用定数
+    // 半径を大きくするほどカメラから見た各ポリゴンの角度が小さくなり折れ目が目立たなくなる
+    static constexpr float kSkydomeScale   = 10000.0f; // 天球半径（FarClip 12000 以内に十分大きく）
+    static constexpr int   kNumSkyTextures = 2;         // 天球テクスチャ数（Green / Red）
+
+    // 自機オフセットの定数
+    static constexpr float kFighterYOffset = -3.0f;
+
+    // 特攻すり抜け衝突判定用の定数
+    static constexpr float kDiveCollisionFrameMovementScale = 0.75f;
+    static constexpr float kDiveCollisionZBuffer = 3.0f;
+
+    // 天球(SkyDome)用
+    std::unique_ptr<Model> skydomeModel_;                          // 天球モデル
+    Microsoft::WRL::ComPtr<ID3D12Resource> skydomeTransformRes_;   // 変換行列バッファ
+    TransformationMatrix* skydomeTransformData_ = nullptr;         // 変換行列マップポインタ
+    int activeBackgroundTex_ = 0;  // 0: Green(haikei/Green.png), 1: Red(haikei/Red.png)
+    float bgUvScrollX_ = 0.0f;     // X方向UVスクロール量（天球内側での雲の流れ）
+    float bgUvScrollY_ = 0.0f;     // Y方向UVスクロール量
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
     
