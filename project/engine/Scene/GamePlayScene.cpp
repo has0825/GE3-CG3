@@ -9,7 +9,9 @@
 #include "DirectXCommon.h"
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <filesystem>
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -19,6 +21,9 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+// staticメンバの定義
+int GamePlayScene::blenderSyncCounter_ = 0;
 
 static Vector3 Add(const Vector3& v1, const Vector3& v2) {
     return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
@@ -41,6 +46,24 @@ static Vector3 TransformNormal(const Vector3& v, const Matrix4x4& m) {
 }
 
 void GamePlayScene::Initialize() {
+    // 既存のリプレイ録画ファイルを全て削除
+    try {
+        if (std::filesystem::exists("Resources")) {
+            for (const auto& entry : std::filesystem::directory_iterator("Resources")) {
+                if (entry.is_regular_file()) {
+                    std::string filename = entry.path().filename().string();
+                    if (filename == "replay_frames.csv" || 
+                        (filename.rfind("replay_frames_", 0) == 0 && filename.rfind(".csv") == filename.length() - 4)) {
+                        std::filesystem::remove(entry.path());
+                    }
+                }
+            }
+        }
+    } catch (const std::exception&) {
+        // エラー無視
+    }
+    replaySessionIndex_ = 0;
+
     // クリアカラーのリセット (デフォルトの青緑系に戻す)
     DirectXCommon::GetInstance()->SetClearColor(0.1f, 0.25f, 0.5f, 1.0f);
 
@@ -408,6 +431,18 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->LoadTexture("haikei/Green.png");
     TextureManager::GetInstance()->LoadTexture("haikei/Red.png");
     skydomeModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/skydome/SkyDome.obj", device));
+    
+    // 天球のライティングを無効化 (Unlit)
+    ID3D12Resource* skydomeMaterialRes = skydomeModel_->GetMaterialResource();
+    if (skydomeMaterialRes) {
+        ::Material* materialData = nullptr;
+        skydomeMaterialRes->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+        if (materialData) {
+            materialData->enableLighting = 0;
+        }
+        skydomeMaterialRes->Unmap(0, nullptr);
+    }
+
     skydomeTransformRes_ = CreateBufferResource(device, sizeof(TransformationMatrix));
     skydomeTransformRes_->Map(0, nullptr, reinterpret_cast<void**>(&skydomeTransformData_));
     skydomeTransformData_->WVP   = MakeIdentity4x4();
@@ -1178,8 +1213,6 @@ void GamePlayScene::Update() {
     // ── 蜘蛛ボス調整項目 ──
     if (currentPhase_ == GamePhase::kBossFight) {
         ImGui::Separator();
-        ImGui::Text("Spider Boss Control");
-        ImGui::SliderFloat("Boss HP", &bossHP_, 0.0f, bossMaxHP_, "%.1f");
         ImGui::DragFloat("Boss Collision Radius", &bossCollisionRadius_, 0.1f, 1.0f, 100.0f, "%.1f");
         ImGui::DragFloat("Boss Body Scale (big+Spider)", &bossBodyScale_, 0.1f, 0.01f, 100.0f, "%.2f");
         ImGui::DragFloat("Boss Leg Scale (big+spider+arm)", &bossLegScale_, 0.1f, 0.01f, 100.0f, "%.2f");
@@ -1247,6 +1280,42 @@ void GamePlayScene::Update() {
     }
     ImGui::Text("TAB Key: Switch Scene Mode");
     ImGui::Text("Current Mode: %s", (sceneMode_ == SceneMode::kMouse ? "Mouse" : (sceneMode_ == SceneMode::kCamera ? "Camera" : "Fighter")));
+
+    // ── Blender連携パネル ──
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.6f, 1.0f), "[Blender Sync]");
+    ImGui::Text("game_state.json: Updating every 3 frames");
+    if (replayRecording_) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.1f, 0.1f, 1.0f));
+        if (ImGui::Button("[REC] Stop Replay (R key)")) {
+            replayRecording_ = false;
+        }
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Frame: %d", replayFrameCounter_);
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.6f, 0.2f, 1.0f));
+        if (ImGui::Button("[REC] Start Replay (R key)")) {
+            replayRecording_ = true;
+            replayFrameCounter_ = 0;
+            replaySessionIndex_++;
+            std::string filename = "Resources/replay_frames_" + std::to_string(replaySessionIndex_) + ".csv";
+            std::ofstream repFileHdr(filename, std::ios::trunc);
+            if (repFileHdr.is_open()) {
+                repFileHdr << "frame,px,py,pz,proll,ppitch";
+                for (int i = 0; i < kMaxEnemies; ++i) {
+                    repFileHdr << ",e" << i << "_alive,e" << i << "_x,e" << i << "_y,e" << i << "_z,e" << i << "_rz";
+                }
+                repFileHdr << ",boss_active,boss_x,boss_y,boss_z\n";
+                repFileHdr.close();
+            }
+        }
+        ImGui::PopStyleColor();
+    }
+    ImGui::Text("Blender RT : blender_realtime_viewer.py");
+    ImGui::Text("Replay     : blender_replay_viewer.py");
+    ImGui::Text("LevelEditor: blender_level_editor.py");
+    ImGui::Text("ParamEdit  : blender_param_editor.py");
     ImGui::End();
 #endif
 
@@ -1546,13 +1615,168 @@ void GamePlayScene::Update() {
 
 
 
-            // ── プレイヤーのリアルタイム座標をファイル出力（5フレームに1回） ──
-            static int syncCounter = 0;
-            if (++syncCounter % 5 == 0) {
-                std::ofstream posFile("Resources/player_actual_pos.txt", std::ios::trunc);
+            // ── Blender同期: game_state.jsonの出力（3フレームに1回）──
+            if (++blenderSyncCounter_ % 3 == 0) {
+                std::ostringstream oss;
+                oss << "{\n";
+                // フェーズ情報
+                oss << "  \"phase\": " << static_cast<int>(currentPhase_) << ",\n";
+                // プレイヤー情報
+                oss << "  \"player\": {";
+                oss << "\"x\": " << fighterWorldPos.x << ", ";
+                oss << "\"y\": " << fighterWorldPos.y << ", ";
+                oss << "\"z\": " << fighterWorldPos.z << ", ";
+                oss << "\"roll\": " << (fighterModel_ ? fighterModel_->transform.rotate.z : 0.0f) << ", ";
+                oss << "\"pitch\": " << (fighterModel_ ? fighterModel_->transform.rotate.x : 0.0f) << ", ";
+                oss << "\"hp\": " << playerHP_ << ", ";
+                oss << "\"maxhp\": " << playerMaxHP_ << ", ";
+                oss << "\"boosting\": " << (isBoosting_ ? "true" : "false");
+                oss << "},\n";
+                // 敵情報 (10体分)
+                oss << "  \"enemies\": [\n";
+                for (int i = 0; i < kMaxEnemies; ++i) {
+                    oss << "    {";
+                    oss << "\"alive\": " << (enemies_[i].isAlive ? "true" : "false") << ", ";
+                    oss << "\"x\": " << enemies_[i].position.x << ", ";
+                    oss << "\"y\": " << enemies_[i].position.y << ", ";
+                    oss << "\"z\": " << enemies_[i].position.z << ", ";
+                    oss << "\"rx\": " << enemies_[i].rotate.x << ", ";
+                    oss << "\"ry\": " << enemies_[i].rotate.y << ", ";
+                    oss << "\"rz\": " << enemies_[i].rotate.z << ", ";
+                    oss << "\"hp\": " << enemies_[i].hp << ", ";
+                    oss << "\"state\": " << static_cast<int>(enemies_[i].state);
+                    oss << "}";
+                    if (i < kMaxEnemies - 1) oss << ",";
+                    oss << "\n";
+                }
+                oss << "  ],\n";
+                // ボス情報
+                float bodyBounceForJson = 0.0f;
+                if (bossLegSwingSpeed_ > 0.0f) {
+                    bodyBounceForJson = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                }
+                float dropOffsetForJson = 0.0f;
+                if (bossAppearanceTimer_ > 0.0f) {
+                    float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
+                    dropOffsetForJson = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+                }
+                oss << "  \"boss\": {";
+                oss << "\"active\": " << (currentPhase_ == GamePhase::kBossFight ? "true" : "false") << ", ";
+                oss << "\"visible\": " << (isBossModelVisible_ ? "true" : "false") << ", ";
+                oss << "\"x\": 0.0, ";
+                oss << "\"y\": " << (bossYOffset_ + bodyBounceForJson + dropOffsetForJson) << ", ";
+                oss << "\"z\": " << (fighterWorldZ_ + bossZOffset_) << ", ";
+                oss << "\"rot_y\": " << bossBodyRotY_ << ", ";
+                oss << "\"hp\": " << bossHP_ << ", ";
+                oss << "\"maxhp\": " << bossMaxHP_ << ", ";
+                oss << "\"action\": " << static_cast<int>(bossActionState_);
+                oss << "},\n";
+                // 弾情報 (全60発・固定インデックス・aliveフラグ付き)
+                // ※インデックスを固定することでBlender側が同じ弾を追跡できる
+                static const int kMaxDisplayBullets = 20; // 先頭20発のみ出力(JSON軽量化)
+                oss << "  \"bullets\": [\n";
+                for (int i = 0; i < kMaxDisplayBullets; ++i) {
+                    bool alive = (playerBullets_[i].currentTime < playerBullets_[i].lifeTime);
+                    oss << "    {\"alive\": " << (alive ? "true" : "false") << ", ";
+                    oss << "\"x\": " << playerBullets_[i].position.x << ", ";
+                    oss << "\"y\": " << playerBullets_[i].position.y << ", ";
+                    oss << "\"z\": " << playerBullets_[i].position.z << "}";
+                    if (i < kMaxDisplayBullets - 1) oss << ",";
+                    oss << "\n";
+                }
+                oss << "  ],\n";
+                // 追加情報
+                oss << "  \"recording\": " << (replayRecording_ ? "true" : "false") << "\n";
+                oss << "}\n";
+
+                std::ofstream posFile("Resources/game_state.json", std::ios::trunc);
                 if (posFile.is_open()) {
-                    posFile << fighterWorldPos.x << "," << fighterWorldPos.y << "," << fighterWorldPos.z << "\n";
+                    posFile << oss.str();
                     posFile.close();
+                }
+            }
+
+            // ── リプレイ録画 (RキーでON/OFF, 録画中は毎フレームCSVに追記) ──
+            if (input_->IsKeyTriggered(DIK_R) && !(phaseIntroTimer_ >= 0.0f)) {
+                replayRecording_ = !replayRecording_;
+                if (replayRecording_) {
+                    replayFrameCounter_ = 0;
+                    replaySessionIndex_++;
+                    std::string filename = "Resources/replay_frames_" + std::to_string(replaySessionIndex_) + ".csv";
+                    // ヘッダー行を一度書いて初期化
+                    std::ofstream repFile(filename, std::ios::trunc);
+                    if (repFile.is_open()) {
+                        repFile << "frame,px,py,pz,proll,ppitch";
+                        for (int i = 0; i < kMaxEnemies; ++i) {
+                            repFile << ",e" << i << "_alive,e" << i << "_x,e" << i << "_y,e" << i << "_z,e" << i << "_rz";
+                        }
+                        repFile << ",boss_active,boss_x,boss_y,boss_z\n";
+                        repFile.close();
+                    }
+                }
+            }
+
+            if (replayRecording_) {
+                std::string filename = "Resources/replay_frames_" + std::to_string(replaySessionIndex_) + ".csv";
+                std::ofstream repFile(filename, std::ios::app);
+                if (repFile.is_open()) {
+                    float bodyBounceRec = 0.0f;
+                    if (bossLegSwingSpeed_ > 0.0f) {
+                        bodyBounceRec = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                    }
+                    float dropOffsetRec = 0.0f;
+                    if (bossAppearanceTimer_ > 0.0f) {
+                        float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
+                        dropOffsetRec = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+                    }
+                    repFile << replayFrameCounter_++
+                            << "," << fighterWorldPos.x
+                            << "," << fighterWorldPos.y
+                            << "," << fighterWorldPos.z
+                            << "," << (fighterModel_ ? fighterModel_->transform.rotate.z : 0.0f)
+                            << "," << (fighterModel_ ? fighterModel_->transform.rotate.x : 0.0f);
+                    for (int i = 0; i < kMaxEnemies; ++i) {
+                        repFile << "," << (enemies_[i].isAlive ? 1 : 0)
+                                << "," << enemies_[i].position.x
+                                << "," << enemies_[i].position.y
+                                << "," << enemies_[i].position.z
+                                << "," << enemies_[i].rotate.z;
+                    }
+                    bool bossActiveRec = (currentPhase_ == GamePhase::kBossFight);
+                    repFile << "," << (bossActiveRec ? 1 : 0)
+                            << ",0.0"
+                            << "," << (bossYOffset_ + bodyBounceRec + dropOffsetRec)
+                            << "," << (fighterWorldZ_ + bossZOffset_) << "\n";
+                    repFile.close();
+                }
+            }
+
+            // ── Blenderパラメータ読み込み (60フレームに1回) ──
+            if (++blenderParamReadCounter_ >= 60) {
+                blenderParamReadCounter_ = 0;
+                std::ifstream paramIn("Resources/blender_params.txt");
+                if (paramIn.is_open()) {
+                    std::string line;
+                    while (std::getline(paramIn, line)) {
+                        if (line.empty() || line[0] == '#') continue;
+                        size_t pos = line.find('=');
+                        if (pos == std::string::npos) continue;
+                        std::string key = line.substr(0, pos);
+                        std::string val = line.substr(pos + 1);
+                        try {
+                            float v = std::stof(val);
+                            if (key == "boss_z_offset")       bossZOffset_      = v;
+                            else if (key == "boss_y_offset") bossYOffset_      = v;
+                            else if (key == "boss_scale")    bossScale_        = v;
+                            else if (key == "player_speed_x")playerSpeedX_     = v;
+                            else if (key == "player_speed_y")playerSpeedY_     = v;
+                            else if (key == "player_limit_x")playerLimitX_     = v;
+                            else if (key == "player_limit_y")playerLimitY_     = v;
+                            else if (key == "boss_hp")        bossHP_           = v;
+                            else if (key == "player_hp")      playerHP_         = v;
+                        } catch (...) {}
+                    }
+                    paramIn.close();
                 }
             }
 

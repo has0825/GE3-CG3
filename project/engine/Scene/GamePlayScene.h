@@ -370,7 +370,7 @@ private:
 
     // 背景雲UVスクロール速度定数
     static constexpr float kBgUvScrollSpeedX = 0.016f; // X方向スクロール速度（1秒あたりのUVオフセット）
-    static constexpr float kBgUvScrollSpeedY = 0.008f; // Y方向スクロール速度（1秒あたりのUVオフセット）
+    static constexpr float kBgUvScrollSpeedY = 0.000f; // Y方向スクロール速度（1秒あたりのUVオフセット）
 
     // 天球(SkyDome)用定数
     // 半径を大きくするほどカメラから見た各ポリゴンの角度が小さくなり折れ目が目立たなくなる
@@ -632,6 +632,13 @@ private:
     float meleeTimer_ = 0.0f;
     Vector3 currentFighterPos_ = { 0.0f, -3.0f, -5.0f };
     float digitalGlitchTimer_ = 0.0f;
+
+    // ── Blender連携 (リアルタイム同期 / リプレイ録画 / パラメータ受信) ──
+    static int  blenderSyncCounter_;        // game_state.json 書き出し間隔カウンタ
+    bool        replayRecording_ = false;   // リプレイ録画中フラグ
+    int         replayFrameCounter_ = 0;    // 録画フレーム番号
+    int         replaySessionIndex_ = 0;    // リプレイセッションのインデックス
+    int         blenderParamReadCounter_ = 0; // blender_params.txt 読み込み間隔カウンタ
 
     // ── ボス死亡演出用 ──
     bool isBossDefeatedSequence_ = false;
