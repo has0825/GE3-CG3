@@ -507,7 +507,8 @@ void GamePlayScene::Initialize() {
     playerMaxHP_ = 100.0f;
     bossHP_ = 500.0f;
     bossMaxHP_ = 500.0f;
-    bossCollisionRadius_ = 18.0f;
+    bossCollisionRadius_ = 27.0f;
+    bossWebFireOffset_ = { 0.0f, 27.0f, 36.0f }; // 糸レーザーをお尻（上・奥）から発射するための初期オフセット
 
     // 【重要】モデルのスケール・座標設定
     // ※もし画面に見えない場合は、ここ(scale)を 10.0f や 100.0f など大きくしてみてください。
@@ -1174,7 +1175,33 @@ void GamePlayScene::Update() {
         dissolveParamData_->threshold = transitionThreshold_;
     }
 
+    // ── プレイヤーのワールド位置の共通計算 ──
+    EulerTransform& camTransForPos = camera_->GetTransform();
+    Vector3 fighterWorldPos = {
+        camTransForPos.translate.x + fighterModel_->transform.translate.x,
+        camTransForPos.translate.y - 3.0f + fighterModel_->transform.translate.y,
+        fighterWorldZ_
+    };
+
 #ifdef USE_IMGUI
+    // ── ボス足攻撃のデバッグ用オーバーレイ表示 ──
+    ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f); // 半透明背景
+    ImGui::Begin("Boss Leg Debug", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::SetWindowFontScale(2.0f); // 文字サイズを大きく
+    
+    int currentAttackLeg = (fighterWorldPos.x < 0.0f) ? 1 : 5;
+    
+    if (bossActionState_ == BossActionState::kLegAttack) {
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "LEG ATTACK ACTIVE!");
+        ImGui::Text("Active Leg Index: %d", currentAttackLeg);
+        ImGui::Text("Timer: %.2fs", bossActionTimer_);
+    } else {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Boss State: Normal");
+        ImGui::Text("Target Leg if attack starts: %d", currentAttackLeg);
+    }
+    ImGui::End();
+
     ImGui::SetNextWindowSize(ImVec2(500, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("GamePlay Control");
 
@@ -1221,6 +1248,7 @@ void GamePlayScene::Update() {
         ImGui::DragFloat("Boss Body RotY", &bossBodyRotY_, 1.0f, 0.0f, 360.0f, "%.1f");
         ImGui::DragFloat("Body Bounce Range", &bossBodyBounceRange_, 0.01f, 0.0f, 5.0f, "%.2f");
         ImGui::DragFloat("Body Roll Range (deg)", &bossBodyRollRange_, 0.05f, 0.0f, 15.0f, "%.1f");
+        ImGui::DragFloat3("Boss Web Fire Offset (Ass)", &bossWebFireOffset_.x, 0.1f, -100.0f, 100.0f, "%.2f");
         
         ImGui::Text("--- Symmetrical Leg Pairs (X, Y, Z Offsets) ---");
         ImGui::DragFloat3("Pair 0 (Front) Offset", &bossLegPairPos0_.x, 0.05f, -20.0f, 20.0f, "%.2f");
@@ -1860,6 +1888,46 @@ void GamePlayScene::Update() {
                         audio_->PlayWave(jumpSE_, false, 0.8f);
                     }
                 }
+
+                // ── 足攻撃（近接攻撃）の当たり判定 ──
+                if (bossActionState_ == BossActionState::kLegAttack && bossActionTimer_ >= 0.8f && bossActionTimer_ <= 1.2f) {
+                    // 現在攻撃中の足インデックス
+                    int activeLeg = (fighterWorldPos.x < 0.0f) ? 1 : 5;
+                    if (bossLegTransformData_[activeLeg]) {
+                        Matrix4x4 w = bossLegTransformData_[activeLeg]->World;
+                        Vector3 legDir = { w.m[2][0], w.m[2][1], w.m[2][2] };
+                        Vector3 legRoot = { w.m[3][0], w.m[3][1], w.m[3][2] };
+                        
+                        float dirLen = std::sqrt(legDir.x * legDir.x + legDir.y * legDir.y + legDir.z * legDir.z);
+                        if (dirLen > 0.001f) {
+                            legDir = { legDir.x / dirLen, legDir.y / dirLen, legDir.z / dirLen };
+                        }
+                        
+                        // 先端位置を計算（モデルスケールを考慮、先端までの推定長さは bossLegScale_ * 0.55）
+                        float legLen = bossLegScale_ * 0.55f;
+                        Vector3 legTip = {
+                            legRoot.x + legDir.x * legLen,
+                            legRoot.y + legDir.y * legLen,
+                            legRoot.z + legDir.z * legLen
+                        };
+                        
+                        Vector3 toPlayer = Subtract(fighterWorldPos, legTip);
+                        float distToTip = Length(toPlayer);
+                        
+                        // 当たり判定半径（15.0f）
+                        float attackRadius = 15.0f;
+                        if (distToTip <= (attackRadius + playerCollisionRadius_)) {
+                            playerHP_ -= 1.0f; // 叩きつけ判定中、継続してダメージを与える
+                            if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+                            
+                            static uint32_t legHitTimer = 0;
+                            if (++legHitTimer % 5 == 0) {
+                                particleManager_->EmitHit(fighterWorldPos);
+                                audio_->PlayWave(jumpSE_, false, 1.0f);
+                            }
+                        }
+                    }
+                }
             } else {
                 // 雑魚敵との衝突
                 for (auto& enemy : enemies_) {
@@ -1986,29 +2054,33 @@ void GamePlayScene::Update() {
         // 攻撃周期：2.5秒ごとに攻撃を切り替える（高速化）
         if (bossActionState_ == BossActionState::kIdle && bossActionTimer_ >= 2.5f) {
             bossActionTimer_ = 0.0f;
-            int pattern = randomEngine_() % 3;
-            if (pattern == 0) {
-                bossActionState_ = BossActionState::kLegAttack;
-            } else if (pattern == 1) {
-                bossActionState_ = BossActionState::kLaserAttack;
-                bossLaserTimer_ = 0.0f;
-            } else {
-                bossActionState_ = BossActionState::kWebAttack;
-            }
+            // デバッグ確認用：常に近接攻撃（100%確率）を行う
+            bossActionState_ = BossActionState::kLegAttack;
         }
 
         // 各攻撃パターンに応じたボスの物理的な移動やアニメーション設定
         if (bossActionState_ == BossActionState::kLegAttack) {
-            // 足殴り：ボスが一時的にプレイヤーに急接近する（2.5秒で往復：1秒接近、0.5秒維持、1秒後退に高速化）
-            if (bossActionTimer_ <= 1.0f) {
-                float t = bossActionTimer_ / 1.0f;
+            // 足殴り：ボスが一時的にプレイヤーに急接近する（2.0秒で往復：0.8秒接近・振りかぶり、0.4秒叩きつけ維持、0.8秒後退に高速化）
+            static bool hasShaken = false;
+            if (bossActionTimer_ <= 0.8f) {
+                float t = bossActionTimer_ / 0.8f;
                 bossZOffset_ = std::lerp(169.0f, 65.0f, t);
-            } else if (bossActionTimer_ <= 1.5f) {
+                hasShaken = false; // 振りかぶりフェーズではシェイクフラグをリセット
+            } else if (bossActionTimer_ <= 1.2f) {
                 bossZOffset_ = 65.0f;
                 bossLegSwingRange_ = 1.2f; // 足を激しく動かす
-            } else if (bossActionTimer_ <= 2.5f) {
-                float t = (bossActionTimer_ - 1.5f) / 1.0f;
+            } else if (bossActionTimer_ <= 2.0f) {
+                float t = (bossActionTimer_ - 1.2f) / 0.8f;
                 bossZOffset_ = std::lerp(65.0f, 169.0f, t);
+                
+                // 地面に叩きつけが完了した瞬間（1.2秒）に一度だけ強力な画面シェイクを発動
+                if (!hasShaken) {
+                    cameraShakeTimer_ = 0.6f;
+                    cameraShakeIntensity_ = 8.0f; // 適度に強力なシェイク
+                    activeShakeIntensity_ = 8.0f;
+                    cameraShakeTimeMax_ = 0.6f;
+                    hasShaken = true;
+                }
             } else {
                 bossZOffset_ = 169.0f;
                 bossLegSwingRange_ = 0.3f; // 元に戻す
@@ -2024,16 +2096,20 @@ void GamePlayScene::Update() {
                     bossLaserTimer_ = 0.0f;
                     
                     float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
-                    Vector3 bossMouthPos = { 0.0f, bossYOffset_ + bodyBounce - 2.0f, fighterWorldZ_ + bossZOffset_ - 10.0f };
+                    Vector3 bossWebFirePos = {
+                        bossWebFireOffset_.x,
+                        bossYOffset_ + bodyBounce + bossWebFireOffset_.y,
+                        fighterWorldZ_ + bossZOffset_ + bossWebFireOffset_.z
+                    };
                     
-                    EulerTransform& camTrans = camera_->GetTransform();
-                    Vector3 fighterWorldPos = {
-                        camTrans.translate.x + fighterModel_->transform.translate.x,
-                        camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+                    EulerTransform& camTransForLaser = camera_->GetTransform();
+                    fighterWorldPos = {
+                        camTransForLaser.translate.x + fighterModel_->transform.translate.x,
+                        camTransForLaser.translate.y - 3.0f + fighterModel_->transform.translate.y,
                         fighterWorldZ_
                     };
                     
-                    particleManager_->EmitLaserThread(bossMouthPos, fighterWorldPos);
+                    particleManager_->EmitLaserThread(bossWebFirePos, fighterWorldPos);
                     audio_->PlayWave(jumpSE_, false, 0.3f);
                 }
             } else {
@@ -2044,21 +2120,25 @@ void GamePlayScene::Update() {
         else if (bossActionState_ == BossActionState::kWebAttack) {
             // 蜘蛛の巣弾：プレイヤーに向けて巨大な蜘蛛の巣弾を1発射出する
             float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
-            Vector3 bossMouthPos = { 0.0f, bossYOffset_ + bodyBounce - 2.0f, fighterWorldZ_ + bossZOffset_ - 10.0f };
+            Vector3 bossWebFirePos = {
+                bossWebFireOffset_.x,
+                bossYOffset_ + bodyBounce + bossWebFireOffset_.y,
+                fighterWorldZ_ + bossZOffset_ + bossWebFireOffset_.z
+            };
             
-            EulerTransform& camTrans = camera_->GetTransform();
-            Vector3 fighterWorldPos = {
-                camTrans.translate.x + fighterModel_->transform.translate.x,
-                camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+            EulerTransform& camTransForWeb = camera_->GetTransform();
+            fighterWorldPos = {
+                camTransForWeb.translate.x + fighterModel_->transform.translate.x,
+                camTransForWeb.translate.y - 3.0f + fighterModel_->transform.translate.y,
                 fighterWorldZ_
             };
 
             for (auto& web : bossWebBullets_) {
                 if (!web.isAlive) {
                     web.isAlive = true;
-                    web.position = bossMouthPos;
+                    web.position = bossWebFirePos;
                     
-                    Vector3 dir = { fighterWorldPos.x - bossMouthPos.x, fighterWorldPos.y - bossMouthPos.y, fighterWorldPos.z - bossMouthPos.z };
+                    Vector3 dir = { fighterWorldPos.x - bossWebFirePos.x, fighterWorldPos.y - bossWebFirePos.y, fighterWorldPos.z - bossWebFirePos.z };
                     float len = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
                     if (len > 0.01f) {
                         dir = { dir.x / len, dir.y / len, dir.z / len };
@@ -2079,7 +2159,7 @@ void GamePlayScene::Update() {
 
         // ── 蜘蛛の巣弾の更新処理と自機との衝突・回避判定 ──
         EulerTransform& camTrans = camera_->GetTransform();
-        Vector3 fighterWorldPos = {
+        fighterWorldPos = {
             camTrans.translate.x + fighterModel_->transform.translate.x,
             camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
             fighterWorldZ_
@@ -2150,33 +2230,30 @@ void GamePlayScene::Update() {
         }
 
         // ── 振りかぶり近接攻撃のアニメーション計算 ──
+        camTrans = camera_->GetTransform();
+        fighterWorldPos = {
+            camTrans.translate.x + fighterModel_->transform.translate.x,
+            camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
+            fighterWorldZ_
+        };
+        // プレイヤーの左右位置によって攻撃する足(左前足=5, 右前足=1)を切り替える
+        int attackLegIdx = (fighterWorldPos.x < 0.0f) ? 1 : 5;
+
         float bossYAttackOffset = 0.0f;
-        float extraLegPitchL = 0.0f; // 左前足の振りかぶり・叩きつけ
-        float extraLegPitchR = 0.0f; // 右前足の振りかぶり・叩きつけ
-        float attackBlend = 0.0f; // 前足がプレイヤーに向き直るブレンド率
 
         if (currentPhase_ == GamePhase::kBossFight && bossActionState_ == BossActionState::kLegAttack) {
-            if (bossActionTimer_ <= 2.0f) {
-                // 1. 接近・振りかぶり（0.0〜2.0秒）：胴体が上昇し、前足が上に大きく持ち上がる
-                float t = bossActionTimer_ / 2.0f;
-                bossYAttackOffset = std::lerp(0.0f, 15.0f, t);
-                extraLegPitchL = std::lerp(0.0f, 0.8f, t);  // 前足を上へ
-                extraLegPitchR = std::lerp(0.0f, -0.8f, t); // 前足を上へ（右足対称）
-                attackBlend = t;
-            } else if (bossActionTimer_ <= 2.4f) {
-                // 2. 叩きつけ急降下（2.0〜2.4秒）：胴体が一気に叩きつけ高さへ急降下し、前足も激しく振り下ろされる
-                float t = (bossActionTimer_ - 2.0f) / 0.4f;
-                bossYAttackOffset = std::lerp(15.0f, -8.0f, t);
-                extraLegPitchL = std::lerp(0.8f, -0.6f, t);
-                extraLegPitchR = std::lerp(-0.8f, 0.6f, t);
-                attackBlend = 1.0f;
-            } else if (bossActionTimer_ <= 3.0f) {
-                // 3. 叩きつけ後の余韻・戻り（2.4〜3.0秒）：通常の高さへ戻る
-                float t = (bossActionTimer_ - 2.4f) / 0.6f;
-                bossYAttackOffset = std::lerp(-8.0f, 0.0f, t);
-                extraLegPitchL = std::lerp(-0.6f, 0.0f, t);
-                extraLegPitchR = std::lerp(0.6f, 0.0f, t);
-                attackBlend = std::lerp(1.0f, 0.0f, t);
+            if (bossActionTimer_ <= 0.8f) {
+                // 1. 接近・振りかぶり（0.0〜0.8秒）：胴体は低く地面を這いずり、攻撃する前足が天に向けて大きく持ち上がる
+                float t = bossActionTimer_ / 0.8f;
+                bossYAttackOffset = std::lerp(0.0f, -4.0f, t);
+            } else if (bossActionTimer_ <= 1.2f) {
+                // 2. 叩きつけ（0.8〜1.2秒）：胴体がさらにグッと沈み込み、攻撃する前足が上空から鋭く振り下ろされる
+                float t = (bossActionTimer_ - 0.8f) / 0.4f;
+                bossYAttackOffset = std::lerp(-4.0f, -6.0f, t);
+            } else if (bossActionTimer_ <= 2.0f) {
+                // 3. 戻り（1.2〜2.0秒）：通常の姿勢と高さへ戻る
+                float t = (bossActionTimer_ - 1.2f) / 0.8f;
+                bossYAttackOffset = std::lerp(-6.0f, 0.0f, t);
             }
         }
 
@@ -2228,31 +2305,136 @@ void GamePlayScene::Update() {
             if (i < 4) {
                 // 左足
                 finalOffset.x = -finalOffset.x; // 左側なのでマイナス
-                float attackPitch = (i == 0) ? extraLegPitchL : 0.0f; // 左前足に適用
                 
-                // Y回転の計算：前足(i==0)は攻撃中正面へ向き直る
+                // 通常の回転姿勢
                 float normalRotY = (-baseRotY) * (float)M_PI / 180.0f + swing;
-                float targetRotY = -180.0f * (float)M_PI / 180.0f;
-                float currentRotY = (i == 0) ? std::lerp(normalRotY, targetRotY, attackBlend) : normalRotY;
+                float normalPitch = -0.1f + liftAngleRad;
+                
+                float currentRotY = normalRotY;
+                float currentPitch = normalPitch;
+                
+                // 攻撃中の左前足(i==1)の軌道を補間
+                if (i == 1 && attackLegIdx == 1 && bossActionState_ == BossActionState::kLegAttack) {
+                    float angleY = -bossBodyRotY_ * (float)M_PI / 180.0f;
+                    Vector3 diff = Subtract(fighterWorldPos, bossPos);
+                    Vector3 playerLocal = {
+                        diff.x * std::cos(angleY) - diff.z * std::sin(angleY),
+                        diff.y,
+                        diff.x * std::sin(angleY) + diff.z * std::cos(angleY)
+                    };
+                    
+                    Vector3 jointLocal = finalOffset;
+                    Vector3 scaledJointLocal = Scale(jointLocal, bossScale_);
+                    Vector3 dirLocal = Subtract(playerLocal, scaledJointLocal);
+                    
+                    float len = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.y * dirLocal.y + dirLocal.z * dirLocal.z);
+                    if (len > 0.01f) {
+                        Vector3 dirNorm = { dirLocal.x / len, dirLocal.y / len, dirLocal.z / len };
+                        
+                        float targetRotY = std::atan2(dirNorm.x, dirNorm.z);
+                        float upPitch = 1.4f; // 天高く振りかぶる角度
+                        // プレイヤーの方向を向く叩きつけピッチを動的計算
+                        float horizDist = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.z * dirLocal.z);
+                        float strikePitch = 0.1f;
+                        if (horizDist > 0.01f) {
+                            strikePitch = std::atan2(dirLocal.y, horizDist);
+                            // 角度制限（曲がりすぎ防止、例えば -0.4 〜 0.2 ラジアン）
+                            strikePitch = (std::max)(-0.4f, (std::min)(0.2f, strikePitch));
+                        }
+                        
+                        // 角度の差を [-PI, PI] の範囲に正規化して最短経路にする
+                        float diffRotY = targetRotY - normalRotY;
+                        while (diffRotY > (float)M_PI) diffRotY -= 2.0f * (float)M_PI;
+                        while (diffRotY < -(float)M_PI) diffRotY += 2.0f * (float)M_PI;
 
-                // 根本位置は固定したまま、ピッチ回転（X軸回転）をプラス方向に適用して足先を持ち上げる
+                        if (bossActionTimer_ <= 0.8f) {
+                            // 1. 接近・振りかぶり (0.0〜0.8秒)
+                            float t = bossActionTimer_ / 0.8f;
+                            currentRotY = normalRotY + diffRotY * t;
+                            currentPitch = std::lerp(normalPitch, upPitch, t);
+                        } else if (bossActionTimer_ <= 1.2f) {
+                            // 2. 叩きつけ (0.8〜1.2秒)
+                            float t = (bossActionTimer_ - 0.8f) / 0.4f;
+                            currentRotY = targetRotY;
+                            currentPitch = std::lerp(upPitch, strikePitch, t);
+                        } else if (bossActionTimer_ <= 2.0f) {
+                            // 3. 戻り (1.2〜2.0秒)
+                            float t = (bossActionTimer_ - 1.2f) / 0.8f;
+                            currentRotY = targetRotY - diffRotY * t;
+                            currentPitch = std::lerp(strikePitch, normalPitch, t);
+                        }
+                    }
+                }
+                
                 legRotate = { 
-                    -0.1f + liftAngleRad + attackPitch, // 少し斜め下に向ける初期姿勢から上方向に回転
+                    currentPitch, 
                     currentRotY, 
                     0.0f 
                 };
             } else {
                 // 右足
-                float attackPitch = (i == 4) ? extraLegPitchR : 0.0f; // 右前足に適用
-
-                // Y回転の計算：前足(i==4)は攻撃中正面へ向き直る
+                // 通常の回転姿勢
                 float normalRotY = baseRotY * (float)M_PI / 180.0f + swing;
-                float targetRotY = 180.0f * (float)M_PI / 180.0f;
-                float currentRotY = (i == 4) ? std::lerp(normalRotY, targetRotY, attackBlend) : normalRotY;
+                float normalPitch = 0.1f - liftAngleRad;
+                
+                float currentRotY = normalRotY;
+                float currentPitch = normalPitch;
+                
+                // 攻撃中の右前足(i==5)の軌道を補間
+                if (i == 5 && attackLegIdx == 5 && bossActionState_ == BossActionState::kLegAttack) {
+                    float angleY = -bossBodyRotY_ * (float)M_PI / 180.0f;
+                    Vector3 diff = Subtract(fighterWorldPos, bossPos);
+                    Vector3 playerLocal = {
+                        diff.x * std::cos(angleY) - diff.z * std::sin(angleY),
+                        diff.y,
+                        diff.x * std::sin(angleY) + diff.z * std::cos(angleY)
+                    };
+                    
+                    Vector3 jointLocal = finalOffset;
+                    Vector3 scaledJointLocal = Scale(jointLocal, bossScale_);
+                    Vector3 dirLocal = Subtract(playerLocal, scaledJointLocal);
+                    
+                    float len = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.y * dirLocal.y + dirLocal.z * dirLocal.z);
+                    if (len > 0.01f) {
+                        Vector3 dirNorm = { dirLocal.x / len, dirLocal.y / len, dirLocal.z / len };
+                        
+                        float targetRotY = std::atan2(dirNorm.x, dirNorm.z);
+                        float upPitch = 1.4f; // 天高く振りかぶる角度
+                        // プレイヤーの方向を向く叩きつけピッチを動的計算
+                        float horizDist = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.z * dirLocal.z);
+                        float strikePitch = 0.1f;
+                        if (horizDist > 0.01f) {
+                            strikePitch = std::atan2(dirLocal.y, horizDist);
+                            // 角度制限（曲がりすぎ防止、例えば -0.4 〜 0.2 ラジアン）
+                            strikePitch = (std::max)(-0.4f, (std::min)(0.2f, strikePitch));
+                        }
+                        
+                        // 角度の差を [-PI, PI] の範囲に正規化して最短経路にする
+                        float diffRotY = targetRotY - normalRotY;
+                        while (diffRotY > (float)M_PI) diffRotY -= 2.0f * (float)M_PI;
+                        while (diffRotY < -(float)M_PI) diffRotY += 2.0f * (float)M_PI;
 
-                // 根本位置は固定したまま、ピッチ回転（X軸回転）をマイナス方向に適用して足先を持ち上げる
+                        if (bossActionTimer_ <= 0.8f) {
+                            // 1. 接近・振りかぶり (0.0〜0.8秒)
+                            float t = bossActionTimer_ / 0.8f;
+                            currentRotY = normalRotY + diffRotY * t;
+                            currentPitch = std::lerp(normalPitch, upPitch, t);
+                        } else if (bossActionTimer_ <= 1.2f) {
+                            // 2. 叩きつけ (0.8〜1.2秒)
+                            float t = (bossActionTimer_ - 0.8f) / 0.4f;
+                            currentRotY = targetRotY;
+                            currentPitch = std::lerp(upPitch, strikePitch, t);
+                        } else if (bossActionTimer_ <= 2.0f) {
+                            // 3. 戻り (1.2〜2.0秒)
+                            float t = (bossActionTimer_ - 1.2f) / 0.8f;
+                            currentRotY = targetRotY - diffRotY * t;
+                            currentPitch = std::lerp(strikePitch, normalPitch, t);
+                        }
+                    }
+                }
+                
                 legRotate = { 
-                    0.1f - liftAngleRad + attackPitch, // 少し斜め下に向ける初期姿勢から上方向に回転
+                    currentPitch, 
                     currentRotY, 
                     0.0f 
                 };
@@ -2294,6 +2476,15 @@ void GamePlayScene::Update() {
 
             // 以前の正常な配置座標に、ズレを打ち消す相殺ベクトルを加算
             Vector3 finalJointPos = Scale(finalOffset, bossScale_);
+            
+            // 足の根本をボスの胴体に引き込む補正（アタッチ関係を維持するため元のX座標に比例）
+            float pullInAmount = finalOffset.x * 0.12f;
+            if (i < 4) {
+                finalJointPos.x += pullInAmount; // 左足（マイナス座標）を内側に寄せる
+            } else {
+                finalJointPos.x -= pullInAmount; // 右足（プラス座標）を内側に寄せる
+            }
+            
             finalJointPos.x += offsetCompensation.x;
             finalJointPos.y += offsetCompensation.y;
             finalJointPos.z += offsetCompensation.z;
@@ -2695,7 +2886,7 @@ void GamePlayScene::Update() {
     // 戦闘機モードの場合のジェット噴射エミッター位置の計算
     Vector3 leftJetPos = { 0.0f, 0.0f, 0.0f };
     Vector3 rightJetPos = { 0.0f, 0.0f, 0.0f };
-    Vector3 fighterWorldPos = { 0.0f, 0.0f, 0.0f };
+    fighterWorldPos = { 0.0f, 0.0f, 0.0f };
     if (sceneMode_ == SceneMode::kFighter) {
         EulerTransform& camTrans = camera_->GetTransform();
         fighterWorldPos = {

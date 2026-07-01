@@ -464,12 +464,13 @@ private:
     TransformationMatrix* bossLegTransformData_[8] = { nullptr };
 
     // 蜘蛛ボス調整パラメータ (ImGuiで調整可能)
-    float bossScale_ = 3.0f;           // 全体の基本スケール(3.0f)
-    float bossBodyScale_ = 39.21f;       // 胴体ボディ(big+Spider.obj)専用の独立スケール
-    float bossLegScale_ = 30.91f;        // 足モデル(big+spider+arm.obj)専用の独立スケール
+    float bossScale_ = 4.5f;           // 全体の基本スケール
+    float bossBodyScale_ = 58.8f;       // 胴体ボディ(big+Spider.obj)専用の独立スケール
+    float bossLegScale_ = 46.36f;        // 足モデル(big+spider+arm.obj)専用の独立スケール
     float bossZOffset_ = 169.0f;       // プレイヤーとの距離
-    float bossYOffset_ = 10.0f;       // 接地高さ
+    float bossYOffset_ = 18.0f;       // 接地高さ
     float bossBodyRotY_ = 273.0f;      // ボス胴体のY回転(プレイヤーに向けるため)
+    Vector3 bossWebFireOffset_ = { 0.0f, 27.0f, 36.0f }; // 蜘蛛の糸（ビーム）発射位置のオフセット (お尻)
     
     // 左右対称な4対の足の配置パラメータ (ユーザーがImGuiで完全個別調整可能)
     Vector3 bossLegPairPos0_ = { 1.50f, -5.35f, 5.55f };   // 前足 (ペア0)
