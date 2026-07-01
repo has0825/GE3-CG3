@@ -1190,7 +1190,7 @@ void GamePlayScene::Update() {
     ImGui::Begin("Boss Leg Debug", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::SetWindowFontScale(2.0f); // 文字サイズを大きく
     
-    int currentAttackLeg = (fighterWorldPos.x < 0.0f) ? 1 : 5;
+    int currentAttackLeg = 5;
     
     if (bossActionState_ == BossActionState::kLegAttack) {
         ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "LEG ATTACK ACTIVE!");
@@ -1891,8 +1891,8 @@ void GamePlayScene::Update() {
 
                 // ── 足攻撃（近接攻撃）の当たり判定 ──
                 if (bossActionState_ == BossActionState::kLegAttack && bossActionTimer_ >= 0.8f && bossActionTimer_ <= 1.2f) {
-                    // 現在攻撃中の足インデックス
-                    int activeLeg = (fighterWorldPos.x < 0.0f) ? 1 : 5;
+                    // 現在攻撃中の足インデックスを常に 5 に固定
+                    int activeLeg = 5;
                     if (bossLegTransformData_[activeLeg]) {
                         Matrix4x4 w = bossLegTransformData_[activeLeg]->World;
                         Vector3 legDir = { w.m[2][0], w.m[2][1], w.m[2][2] };
@@ -2236,8 +2236,8 @@ void GamePlayScene::Update() {
             camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
             fighterWorldZ_
         };
-        // プレイヤーの左右位置によって攻撃する足(左前足=5, 右前足=1)を切り替える
-        int attackLegIdx = (fighterWorldPos.x < 0.0f) ? 1 : 5;
+        // 常に右前脚の Pair 1 (i=5) の足で殴る
+        int attackLegIdx = 5;
 
         float bossYAttackOffset = 0.0f;
 
@@ -2476,15 +2476,6 @@ void GamePlayScene::Update() {
 
             // 以前の正常な配置座標に、ズレを打ち消す相殺ベクトルを加算
             Vector3 finalJointPos = Scale(finalOffset, bossScale_);
-            
-            // 足の根本をボスの胴体に引き込む補正（アタッチ関係を維持するため元のX座標に比例）
-            float pullInAmount = finalOffset.x * 0.12f;
-            if (i < 4) {
-                finalJointPos.x += pullInAmount; // 左足（マイナス座標）を内側に寄せる
-            } else {
-                finalJointPos.x -= pullInAmount; // 右足（プラス座標）を内側に寄せる
-            }
-            
             finalJointPos.x += offsetCompensation.x;
             finalJointPos.y += offsetCompensation.y;
             finalJointPos.z += offsetCompensation.z;
@@ -3454,6 +3445,8 @@ void GamePlayScene::Draw() {
     commandList->OMSetRenderTargets(1, &backBufferHandle, false, &dsvHandle);
 
     if (isTransitioning_) {
+        // 深度バッファをDEPTH_WRITE状態へ安全に遷移
+        dxCommon_->TransitionDepthStencilState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
         // 前シーンの3D描画が、今シーンのオブジェクトの深度値で遮蔽されるのを防ぐために深度バッファをクリア
         commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
         SceneManager::GetInstance()->DrawPreviousScene();
@@ -3505,6 +3498,8 @@ void GamePlayScene::Draw() {
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, activeNoiseSrvIndex_);
         commandList->SetGraphicsRootConstantBufferView(2, dissolveParamResource_->GetGPUVirtualAddress());
     } else if (activePostProcess_ == kOutline) {
+        // 深度バッファをPIXEL_SHADER_RESOURCE状態へ安全に遷移
+        dxCommon_->TransitionDepthStencilState(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDepthOutlineRootSignature());
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex()); // t0: カラー
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, depthSrvIndex_);               // t1: 深度
@@ -4297,6 +4292,8 @@ void GamePlayScene::DrawDemo() {
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, activeNoiseSrvIndex_);
         commandList->SetGraphicsRootConstantBufferView(2, dissolveParamResource_->GetGPUVirtualAddress());
     } else if (activePostProcess_ == kOutline) {
+        // 深度バッファをPIXEL_SHADER_RESOURCE状態へ安全に遷移
+        dxCommon_->TransitionDepthStencilState(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDepthOutlineRootSignature());
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex()); // t0: カラー
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, depthSrvIndex_);               // t1: 深度

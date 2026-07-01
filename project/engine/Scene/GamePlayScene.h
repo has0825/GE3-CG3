@@ -473,24 +473,24 @@ private:
     Vector3 bossWebFireOffset_ = { 0.0f, 27.0f, 36.0f }; // 蜘蛛の糸（ビーム）発射位置のオフセット (お尻)
     
     // 左右対称な4対の足の配置パラメータ (ユーザーがImGuiで完全個別調整可能)
-    Vector3 bossLegPairPos0_ = { 1.50f, -5.35f, 5.55f };   // 前足 (ペア0)
-    float bossLegPairRotY0_ = 135.0f;
+    Vector3 bossLegPairPos0_ = { 1.50f, -4.15f, 5.40f };   // 前足 (ペア0)
+    float bossLegPairRotY0_ = 180.0f;
     Vector3 bossLegPairPos1_ = { 2.00f, -4.35f, 5.80f };   // 中前足 (ペア1)
-    float bossLegPairRotY1_ = 176.0f;
+    float bossLegPairRotY1_ = 180.0f;
     Vector3 bossLegPairPos2_ = { 2.00f, -4.55f, -5.65f };  // 中後足 (ペア2)
-    float bossLegPairRotY2_ = 1.0f;
-    Vector3 bossLegPairPos3_ = { 1.50f, -4.90f, -6.50f };  // 後足 (ペア3)
-    float bossLegPairRotY3_ = 6.0f;
+    float bossLegPairRotY2_ = 15.0f;
+    Vector3 bossLegPairPos3_ = { 1.55f, -4.45f, -5.60f };  // 後足 (ペア3)
+    float bossLegPairRotY3_ = 7.0f;
 
     // 歩行アニメーション制御用パラメータ
-    float bossLegSwingSpeed_ = 8.0f;   // 歩行の速さ
-    float bossLegSwingRange_ = 0.3f;   // 前後の振れ幅
-    float bossLegLiftRange_ = 0.5f;    // 上下のステップ幅
+    float bossLegSwingSpeed_ = 5.8f;   // 歩行の速さ
+    float bossLegSwingRange_ = 0.30f;   // 前後の振れ幅
+    float bossLegLiftRange_ = 0.50f;    // 上下のステップ幅
     float bossTime_ = 0.0f;            // アニメーション用タイマー
 
     // 蜘蛛ボスの足ピボット位置 (ローカル座標での根本位置)
     // 太もも側（接続ギア）を固定軸にするため、Z軸のプラス側に変更します
-    float bossLegPivotY_ = 0.10f;
+    float bossLegPivotY_ = 0.04f;
     float bossLegPivotZ_ = 0.35f;
 
     // 蜘蛛ボスの胴体の揺れパラメータ
