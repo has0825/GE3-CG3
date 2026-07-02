@@ -1,0 +1,1 @@
+DEBUG_CUBEMAP: moonless=0, qwantani=0, airport=1

@@ -366,6 +366,73 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	}
 	assert(SUCCEEDED(hr));
 
+	Microsoft::WRL::ComPtr<IDxcBlob> skyVSBlob = CompileShader(L"Skydome.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(skyVSBlob != nullptr);
+	Microsoft::WRL::ComPtr<IDxcBlob> skyPSBlob = CompileShader(L"Skydome.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(skyPSBlob != nullptr);
+
+	// ---- Skydome 専用 Root Signature を作成 ----
+	// MipMapLODBias=+4 の専用サンプラでテクスチャをぼかし、荒さを目立たなくする
+	D3D12_STATIC_SAMPLER_DESC skydomeSampler[1] = {};
+	skydomeSampler[0].Filter            = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // トリリニアフィルタリング
+	skydomeSampler[0].AddressU          = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	skydomeSampler[0].AddressV          = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	skydomeSampler[0].AddressW          = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	skydomeSampler[0].MipLODBias        = 0.0f; // ★ 新しい高画質DDSテクスチャをそのままクリアに表示する
+	skydomeSampler[0].MaxAnisotropy     = 1;
+	skydomeSampler[0].ComparisonFunc    = D3D12_COMPARISON_FUNC_NEVER;
+	skydomeSampler[0].MinLOD            = 0.0f;
+	skydomeSampler[0].MaxLOD            = D3D12_FLOAT32_MAX;
+	skydomeSampler[0].ShaderRegister    = 0;
+	skydomeSampler[0].ShaderVisibility  = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	// Object3d と同じルートパラメーター構成を倒流、サンプラだけ専用化
+	D3D12_ROOT_SIGNATURE_DESC skyRootDesc = obj3dRootDesc;
+	skyRootDesc.pStaticSamplers    = skydomeSampler;
+	skyRootDesc.NumStaticSamplers  = 1;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> skyRootBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> skyRootError;
+	hr = D3D12SerializeRootSignature(&skyRootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &skyRootBlob, &skyRootError);
+	if (FAILED(hr)) {
+		if (skyRootError) Log(logStream_, reinterpret_cast<char*>(skyRootError->GetBufferPointer()));
+		assert(false);
+	}
+	hr = device->CreateRootSignature(0, skyRootBlob->GetBufferPointer(), skyRootBlob->GetBufferSize(), IID_PPV_ARGS(&skydomeRootSignature_));
+	if (FAILED(hr)) { Log(logStream_, "Failed to Create Skydome RootSignature.\n"); assert(false); }
+
+	// obj3dPsoDesc を基に Skydome 用に修正
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skydomePsoDesc = obj3dPsoDesc;
+	skydomePsoDesc.pRootSignature = skydomeRootSignature_.Get(); // 専用 Root Signature を使用
+	skydomePsoDesc.VS = { skyVSBlob->GetBufferPointer(), skyVSBlob->GetBufferSize() };
+	skydomePsoDesc.PS = { skyPSBlob->GetBufferPointer(), skyPSBlob->GetBufferSize() };
+
+	// Zバッファへの書き込みを無効化（常に背後に描画される）
+	D3D12_DEPTH_STENCIL_DESC skyDepthDesc{};
+	skyDepthDesc.DepthEnable    = TRUE;
+	skyDepthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // 書き込みなし
+	skyDepthDesc.DepthFunc      = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	skydomePsoDesc.DepthStencilState = skyDepthDesc;
+
+	// 背面カリングなし（球の内側からテクスチャを見るため）
+	D3D12_RASTERIZER_DESC skyRasterizerDesc{};
+	skyRasterizerDesc.CullMode              = D3D12_CULL_MODE_NONE;
+	skyRasterizerDesc.FillMode              = D3D12_FILL_MODE_SOLID;
+	skyRasterizerDesc.FrontCounterClockwise = FALSE;
+	skydomePsoDesc.RasterizerState = skyRasterizerDesc;
+
+	// ブレンドなし（不透明描画）
+	D3D12_BLEND_DESC skyBlendDesc{};
+	skyBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	skyBlendDesc.RenderTarget[0].BlendEnable = FALSE;
+	skydomePsoDesc.BlendState = skyBlendDesc;
+
+	hr = device->CreateGraphicsPipelineState(&skydomePsoDesc, IID_PPV_ARGS(&skydomePipelineState_));
+	if (FAILED(hr)) {
+		Log(logStream_, "Failed to Create Skydome PipelineState.\n");
+		assert(false);
+	}
+	assert(SUCCEEDED(hr));
 	// --- Skinning用パイプラインの作成 ---
 	D3D12_ROOT_SIGNATURE_DESC skinningRootDesc{};
 	skinningRootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;

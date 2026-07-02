@@ -22,6 +22,15 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+
+namespace {
+    const std::string kSkyboxTextures[] = {
+        "dds/moonless_golf_2k.dds",
+        "dds/qwantani_night_puresky_2k.dds"
+    };
+    const size_t kNumSkyboxTextures = sizeof(kSkyboxTextures) / sizeof(kSkyboxTextures[0]);
+}
+
 // staticメンバの定義
 int GamePlayScene::blenderSyncCounter_ = 0;
 
@@ -284,6 +293,10 @@ void GamePlayScene::Initialize() {
     TextureManager::GetInstance()->LoadTexture("Player/player.png");
     TextureManager::GetInstance()->LoadTexture("cobblestone_street_night_2k.dds");
     TextureManager::GetInstance()->LoadTexture("rostock_laage_airport_4k.dds");
+    TextureManager::GetInstance()->LoadTexture("dds/moonless_golf_2k.dds");
+    TextureManager::GetInstance()->LoadTexture("dds/qwantani_night_puresky_2k.dds");
+    TextureManager::GetInstance()->LoadTexture("test.dds");
+    TextureManager::GetInstance()->LoadTexture("tesuto.dds");
 
     skybox_ = std::make_unique<Skybox>();
     skybox_->Initialize(device);
@@ -780,6 +793,11 @@ void GamePlayScene::Update() {
     else if (input_->IsKeyTriggered(DIK_8)) ApplyPreset(7);
     else if (input_->IsKeyTriggered(DIK_9)) ApplyPreset(8);
     else if (input_->IsKeyTriggered(DIK_0)) ApplyPreset(9);
+
+    // 0.1. Tキーによる背景（スカイボックス）の切り替え
+    if (input_->IsKeyTriggered(DIK_T)) {
+        skyboxType_ = (skyboxType_ + 1) % static_cast<int>(kNumSkyboxTextures);
+    }
 
     // 0.5. 各種演出タイマーの更新と時間スケール（ヒットストップ）処理
     if (hitstopTimer_ > 0.0f) {
@@ -1279,7 +1297,10 @@ void GamePlayScene::Update() {
     ImGui::Checkbox("Show Particles", &showParticles_);
     ImGui::Checkbox("Show Skybox", &showSkybox_);
     if (showSkybox_) {
-        const char* skyboxItems[] = { "Cobblestone Street (Night)", "Rostock Airport (Day)" };
+        const char* skyboxItems[] = {
+            "Moonless Golf (Night)",
+            "Qwantani Night Puresky"
+        };
         ImGui::Combo("Skybox Type", &skyboxType_, skyboxItems, IM_ARRAYSIZE(skyboxItems));
     }
     ImGui::Checkbox("Show Enemies", &showEnemies_);
@@ -1889,45 +1910,7 @@ void GamePlayScene::Update() {
                     }
                 }
 
-                // ── 足攻撃（近接攻撃）の当たり判定 ──
-                if (bossActionState_ == BossActionState::kLegAttack && bossActionTimer_ >= 0.8f && bossActionTimer_ <= 1.2f) {
-                    // 現在攻撃中の足インデックスを常に 5 に固定
-                    int activeLeg = 5;
-                    if (bossLegTransformData_[activeLeg]) {
-                        Matrix4x4 w = bossLegTransformData_[activeLeg]->World;
-                        Vector3 legDir = { w.m[2][0], w.m[2][1], w.m[2][2] };
-                        Vector3 legRoot = { w.m[3][0], w.m[3][1], w.m[3][2] };
-                        
-                        float dirLen = std::sqrt(legDir.x * legDir.x + legDir.y * legDir.y + legDir.z * legDir.z);
-                        if (dirLen > 0.001f) {
-                            legDir = { legDir.x / dirLen, legDir.y / dirLen, legDir.z / dirLen };
-                        }
-                        
-                        // 先端位置を計算（モデルスケールを考慮、先端までの推定長さは bossLegScale_ * 0.55）
-                        float legLen = bossLegScale_ * 0.55f;
-                        Vector3 legTip = {
-                            legRoot.x + legDir.x * legLen,
-                            legRoot.y + legDir.y * legLen,
-                            legRoot.z + legDir.z * legLen
-                        };
-                        
-                        Vector3 toPlayer = Subtract(fighterWorldPos, legTip);
-                        float distToTip = Length(toPlayer);
-                        
-                        // 当たり判定半径（15.0f）
-                        float attackRadius = 15.0f;
-                        if (distToTip <= (attackRadius + playerCollisionRadius_)) {
-                            playerHP_ -= 1.0f; // 叩きつけ判定中、継続してダメージを与える
-                            if (playerHP_ < 0.0f) playerHP_ = 0.0f;
-                            
-                            static uint32_t legHitTimer = 0;
-                            if (++legHitTimer % 5 == 0) {
-                                particleManager_->EmitHit(fighterWorldPos);
-                                audio_->PlayWave(jumpSE_, false, 1.0f);
-                            }
-                        }
-                    }
-                }
+
             } else {
                 // 雑魚敵との衝突
                 for (auto& enemy : enemies_) {
@@ -2060,32 +2043,220 @@ void GamePlayScene::Update() {
 
         // 各攻撃パターンに応じたボスの物理的な移動やアニメーション設定
         if (bossActionState_ == BossActionState::kLegAttack) {
-            // 足殴り：ボスが一時的にプレイヤーに急接近する（2.0秒で往復：0.8秒接近・振りかぶり、0.4秒叩きつけ維持、0.8秒後退に高速化）
+            // 足殴り：ボスが一時的にプレイヤーに急接近する（6.8秒で往復：5.0秒接近・振りかぶり溜め、0.3秒叩きつけ、1.5秒後退に調整）
             static bool hasShaken = false;
-            if (bossActionTimer_ <= 0.8f) {
-                float t = bossActionTimer_ / 0.8f;
+            Vector3 lightningColor = { 0.68f, 0.05f, 1.0f }; // カッコいいネオンパープル（紫色の雷）
+            
+            float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+            Vector3 currentBossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+
+            if (bossActionTimer_ <= 5.0f) {
+                // 1. 接近・振りかぶり溜め (0.0〜5.0秒)
+                float t = bossActionTimer_ / 5.0f;
                 bossZOffset_ = std::lerp(169.0f, 65.0f, t);
                 hasShaken = false; // 振りかぶりフェーズではシェイクフラグをリセット
-            } else if (bossActionTimer_ <= 1.2f) {
+                
+                // 振りかぶり中にプレイヤーの位置を追従し、ターゲットエリアを決定
+                if (fighterWorldPos.x < -15.0f) {
+                    bossAttackTargetArea_ = 0; // 左
+                } else if (fighterWorldPos.x > 15.0f) {
+                    bossAttackTargetArea_ = 2; // 右
+                } else {
+                    bossAttackTargetArea_ = 1; // 中央
+                }
+                isBossAttackTargetLocked_ = false;
+
+                // ★★★ 紫の雷の溜めエフェクト ★★★
+                // ボス本体の周囲に雷オーラを発生
+                particleManager_->EmitLightning(currentBossPos, 8.0f, 2, lightningColor);
+                
+                // 振りかぶる右前脚（i=5）自体に強烈な紫の電撃オーラを纏わせる
+                if (bossLegTransformData_[5]) {
+                    Matrix4x4 w = bossLegTransformData_[5]->World;
+                    Vector3 legDir = { w.m[2][0], w.m[2][1], w.m[2][2] };
+                    Vector3 legRoot = { w.m[3][0], w.m[3][1], w.m[3][2] };
+                    
+                    float dirLen = std::sqrt(legDir.x * legDir.x + legDir.y * legDir.y + legDir.z * legDir.z);
+                    if (dirLen > 0.001f) {
+                        legDir = { legDir.x / dirLen, legDir.y / dirLen, legDir.z / dirLen };
+                    }
+                    
+                    float legLen = bossLegScale_ * 0.55f;
+                    Vector3 legTip = {
+                        legRoot.x + legDir.x * legLen,
+                        legRoot.y + legDir.y * legLen,
+                        legRoot.z + legDir.z * legLen
+                    };
+                    
+                    Vector3 legMid = {
+                        (legRoot.x + legTip.x) * 0.5f,
+                        (legRoot.y + legTip.y) * 0.5f,
+                        (legRoot.z + legTip.z) * 0.5f
+                    };
+
+                    // 1. 脚全体を包む極太の這いずり電撃オーラ（スケールを負の巨大値 -1.85f に拡張）
+                    // 毎フレーム3組重複して放出することで、脚に絡みつく無数のうねる巨大電撃を生成
+                    for (int k = 0; k < 3; ++k) {
+                        particleManager_->EmitLSystemLightning(legRoot, legTip, 3, -1.85f, lightningColor);
+                    }
+
+                    // 2. 脚の先端・中間・根本から周囲の空間へ大きく弾け飛ぶ放射スパーク
+                    // 半径 15.0f〜24.0f の非常に大きな紫の火花を空間へ放出する
+                    particleManager_->EmitLightning(legTip, 24.0f, 3, lightningColor);
+                    particleManager_->EmitLightning(legMid, 18.0f, 2, lightningColor);
+                    particleManager_->EmitLightning(legRoot, 14.0f, 1, lightningColor);
+                }
+
+                // 狙っている地面（ターゲットエリア）にバチバチと警告予兆の雷を落とす
+                float targetX = 0.0f;
+                if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                Vector3 warningPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+                particleManager_->EmitLightning(warningPos, 5.0f, 1, lightningColor);
+
+            } else if (bossActionTimer_ <= 5.3f) {
+                // 2. 振り下ろし叩きつけ (5.0〜5.3秒)
                 bossZOffset_ = 65.0f;
                 bossLegSwingRange_ = 1.2f; // 足を激しく動かす
-            } else if (bossActionTimer_ <= 2.0f) {
-                float t = (bossActionTimer_ - 1.2f) / 0.8f;
-                bossZOffset_ = std::lerp(65.0f, 169.0f, t);
                 
-                // 地面に叩きつけが完了した瞬間（1.2秒）に一度だけ強力な画面シェイクを発動
-                if (!hasShaken) {
-                    cameraShakeTimer_ = 0.6f;
-                    cameraShakeIntensity_ = 8.0f; // 適度に強力なシェイク
-                    activeShakeIntensity_ = 8.0f;
-                    cameraShakeTimeMax_ = 0.6f;
-                    hasShaken = true;
+                // 振り下ろし開始時にターゲットエリアをロックオン
+                isBossAttackTargetLocked_ = true;
+
+                // 振り下ろし中も激しいスパークをボスとターゲット先に落とす
+                float targetX = 0.0f;
+                if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                Vector3 warningPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+                particleManager_->EmitLightning(currentBossPos, 12.0f, 2, lightningColor);
+                particleManager_->EmitLightning(warningPos, 12.0f, 2, lightningColor);
+
+            } else if (bossActionTimer_ <= 6.8f) {
+                // 3. 戻り (5.3〜6.8秒)
+                // ─── 巨大な「1本の雷」の3フェーズタイムライン (先行微光➔本落雷➔残光明滅) ───
+                float strikeElapsed = bossActionTimer_ - 5.3f; // 激突からの経過時間
+
+                if (strikeElapsed <= 0.05f) {
+                    // ① 先行微光 (Leader) [0.00s 〜 0.05s / 約3フレーム]
+                    // 細く暗めの紫色の線をターゲットに向けて数本走らせる
+                    float targetX = 0.0f;
+                    if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                    else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                    Vector3 impactPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+                    Vector3 lightningStart = { currentBossPos.x, currentBossPos.y - 4.0f, currentBossPos.z - 15.0f };
+                    
+                    // 暗めの紫色 (-0.18fスケールで細い枝として生成)
+                    Vector3 leaderColor = { 0.35f, 0.02f, 0.5f };
+                    particleManager_->EmitLSystemLightning(lightningStart, impactPos, 3, -0.18f, leaderColor);
+                    
+                    // ポストプロセスフラッシュもまだ極小
+                    activePostProcess_ = kVignette;
+                    // 雷のX座標をUV座標にマッピング (-30➔0.16, 0➔0.5, 30➔0.84)
+                    float targetUvX = 0.5f;
+                    if (bossAttackTargetArea_ == 0) targetUvX = 0.16f;
+                    else if (bossAttackTargetArea_ == 2) targetUvX = 0.84f;
+                    vignetteParamData_->scale = targetUvX;
+                    vignetteParamData_->power = 10.0f + 0.15f; // ごく僅かな明かり
+
+                } else if (strikeElapsed <= 0.10f) {
+                    // ② 本落雷 (Return Stroke) [0.05s 〜 0.10s / 約3フレーム]
+                    // 地面に激突した瞬間。主幹が極太(純白コア入り)になり爆発！
+                    float targetX = 0.0f;
+                    if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                    else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                    Vector3 impactPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+                    Vector3 lightningStart = { currentBossPos.x, currentBossPos.y - 4.0f, currentBossPos.z - 15.0f };
+
+                    if (!hasShaken) {
+                        cameraShakeTimer_ = 0.78f;
+                        cameraShakeIntensity_ = 10.5f; // 最大震度
+                        activeShakeIntensity_ = 10.5f;
+                        cameraShakeTimeMax_ = 0.78f;
+                        hasShaken = true;
+
+                        // 極太の主幹雷撃(1.6fスケール)を走らせる（内部で純白コアとまとわりつく枝が自動生成される）
+                        particleManager_->EmitLSystemLightning(lightningStart, impactPos, 4, 1.6f, lightningColor);
+
+                        // 周囲の爆発エフェクトと大音響SE
+                        particleManager_->EmitCylinder(impactPos, lightningColor);
+                        particleManager_->EmitRing(impactPos, lightningColor);
+                        for (int j = 0; j < 15; ++j) {
+                            particleManager_->EmitHit(impactPos);
+                        }
+                        audio_->PlayWave(jumpSE_, false, 1.7f);
+
+                        // ダメージ判定
+                        int playerArea = 1;
+                        if (fighterWorldPos.x < -15.0f) playerArea = 0;
+                        else if (fighterWorldPos.x > 15.0f) playerArea = 2;
+                        if (playerArea == bossAttackTargetArea_) {
+                            playerHP_ -= 25.0f;
+                            if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+                            particleManager_->EmitHit(fighterWorldPos);
+                            audio_->PlayWave(jumpSE_, false, 1.2f);
+                        }
+                    }
+
+                    // 全画面フラッシュバースト（最大露出）
+                    activePostProcess_ = kVignette;
+                    float targetUvX = 0.5f;
+                    if (bossAttackTargetArea_ == 0) targetUvX = 0.16f;
+                    else if (bossAttackTargetArea_ == 2) targetUvX = 0.84f;
+                    vignetteParamData_->scale = targetUvX;
+                    vignetteParamData_->power = 11.0f; // 10.0 + 1.0 (最大フラッシュ)
+
+                } else {
+                    // ③ 残光・明滅 (Flicker) [0.10s 〜 1.5s]
+                    // 形状を維持したまま、全体の輝度を激しくバチバチ明滅させながら減衰
+                    float currentIntensity = 1.0f - (strikeElapsed - 0.10f) / 1.4f; // 1.0 ➔ 0.0
+                    currentIntensity = (std::max)(0.0f, currentIntensity);
+
+                    // 高速なバチバチ明滅（サイン波による強度の上下）
+                    float flicker = (std::sin(strikeElapsed * 48.0f) * 0.5f + 0.5f); // 0.0 〜 1.0
+                    float flashIntensity = currentIntensity * (0.3f + 0.7f * flicker);
+
+                    if (currentIntensity <= 0.0f) {
+                        activePostProcess_ = kNone;
+                        vignetteParamData_->power = 0.8f;
+                    } else {
+                        activePostProcess_ = kVignette;
+                        float targetUvX = 0.5f;
+                        if (bossAttackTargetArea_ == 0) targetUvX = 0.16f;
+                        else if (bossAttackTargetArea_ == 2) targetUvX = 0.84f;
+                        vignetteParamData_->scale = targetUvX;
+                        vignetteParamData_->power = 10.0f + flashIntensity;
+
+                        // 残光中のバチバチスパーク
+                        if (flicker > 0.7f) {
+                            float targetX = 0.0f;
+                            if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                            else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                            Vector3 impactPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+                            particleManager_->EmitLightning(impactPos, 8.0f, 1, lightningColor);
+                        }
+                    }
                 }
+
+                float t = (bossActionTimer_ - 5.3f) / 1.5f;
+                bossZOffset_ = std::lerp(65.0f, 169.0f, t);
+                isBossAttackTargetLocked_ = true;
             } else {
+                // 戻りフェーズ中、または攻撃が終わったら徐々に全画面雷撃フラッシュエフェクトをフェードアウトさせる
+                if (activePostProcess_ == kVignette && vignetteParamData_->power >= 10.0f) {
+                    float currentIntensity = vignetteParamData_->power - 10.0f;
+                    currentIntensity -= kDeltaTime * 1.5f;
+                    if (currentIntensity <= 0.0f) {
+                        activePostProcess_ = kNone;
+                        vignetteParamData_->power = 0.8f;
+                    } else {
+                        vignetteParamData_->power = 10.0f + currentIntensity;
+                    }
+                }
+
                 bossZOffset_ = 169.0f;
                 bossLegSwingRange_ = 0.3f; // 元に戻す
                 bossActionState_ = BossActionState::kIdle;
                 bossActionTimer_ = 0.0f;
+                isBossAttackTargetLocked_ = false;
             }
         } 
         else if (bossActionState_ == BossActionState::kLaserAttack) {
@@ -2242,17 +2413,17 @@ void GamePlayScene::Update() {
         float bossYAttackOffset = 0.0f;
 
         if (currentPhase_ == GamePhase::kBossFight && bossActionState_ == BossActionState::kLegAttack) {
-            if (bossActionTimer_ <= 0.8f) {
-                // 1. 接近・振りかぶり（0.0〜0.8秒）：胴体は低く地面を這いずり、攻撃する前足が天に向けて大きく持ち上がる
-                float t = bossActionTimer_ / 0.8f;
+            if (bossActionTimer_ <= 5.0f) {
+                // 1. 接近・振りかぶり溜め (0.0〜5.0秒)
+                float t = bossActionTimer_ / 5.0f;
                 bossYAttackOffset = std::lerp(0.0f, -4.0f, t);
-            } else if (bossActionTimer_ <= 1.2f) {
-                // 2. 叩きつけ（0.8〜1.2秒）：胴体がさらにグッと沈み込み、攻撃する前足が上空から鋭く振り下ろされる
-                float t = (bossActionTimer_ - 0.8f) / 0.4f;
+            } else if (bossActionTimer_ <= 5.3f) {
+                // 2. 叩きつけ (5.0〜5.3秒)
+                float t = (bossActionTimer_ - 5.0f) / 0.3f;
                 bossYAttackOffset = std::lerp(-4.0f, -6.0f, t);
-            } else if (bossActionTimer_ <= 2.0f) {
-                // 3. 戻り（1.2〜2.0秒）：通常の姿勢と高さへ戻る
-                float t = (bossActionTimer_ - 1.2f) / 0.8f;
+            } else if (bossActionTimer_ <= 6.8f) {
+                // 3. 戻り (5.3〜6.8秒)
+                float t = (bossActionTimer_ - 5.3f) / 1.5f;
                 bossYAttackOffset = std::lerp(-6.0f, 0.0f, t);
             }
         }
@@ -2315,8 +2486,13 @@ void GamePlayScene::Update() {
                 
                 // 攻撃中の左前足(i==1)の軌道を補間
                 if (i == 1 && attackLegIdx == 1 && bossActionState_ == BossActionState::kLegAttack) {
+                    float targetX = 0.0f;
+                    if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                    else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                    Vector3 targetWorldPos = { targetX, fighterWorldPos.y, fighterWorldPos.z };
+
                     float angleY = -bossBodyRotY_ * (float)M_PI / 180.0f;
-                    Vector3 diff = Subtract(fighterWorldPos, bossPos);
+                    Vector3 diff = Subtract(targetWorldPos, bossPos);
                     Vector3 playerLocal = {
                         diff.x * std::cos(angleY) - diff.z * std::sin(angleY),
                         diff.y,
@@ -2331,15 +2507,15 @@ void GamePlayScene::Update() {
                     if (len > 0.01f) {
                         Vector3 dirNorm = { dirLocal.x / len, dirLocal.y / len, dirLocal.z / len };
                         
-                        float targetRotY = std::atan2(dirNorm.x, dirNorm.z);
+                        float targetRotY = (-baseRotY) * (float)M_PI / 180.0f + std::atan2(dirNorm.x, dirNorm.z);
                         float upPitch = 1.4f; // 天高く振りかぶる角度
                         // プレイヤーの方向を向く叩きつけピッチを動的計算
                         float horizDist = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.z * dirLocal.z);
                         float strikePitch = 0.1f;
                         if (horizDist > 0.01f) {
                             strikePitch = std::atan2(dirLocal.y, horizDist);
-                            // 角度制限（曲がりすぎ防止、例えば -0.4 〜 0.2 ラジアン）
-                            strikePitch = (std::max)(-0.4f, (std::min)(0.2f, strikePitch));
+                            // 角度制限（ピッチの深い叩きつけ制限 -1.2 に拡張）
+                            strikePitch = (std::max)(-1.2f, (std::min)(0.2f, strikePitch));
                         }
                         
                         // 角度の差を [-PI, PI] の範囲に正規化して最短経路にする
@@ -2347,19 +2523,19 @@ void GamePlayScene::Update() {
                         while (diffRotY > (float)M_PI) diffRotY -= 2.0f * (float)M_PI;
                         while (diffRotY < -(float)M_PI) diffRotY += 2.0f * (float)M_PI;
 
-                        if (bossActionTimer_ <= 0.8f) {
-                            // 1. 接近・振りかぶり (0.0〜0.8秒)
-                            float t = bossActionTimer_ / 0.8f;
+                        if (bossActionTimer_ <= 5.0f) {
+                            // 1. 接近・振りかぶり溜め (0.0〜5.0秒)
+                            float t = bossActionTimer_ / 5.0f;
                             currentRotY = normalRotY + diffRotY * t;
                             currentPitch = std::lerp(normalPitch, upPitch, t);
-                        } else if (bossActionTimer_ <= 1.2f) {
-                            // 2. 叩きつけ (0.8〜1.2秒)
-                            float t = (bossActionTimer_ - 0.8f) / 0.4f;
+                        } else if (bossActionTimer_ <= 5.3f) {
+                            // 2. 叩きつけ (5.0〜5.3秒)
+                            float t = (bossActionTimer_ - 5.0f) / 0.3f;
                             currentRotY = targetRotY;
                             currentPitch = std::lerp(upPitch, strikePitch, t);
-                        } else if (bossActionTimer_ <= 2.0f) {
-                            // 3. 戻り (1.2〜2.0秒)
-                            float t = (bossActionTimer_ - 1.2f) / 0.8f;
+                        } else if (bossActionTimer_ <= 6.8f) {
+                            // 3. 戻り (5.3〜6.8秒)
+                            float t = (bossActionTimer_ - 5.3f) / 1.5f;
                             currentRotY = targetRotY - diffRotY * t;
                             currentPitch = std::lerp(strikePitch, normalPitch, t);
                         }
@@ -2382,8 +2558,13 @@ void GamePlayScene::Update() {
                 
                 // 攻撃中の右前足(i==5)の軌道を補間
                 if (i == 5 && attackLegIdx == 5 && bossActionState_ == BossActionState::kLegAttack) {
+                    float targetX = 0.0f;
+                    if (bossAttackTargetArea_ == 0) targetX = -30.0f;
+                    else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
+                    Vector3 targetWorldPos = { targetX, fighterWorldPos.y, fighterWorldPos.z };
+
                     float angleY = -bossBodyRotY_ * (float)M_PI / 180.0f;
-                    Vector3 diff = Subtract(fighterWorldPos, bossPos);
+                    Vector3 diff = Subtract(targetWorldPos, bossPos);
                     Vector3 playerLocal = {
                         diff.x * std::cos(angleY) - diff.z * std::sin(angleY),
                         diff.y,
@@ -2398,15 +2579,15 @@ void GamePlayScene::Update() {
                     if (len > 0.01f) {
                         Vector3 dirNorm = { dirLocal.x / len, dirLocal.y / len, dirLocal.z / len };
                         
-                        float targetRotY = std::atan2(dirNorm.x, dirNorm.z);
+                        float targetRotY = baseRotY * (float)M_PI / 180.0f - std::atan2(dirNorm.x, dirNorm.z);
                         float upPitch = 1.4f; // 天高く振りかぶる角度
                         // プレイヤーの方向を向く叩きつけピッチを動的計算
                         float horizDist = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.z * dirLocal.z);
                         float strikePitch = 0.1f;
                         if (horizDist > 0.01f) {
                             strikePitch = std::atan2(dirLocal.y, horizDist);
-                            // 角度制限（曲がりすぎ防止、例えば -0.4 〜 0.2 ラジアン）
-                            strikePitch = (std::max)(-0.4f, (std::min)(0.2f, strikePitch));
+                            // 角度制限（ピッチの深い叩きつけ制限 -1.2 に拡張）
+                            strikePitch = (std::max)(-1.2f, (std::min)(0.2f, strikePitch));
                         }
                         
                         // 角度の差を [-PI, PI] の範囲に正規化して最短経路にする
@@ -2414,19 +2595,19 @@ void GamePlayScene::Update() {
                         while (diffRotY > (float)M_PI) diffRotY -= 2.0f * (float)M_PI;
                         while (diffRotY < -(float)M_PI) diffRotY += 2.0f * (float)M_PI;
 
-                        if (bossActionTimer_ <= 0.8f) {
-                            // 1. 接近・振りかぶり (0.0〜0.8秒)
-                            float t = bossActionTimer_ / 0.8f;
+                        if (bossActionTimer_ <= 5.0f) {
+                            // 1. 接近・振りかぶり溜め (0.0〜5.0秒)
+                            float t = bossActionTimer_ / 5.0f;
                             currentRotY = normalRotY + diffRotY * t;
                             currentPitch = std::lerp(normalPitch, upPitch, t);
-                        } else if (bossActionTimer_ <= 1.2f) {
-                            // 2. 叩きつけ (0.8〜1.2秒)
-                            float t = (bossActionTimer_ - 0.8f) / 0.4f;
+                        } else if (bossActionTimer_ <= 5.3f) {
+                            // 2. 叩きつけ (5.0〜5.3秒)
+                            float t = (bossActionTimer_ - 5.0f) / 0.3f;
                             currentRotY = targetRotY;
                             currentPitch = std::lerp(upPitch, strikePitch, t);
-                        } else if (bossActionTimer_ <= 2.0f) {
-                            // 3. 戻り (1.2〜2.0秒)
-                            float t = (bossActionTimer_ - 1.2f) / 0.8f;
+                        } else if (bossActionTimer_ <= 6.8f) {
+                            // 3. 戻り (5.3〜6.8秒)
+                            float t = (bossActionTimer_ - 5.3f) / 1.5f;
                             currentRotY = targetRotY - diffRotY * t;
                             currentPitch = std::lerp(strikePitch, normalPitch, t);
                         }
@@ -2510,25 +2691,27 @@ void GamePlayScene::Update() {
     }
 
     // ── 天球(SkyDome)のワールド・WVP行列を計算 ──
-    // 天球は常にカメラ中心に配置。球の内側からテクスチャを見るため継ぎ目は背面（見えない）に来る
+    // ビュー行列から平行移動成分をゼロにすることで「常に無限遠に見える」真のスカイドームを実現
     if (skydomeModel_ && skydomeTransformData_) {
-        // カメラ位置に追従させる（常にカメラ中心）
-        EulerTransform& cam = camera_->GetTransform();
-        Vector3 skyPos = { cam.translate.x, cam.translate.y, cam.translate.z };
         Vector3 skyScale  = { kSkydomeScale, kSkydomeScale, kSkydomeScale };
         Vector3 skyRotate = { 0.0f, 0.0f, 0.0f };
+        Vector3 skyPos    = { 0.0f, 0.0f, 0.0f }; // 原点固定（ビューの平行移動除去で常にカメラ中心になる）
+
+        // ビュー行列の平行移動成分をゼロに除去し、回転のみ残した ViewProjection を作成
+        Matrix4x4 skyViewMatrix = camera_->GetViewMatrix();
+        skyViewMatrix.m[3][0] = 0.0f;
+        skyViewMatrix.m[3][1] = 0.0f;
+        skyViewMatrix.m[3][2] = 0.0f;
+        Matrix4x4 skyViewProjMatrix = Multiply(skyViewMatrix, camera_->GetProjectionMatrix());
 
         Matrix4x4 skyWorld = MakeAffineMatrix(skyScale, skyRotate, skyPos);
         skydomeTransformData_->World = skyWorld;
-        skydomeTransformData_->WVP   = Multiply(skyWorld, viewProjectionMatrix);
+        skydomeTransformData_->WVP   = Multiply(skyWorld, skyViewProjMatrix);
 
-        // X・Y方向UVスクロールで雲を流す（天球なので折り返し線は球の背面＝常に画面外）
-        bgUvScrollX_ += kBgUvScrollSpeedX * kDeltaTime;
-        bgUvScrollY_ += kBgUvScrollSpeedY * kDeltaTime;
-        if (bgUvScrollX_ > 1.0f) bgUvScrollX_ -= 1.0f;
-        if (bgUvScrollY_ > 1.0f) bgUvScrollY_ -= 1.0f;
-
-        Matrix4x4 uvTranslate = MakeTranslateMatrix({ bgUvScrollX_, bgUvScrollY_, 0.0f });
+        // UVスケールを適用してテクスチャを細かくタイリングする
+        // これにより、星や雲が小さく（＝より遠くに）見え、テクスチャの荒さが大幅に改善されます
+        float uvScale = 4.0f; 
+        Matrix4x4 uvTranslate = MakeScaleMatrix({ uvScale, uvScale, 1.0f });
 
         // 天球マテリアルのUVトランスフォームを更新
         ID3D12Resource* materialRes = skydomeModel_->GetMaterialResource();
@@ -3120,7 +3303,8 @@ void GamePlayScene::Draw() {
             Matrix4x4 projectionMatrix = camera_->GetProjectionMatrix();
             Matrix4x4 wvpMatrix = Multiply(skyboxViewMatrix, projectionMatrix);
 
-            std::string skyboxTexName = (skyboxType_ == 0) ? "cobblestone_street_night_2k.dds" : "rostock_laage_airport_4k.dds";
+            int index = std::clamp(skyboxType_, 0, static_cast<int>(kNumSkyboxTextures) - 1);
+            std::string skyboxTexName = kSkyboxTextures[index];
             // 安全対策: 指定されたテクスチャがキューブマップでない場合は、有効なキューブマップにフォールバックする
             if (!TextureManager::GetInstance()->GetMetaData(skyboxTexName).IsCubemap()) {
                 skyboxTexName = "rostock_laage_airport_4k.dds";
@@ -3181,13 +3365,20 @@ void GamePlayScene::Draw() {
                 }
             }
 
-            // 天球(SkyDome)描画 ── 最初に描画して他のすべてのオブジェクトより背面に置く
-            if (skydomeModel_ && skydomeTransformRes_) {
+            // 天球(SkyDome)描画 ── 専用パイプライン（Zバッファ書き込みなし・常に最遠面・ぼかしサンプラー）で描画
+            if (skydomeModel_ && skydomeTransformRes_ && graphicsPipeline_->GetSkydomePipelineState()) {
+                // 天球専用パイプラインとルートシグネチャに切り替える
+                commandList->SetPipelineState(graphicsPipeline_->GetSkydomePipelineState());
+                commandList->SetGraphicsRootSignature(graphicsPipeline_->GetSkydomeRootSignature());
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
                 commandList->SetGraphicsRootConstantBufferView(1, skydomeTransformRes_->GetGPUVirtualAddress());
-                std::string skyTex = (activeBackgroundTex_ == 0) ? "haikei/Green.png" : "haikei/Red.png";
+                int index = std::clamp(skyboxType_, 0, static_cast<int>(kNumSkyboxTextures) - 1);
+                std::string skyTex = kSkyboxTextures[index];
                 skydomeModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU(skyTex), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                // 天球描画後に Object3d パイプラインに戻す
+                commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
+                commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
             }
 
             // ビル(Building)描画（ボス戦中も進行感を出すため描画）

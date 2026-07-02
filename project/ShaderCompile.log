@@ -22,6 +22,14 @@ Begin CompileShader, path:Resources/shaders/Object3d.PS.hlsl, profile:ps_6_0
 
 Compile Succeeded, path:Object3d.PS.hlsl, profile:ps_6_0
 
+Begin CompileShader, path:Resources/shaders/Skydome.VS.hlsl, profile:vs_6_0
+
+Compile Succeeded, path:Skydome.VS.hlsl, profile:vs_6_0
+
+Begin CompileShader, path:Resources/shaders/Skydome.PS.hlsl, profile:ps_6_0
+
+Compile Succeeded, path:Skydome.PS.hlsl, profile:ps_6_0
+
 Begin CompileShader, path:Resources/shaders/SkinningPost.VS.hlsl, profile:vs_6_0
 
 Compile Succeeded, path:SkinningPost.VS.hlsl, profile:vs_6_0

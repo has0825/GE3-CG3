@@ -34,6 +34,10 @@ public:
 
     // ★追加：Object3d（キャラクターモデル）用のゲッター
     ID3D12RootSignature* GetObject3dRootSignature() const { return object3dRootSignature_.Get(); }
+
+    // ★追加：Skydome（天球）専用のゲッター（Zバッファ書き込みなし・最遠面固定シェーダー）
+    ID3D12PipelineState* GetSkydomePipelineState() const { return skydomePipelineState_.Get(); }
+    ID3D12RootSignature* GetSkydomeRootSignature() const { return skydomeRootSignature_.Get(); }
     	ID3D12PipelineState* GetObject3dPipelineState() { return object3dPipelineState_.Get(); }
         ID3D12PipelineState* GetObject3dBlendNormalPipelineState() { return object3dBlendNormalPipelineState_.Get(); }
 	ID3D12RootSignature* GetSkinningRootSignature() { return skinningRootSignature_.Get(); }
@@ -88,6 +92,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> object3dRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> object3dBlendNormalPipelineState_;
+
+    // ★追加：Skydome（天球）専用パイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> skydomePipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> skydomeRootSignature_;
 
     	Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningRootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;

@@ -374,7 +374,7 @@ private:
 
     // 天球(SkyDome)用定数
     // 半径を大きくするほどカメラから見た各ポリゴンの角度が小さくなり折れ目が目立たなくなる
-    static constexpr float kSkydomeScale   = 10000.0f; // 天球半径（FarClip 12000 以内に十分大きく）
+    static constexpr float kSkydomeScale   = 3000000.0f; // 天球半径（FarClip 5000000 以内に十分大きく）
     static constexpr int   kNumSkyTextures = 2;         // 天球テクスチャ数（Green / Red）
 
     // 自機オフセットの定数
@@ -523,6 +523,8 @@ private:
     };
     BossActionState bossActionState_ = BossActionState::kIdle;
     float bossActionTimer_ = 0.0f;
+    int bossAttackTargetArea_ = 1;      // ボスが狙うエリア (0: 左, 1: 中央, 2: 右)
+    bool isBossAttackTargetLocked_ = false; // ターゲットエリアが確定したかどうか
     float bossLaserTimer_ = 0.0f;
 
     // プレイヤーの移動速度デバフタイマーおよび画面蜘蛛の巣効果タイマー

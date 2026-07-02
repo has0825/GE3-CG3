@@ -66,13 +66,24 @@ void TextureManager::LoadTexture(const std::string& fileName) {
         return;
     }
 
-    // 圧縮フォーマット、すでにミップマップが存在する場合、DDSファイルの場合、または画像サイズが小さすぎてミップマップ生成に適さない場合はそのまま使用する
+    // ミップマップ生成判定:
+    // ・圧縮フォーマット（DXT等）はそのまま使う（生成不可）
+    // ・既にミップマップが存在する場合はそのまま使う
+    // ・非圧縮DDSかつミップマップなし → ミップマップを生成する（MipMapLODBiasによるぼかしを有効にするため）
     DirectX::ScratchImage mipImages{};
-    if (DirectX::IsCompressed(image.GetMetadata().format) || image.GetMetadata().mipLevels > 1 || fullPath.ends_with(".dds") || image.GetMetadata().width < 4 || image.GetMetadata().height < 4) {
+    bool isCompressed = DirectX::IsCompressed(image.GetMetadata().format);
+    bool hasMips = image.GetMetadata().mipLevels > 1;
+    bool tooSmall = image.GetMetadata().width < 4 || image.GetMetadata().height < 4;
+    if (isCompressed || hasMips || tooSmall) {
+        // 圧縮済み・ミップあり・小さすぎる場合はそのまま
         mipImages = std::move(image);
     } else {
-        hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 4, mipImages);
-        assert(SUCCEEDED(hr));
+        // 非圧縮でミップなし（新しいRGBA DDSを含む）→ ミップマップを生成する
+        hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_DEFAULT, 0, mipImages);
+        if (FAILED(hr)) {
+            // 生成失敗時はそのまま使う
+            mipImages = std::move(image);
+        }
     }
 
     const DirectX::TexMetadata& metadata = mipImages.GetMetadata();

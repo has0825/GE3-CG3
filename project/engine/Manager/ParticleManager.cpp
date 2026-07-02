@@ -9,6 +9,14 @@
 #define M_PI 3.14159265358979323846f
 #endif
 
+static Vector3 Subtract(const Vector3& v1, const Vector3& v2) {
+    return { v1.x - v2.x, v1.y - v2.y, v1.z - v2.z };
+}
+
+static float Length(const Vector3& v) {
+    return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
 void ParticleManager::Initialize(ID3D12Device* device) {
     device_ = device;
 
@@ -995,6 +1003,169 @@ void ParticleManager::EmitLightning(const Vector3& emitterPos, float speed, int 
             particles_[p].color.z = color.z;
             emitCount--;
         }
+    }
+}
+
+void ParticleManager::EmitLSystemLightning(const Vector3& startPos, const Vector3& endPos, int depth, float scale, const Vector3& color) {
+    if (depth <= 0) return;
+
+    bool isMain = (scale > 0.0f);
+    float absScale = std::abs(scale);
+
+    // ── 進行比率 t (0.0: 上空, 1.0: 地面) ──
+    float t = 1.0f - (float)depth / 4.0f;
+
+    // ── マルチ周波数ノイズ ＋ 空間クランプ ──
+    Vector3 diff = Subtract(endPos, startPos);
+    Vector3 midPos = {
+        (startPos.x + endPos.x) * 0.5f,
+        (startPos.y + endPos.y) * 0.5f,
+        (startPos.z + endPos.z) * 0.5f
+    };
+
+    std::uniform_real_distribution<float> distOffset(-1.0f, 1.0f);
+    
+    // 3Dカールノイズのサンプリング
+    float noiseFreq = 0.2f;
+    Vector3 curlNoise = {
+        std::sin(midPos.y * noiseFreq) * std::cos(midPos.z * noiseFreq),
+        std::sin(midPos.z * noiseFreq) * std::cos(midPos.x * noiseFreq),
+        std::sin(midPos.x * noiseFreq) * std::cos(midPos.y * noiseFreq)
+    };
+
+    // 低周波（大きなうねり）＋ 高周波（細かなギザギザ）のマルチ周波数ブレンド
+    float lowFreqAmount = 8.5f * (float)depth * absScale;
+    float highFreqAmount = 2.5f * absScale;
+    Vector3 displacement = {
+        (distOffset(randomEngine_) * 0.7f + curlNoise.x * 0.3f) * lowFreqAmount + distOffset(randomEngine_) * highFreqAmount,
+        (distOffset(randomEngine_) * 0.7f + curlNoise.y * 0.3f) * lowFreqAmount + distOffset(randomEngine_) * highFreqAmount,
+        (distOffset(randomEngine_) * 0.7f + curlNoise.z * 0.3f) * lowFreqAmount + distOffset(randomEngine_) * highFreqAmount
+    };
+
+    midPos.x += displacement.x;
+    midPos.y += displacement.y;
+    midPos.z += displacement.z;
+
+    // 空間クランプ (主幹からの最大離散半径 R 内に押し込める)
+    float maxRadius = isMain ? (4.2f * absScale) : (9.0f * absScale);
+    Vector3 mainAxis = Subtract(endPos, startPos);
+    float axisLen = Length(mainAxis);
+    if (axisLen > 0.01f) {
+        Vector3 axisNorm = { mainAxis.x / axisLen, mainAxis.y / axisLen, mainAxis.z / axisLen };
+        Vector3 toMid = Subtract(midPos, startPos);
+        float projection = toMid.x * axisNorm.x + toMid.y * axisNorm.y + toMid.z * axisNorm.z;
+        Vector3 onAxis = { startPos.x + axisNorm.x * projection, startPos.y + axisNorm.y * projection, startPos.z + axisNorm.z * projection };
+        Vector3 radialVec = Subtract(midPos, onAxis);
+        float radDist = Length(radialVec);
+        if (radDist > maxRadius) {
+            midPos.x = onAxis.x + (radialVec.x / radDist) * maxRadius;
+            midPos.y = onAxis.y + (radialVec.y / radDist) * maxRadius;
+            midPos.z = onAxis.z + (radialVec.z / radDist) * maxRadius;
+        }
+    }
+
+    // ── テーパー（太さの制御）の決定 ──
+    // 上空が最も太く、地面に向かって徐々に細くなる。ただし地面激突付近は急激に太くして衝撃を表現。
+    float width = 0.0f;
+    if (isMain) {
+        width = (3.2f - t * 2.2f) * absScale; // 3.2 ➔ 1.0
+        if (t > 0.9f) {
+            width = 4.5f * absScale; // 地面激突付近の極太化
+        }
+    } else {
+        width = 0.35f * absScale; // 追従するプラズマの細い枝
+    }
+
+    // ── 純白コアの重ね描き ──
+    // 主幹の時は、中心に「純白（超高輝度）のコア線」を重ねて描画することで、光学的なリアリティを何倍にも引き上げる
+    int passCount = isMain ? 2 : 1;
+
+    for (int pass = 0; pass < passCount; ++pass) {
+        Vector3 finalColor = color;
+        float finalWidth = width;
+        if (isMain && pass == 1) {
+            // 純白のコア
+            finalColor = { 1.0f, 1.0f, 1.0f };
+            finalWidth = width * 0.35f;
+        }
+
+        // 前半セグメント
+        for (uint32_t p = 0; p < kNumInstances; ++p) {
+            if (particles_[p].currentTime >= particles_[p].lifeTime) {
+                particles_[p].currentTime = 0.0f;
+                particles_[p].lifeTime = 0.18f + distOffset(randomEngine_) * 0.04f; // 高速明滅
+                
+                float len = Length(Subtract(midPos, startPos));
+                particles_[p].scale = { finalWidth, finalWidth, len * 1.08f };
+                particles_[p].position = startPos;
+                
+                Vector3 dirNorm = { 0.0f, 1.0f, 0.0f };
+                if (len > 0.001f) {
+                    dirNorm = { (midPos.x - startPos.x) / len, (midPos.y - startPos.y) / len, (midPos.z - startPos.z) / len };
+                }
+                
+                float yaw = std::atan2(dirNorm.x, dirNorm.z);
+                float pitch = -std::asin(dirNorm.y);
+                particles_[p].rotate = { pitch, yaw, 0.0f };
+                particles_[p].type = Particle::Type::kRotation;
+                particles_[p].color = { finalColor.x, finalColor.y, finalColor.z, 1.0f };
+                particles_[p].velocity = { 0.0f, 0.0f, 0.0f };
+                break;
+            }
+        }
+
+        // 後半セグメント
+        for (uint32_t p = 0; p < kNumInstances; ++p) {
+            if (particles_[p].currentTime >= particles_[p].lifeTime) {
+                particles_[p].currentTime = 0.0f;
+                particles_[p].lifeTime = 0.18f + distOffset(randomEngine_) * 0.04f;
+                
+                float len = Length(Subtract(endPos, midPos));
+                particles_[p].scale = { finalWidth, finalWidth, len * 1.08f };
+                particles_[p].position = midPos;
+                
+                Vector3 dirNorm = { 0.0f, 1.0f, 0.0f };
+                if (len > 0.001f) {
+                    dirNorm = { (endPos.x - midPos.x) / len, (endPos.y - midPos.y) / len, (endPos.z - midPos.z) / len };
+                }
+                
+                float yaw = std::atan2(dirNorm.x, dirNorm.z);
+                float pitch = -std::asin(dirNorm.y);
+                particles_[p].rotate = { pitch, yaw, 0.0f };
+                particles_[p].type = Particle::Type::kRotation;
+                particles_[p].color = { finalColor.x, finalColor.y, finalColor.z, 1.0f };
+                particles_[p].velocity = { 0.0f, 0.0f, 0.0f };
+                break;
+            }
+        }
+    }
+
+    // ── L-system 再帰的ブランチ生成 ──
+    EmitLSystemLightning(startPos, midPos, depth - 1, scale, color);
+    EmitLSystemLightning(midPos, endPos, depth - 1, scale, color);
+
+    // 枝分かれサブ雷の再帰
+    std::uniform_real_distribution<float> distBranch(0.0f, 1.0f);
+    if (depth > 1 && distBranch(randomEngine_) < 0.65f) {
+        Vector3 angleOffset = {
+            distOffset(randomEngine_) * 20.0f,
+            distOffset(randomEngine_) * 25.0f,
+            distOffset(randomEngine_) * 20.0f
+        };
+        Vector3 branchDir = {
+            diff.x + angleOffset.x,
+            diff.y + angleOffset.y,
+            diff.z + angleOffset.z
+        };
+        
+        Vector3 branchEnd = {
+            midPos.x + branchDir.x * 0.6f,
+            midPos.y + branchDir.y * 0.6f,
+            midPos.z + branchDir.z * 0.6f
+        };
+        
+        // 分岐したサブ枝は scale を負にして細い枝として再帰
+        EmitLSystemLightning(midPos, branchEnd, depth - 1, -absScale * 0.6f, color);
     }
 }
 
