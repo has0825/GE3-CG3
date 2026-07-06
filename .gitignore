@@ -323,3 +323,32 @@ MigrationBackup/
 FodyWeavers.xsd
 
 ShaderCompile.log
+
+# --- Added by Antigravity for Repository Cleanup ---
+# ビルド出力フォルダの除外
+[Bb]in/
+[Xx]64/
+[Dd]ebug/
+[Rr]elease/
+
+# ビルド成果物・中間ファイルの除外
+*.pch
+*.gch
+*.pzh
+*.pdb
+*.idb
+*.obj
+*.o
+*.a
+*.lib
+*.tlog
+*.iobj
+*.ipdb
+*.ipch
+*.log
+
+# 必要な外部ライブラリ・アセットを保護する設定
+!**/externals/assimp/**/*.lib
+!**/externals/assimp/**/*.pdb
+!**/externals/assimp/**/*.dll
+!**/Resources/**/*.obj
