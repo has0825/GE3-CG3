@@ -129,6 +129,7 @@ void GamePlayScene::Initialize() {
     camera_->SetTranslate({ 0.0f, 0.0f, -15.0f });
 
     particleModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
+    debrisModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
     ringModel_ = std::unique_ptr<Model>(Model::CreateRingModel(device));
     cylinderModel_ = std::unique_ptr<Model>(Model::CreateCylinderModel(device));
 
@@ -407,8 +408,12 @@ void GamePlayScene::Initialize() {
         else if (columnType == 2) building.position.x = -85.0f;
         else building.position.x = 85.0f;
         
-        // 積み重ねる階数を 1〜5 階でランダム設定
-        building.floors = 1 + (randomEngine_() % 5); 
+        // 積み重ねる階数をランダム設定（内側は1〜5階、外側は5〜10階）
+        if (columnType == 2 || columnType == 3) {
+            building.floors = 5 + (randomEngine_() % 6); // 外側のビルは高め
+        } else {
+            building.floors = 1 + (randomEngine_() % 5); // 内側のビル
+        }
         building.scale = { 10.0f, 10.0f, 10.0f }; // ビル1階分の等倍スケール
         building.rotate = { 0.0f, 0.0f, 0.0f };
         
@@ -416,6 +421,12 @@ void GamePlayScene::Initialize() {
         building.position.z = 50.0f + (float)groupIndex * kBuildingInterval;
         // 積み重ねるため、個々のY座標は Update 内で計算されるため、基準値のみ設定
         building.position.y = kFloorY; 
+
+        // 破壊演出用変数の初期化
+        building.isDestroyed = false;
+        building.velocity = { 0.0f, 0.0f, 0.0f };
+        building.rotationSpeed = { 0.0f, 0.0f, 0.0f };
+        building.destroyTimer = 0.0f;
 
         buildings_.push_back(building);
     }
@@ -514,6 +525,19 @@ void GamePlayScene::Initialize() {
     D3D12_CPU_DESCRIPTOR_HANDLE hpBarInstancingSrvHandleCPU = SrvManager::GetInstance()->GetCPUDescriptorHandle(hpBarInstancingSrvIndex);
     hpBarInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(hpBarInstancingSrvIndex);
     device->CreateShaderResourceView(hpBarInstancingResource_.Get(), &hpBarInstancingSrvDesc, hpBarInstancingSrvHandleCPU);
+
+    // 地面の破片用テクスチャのロードと定数バッファ生成
+    TextureManager::GetInstance()->LoadTexture("isihahen.png");
+    for (int i = 0; i < kMaxDebris; ++i) {
+        debrisTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
+        debrisTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&debrisTransformData_[i]));
+        debrisTransformData_[i]->WVP = MakeIdentity4x4();
+        debrisTransformData_[i]->World = MakeIdentity4x4();
+    }
+    debris_.resize(kMaxDebris);
+    for (int i = 0; i < kMaxDebris; ++i) {
+        debris_[i].isAlive = false;
+    }
 
     // HP関連変数の初期化
     playerHP_ = 100.0f;
@@ -2173,6 +2197,9 @@ void GamePlayScene::Update() {
                         cameraShakeTimeMax_ = 0.78f;
                         hasShaken = true;
 
+                        // 地面の破片を飛び散らせる
+                        SpawnDebris(impactPos);
+
                         // 極太の主幹雷撃(1.6fスケール)を走らせる（内部で純白コアとまとわりつく枝が自動生成される）
                         particleManager_->EmitLSystemLightning(lightningStart, impactPos, 4, 1.6f, lightningColor);
 
@@ -2986,7 +3013,7 @@ void GamePlayScene::Update() {
     animatedCubeTransformData_->World = animatedCubeBaseWorldMatrix;
 
     // ── ビルと床(Plane)の更新・再配置（オブジェクトプール） ──
-    // ボス戦中はビルが画面上に描画されないため、CPU処理（行列計算とバッファ更新）をスキップして軽量化。床はボス戦中も更新する。
+    // ボス戦中もビルの物理シミュレーション・衝突判定・行列計算を更新する。
     if (sceneMode_ == SceneMode::kFighter) {
         float cameraZ = camera_->GetTransform().translate.z;
 
@@ -2997,8 +3024,91 @@ void GamePlayScene::Update() {
                 if (buildings_[i].position.z < cameraZ - kBuildingInterval) {
                     buildings_[i].position.z += (float)kMaxBuildings * kBuildingInterval * 0.25f;
                     
-                    // 再配置した際にビルの階数(1〜5階)を再抽選する
-                    buildings_[i].floors = 1 + (randomEngine_() % 5);
+                    // 破壊されているビルを元のきれいな状態にリセット
+                    int columnType = i % 4;
+                    if (columnType == 0) buildings_[i].position.x = -45.0f;
+                    else if (columnType == 1) buildings_[i].position.x = 45.0f;
+                    else if (columnType == 2) buildings_[i].position.x = -85.0f;
+                    else buildings_[i].position.x = 85.0f;
+                    
+                    buildings_[i].position.y = kFloorY;
+                    buildings_[i].rotate = { 0.0f, 0.0f, 0.0f };
+                    buildings_[i].isDestroyed = false;
+                    buildings_[i].velocity = { 0.0f, 0.0f, 0.0f };
+                    buildings_[i].rotationSpeed = { 0.0f, 0.0f, 0.0f };
+                    buildings_[i].destroyTimer = 0.0f;
+
+                    // 再配置した際にビルの階数を再抽選する（内側は1〜5階、外側は5〜10階）
+                    if (columnType == 2 || columnType == 3) {
+                        buildings_[i].floors = 5 + (randomEngine_() % 6); // 外側のビルは高め
+                    } else {
+                        buildings_[i].floors = 1 + (randomEngine_() % 5); // 内側のビル
+                    }
+                }
+            }
+        }
+
+        // ── ビルの物理シミュレーションとボス衝突判定 ──
+        {
+            Vector3 bossPos = { 0.0f, 0.0f, 0.0f };
+            bool isBossActive = (currentPhase_ == GamePhase::kBossFight && !isBossDefeatedSequence_);
+            if (isBossActive) {
+                float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                bossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+            }
+
+            for (int i = 0; i < kMaxBuildings; ++i) {
+                if (buildings_[i].isDestroyed) {
+                    // すでに破壊されているビルの物理更新
+                    buildings_[i].destroyTimer += kDeltaTime;
+
+                    // 速度に従って移動
+                    buildings_[i].position.x += buildings_[i].velocity.x * kDeltaTime;
+                    buildings_[i].position.y += buildings_[i].velocity.y * kDeltaTime;
+                    buildings_[i].position.z += buildings_[i].velocity.z * kDeltaTime;
+
+                    // 重力を適用（落下）
+                    buildings_[i].velocity.y -= 9.8f * 5.0f * kDeltaTime;
+
+                    // 回転の更新
+                    buildings_[i].rotate.x += buildings_[i].rotationSpeed.x * kDeltaTime;
+                    buildings_[i].rotate.y += buildings_[i].rotationSpeed.y * kDeltaTime;
+                    buildings_[i].rotate.z += buildings_[i].rotationSpeed.z * kDeltaTime;
+                } else {
+                    // ボスとの衝突判定
+                    if (isBossActive) {
+                        float diffZ = buildings_[i].position.z - bossPos.z;
+                        float diffX = buildings_[i].position.x - bossPos.x;
+
+                        // ボスのZ位置がビルのZ位置と交差し、かつ横幅の範囲にある場合
+                        if (std::abs(diffZ) < 30.0f && std::abs(diffX) < 55.0f) {
+                            buildings_[i].isDestroyed = true;
+                            buildings_[i].destroyTimer = 0.0f;
+
+                            // 吹き飛び方向
+                            float signX = (buildings_[i].position.x >= 0.0f) ? 1.0f : -1.0f;
+
+                            if (i % 2 == 0) {
+                                // なぎ倒れタイプ (回転中心は底面。外側に倒れる)
+                                buildings_[i].velocity = { signX * 25.0f, 15.0f, 10.0f };
+                                buildings_[i].rotationSpeed = { 0.0f, 0.0f, -signX * 3.5f };
+                            } else {
+                                // 吹き飛びタイプ (上空に激しく吹き飛ぶ)
+                                buildings_[i].velocity = { signX * 45.0f, 60.0f, 25.0f };
+                                float rx = ((float)(randomEngine_() % 200) / 100.0f) - 1.0f;
+                                float ry = ((float)(randomEngine_() % 200) / 100.0f) - 1.0f;
+                                float rz = -signX * (1.5f + ((float)(randomEngine_() % 100) / 100.0f));
+                                buildings_[i].rotationSpeed = { rx * 3.0f, ry * 3.0f, rz * 3.0f };
+                            }
+
+                            // 衝突時エフェクトの発生
+                            EmitHitEffect(buildings_[i].position);
+                            if (particleManager_) {
+                                particleManager_->EmitCustomSparks(buildings_[i].position, 25.0f, 15, { 1.0f, 0.5f, 0.1f }, 1.0f);
+                                particleManager_->EmitFlame(buildings_[i].position, 15.0f, 10, { 1.0f, 0.3f, 0.0f });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -3033,7 +3143,7 @@ void GamePlayScene::Update() {
 
                     // 1フロアごとの積み上げY座標を計算（等倍スケール10に対して高さを積み上げる）
                     Vector3 floorPos = buildings_[i].position;
-                    floorPos.y = kFloorY + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
+                    floorPos.y = buildings_[i].position.y + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
 
                     Matrix4x4 worldMatrix = MakeAffineMatrix(buildings_[i].scale, buildings_[i].rotate, floorPos);
                     buildingTransformData_[cbIndex]->World = worldMatrix;
@@ -3053,6 +3163,72 @@ void GamePlayScene::Update() {
                 Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, roadRotate, floorPositions_[i]);
                 floorTransformData_[i]->World = worldMatrix;
                 floorTransformData_[i]->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
+            }
+        }
+
+        // ── 地面の破片の更新と行列計算 ──
+        {
+            for (int i = 0; i < kMaxDebris; ++i) {
+                if (!debris_[i].isAlive) {
+                    // 非表示にするためにWVPのスケールを0にする
+                    debrisTransformData_[i]->WVP = MakeIdentity4x4();
+                    debrisTransformData_[i]->WVP.m[0][0] = 0.0f;
+                    debrisTransformData_[i]->WVP.m[1][1] = 0.0f;
+                    debrisTransformData_[i]->WVP.m[2][2] = 0.0f;
+                    debrisTransformData_[i]->WVP.m[3][3] = 0.0f;
+                    continue;
+                }
+
+                debris_[i].currentTime += kDeltaTime;
+                if (debris_[i].currentTime >= debris_[i].lifeTime) {
+                    debris_[i].isAlive = false;
+                    // 同様に非表示化
+                    debrisTransformData_[i]->WVP = MakeIdentity4x4();
+                    debrisTransformData_[i]->WVP.m[0][0] = 0.0f;
+                    debrisTransformData_[i]->WVP.m[1][1] = 0.0f;
+                    debrisTransformData_[i]->WVP.m[2][2] = 0.0f;
+                    debrisTransformData_[i]->WVP.m[3][3] = 0.0f;
+                    continue;
+                }
+
+                // 位置の更新
+                debris_[i].position.x += debris_[i].velocity.x * kDeltaTime;
+                debris_[i].position.y += debris_[i].velocity.y * kDeltaTime;
+                debris_[i].position.z += debris_[i].velocity.z * kDeltaTime;
+
+                // 重力適用 (少し強め)
+                debris_[i].velocity.y -= 9.8f * 4.0f * kDeltaTime;
+
+                // 回転の更新
+                debris_[i].rotate.x += debris_[i].rotationSpeed.x * kDeltaTime;
+                debris_[i].rotate.y += debris_[i].rotationSpeed.y * kDeltaTime;
+                debris_[i].rotate.z += debris_[i].rotationSpeed.z * kDeltaTime;
+
+                // 接地判定 (地面kFloorYに当たったら反発)
+                if (debris_[i].position.y < kFloorY) {
+                    debris_[i].position.y = kFloorY;
+                    debris_[i].velocity.y = -debris_[i].velocity.y * 0.35f; // 反発減衰
+                    debris_[i].velocity.x *= 0.55f; // 摩擦減衰
+                    debris_[i].velocity.z *= 0.55f;
+
+                    // 速度が極小になったら物理を止める
+                    if (std::abs(debris_[i].velocity.y) < 1.0f) {
+                        debris_[i].velocity = { 0.0f, 0.0f, 0.0f };
+                        debris_[i].rotationSpeed = { 0.0f, 0.0f, 0.0f };
+                    }
+                }
+
+                // ワールド行列とWVP行列の計算 (カメラに正対するビルボードを適用し、Z軸での回転も加える)
+                Matrix4x4 billboard = camera_->GetBillboardMatrix();
+                Matrix4x4 rotateZ = MakeRotateZMatrix(debris_[i].rotate.z); // Z軸回転
+                Matrix4x4 world = Multiply(MakeScaleMatrix(debris_[i].scale), rotateZ);
+                world = Multiply(world, billboard);
+                world.m[3][0] = debris_[i].position.x;
+                world.m[3][1] = debris_[i].position.y;
+                world.m[3][2] = debris_[i].position.z;
+
+                debrisTransformData_[i]->World = world;
+                debrisTransformData_[i]->WVP = Multiply(world, viewProjectionMatrix);
             }
         }
     }
@@ -3146,29 +3322,40 @@ void GamePlayScene::Update() {
             hpBarInstancingData_[1].color = { 0.0f, 1.0f, 0.2f, 1.0f }; // 鮮やかな緑
         }
 
-        // 3. ボスHPバー背景（インデックス2）
+        // 3. ボスHPバー外枠（インデックス2）
         {
             Vector3 scale = { 350.0f, 24.0f, 1.0f };
             // 右上基準配置 (右端を halfClientW - 30px に固定)
-            Vector3 translate = { halfClientW - 30.0f - scale.x, halfClientH - 30.0f - (scale.y / 2.0f), 0.1f };
+            Vector3 translate = { halfClientW - 30.0f - scale.x, halfClientH - 30.0f - (scale.y / 2.0f), 0.2f }; // 最背面
             Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
             hpBarInstancingData_[2].World = world;
             hpBarInstancingData_[2].WVP = Multiply(world, viewProjSprite);
-            hpBarInstancingData_[2].color = { 1.0f, 0.0f, 0.0f, 1.0f }; // 明るい赤 (減少部分＝失われたHP)
+            hpBarInstancingData_[2].color = { 0.7f, 0.7f, 0.7f, 1.0f }; // ライトグレーの枠線
         }
 
-        // 4. ボスHPバー前景（インデックス3）
+        // 4. ボスHPバー内側背景（インデックス3）
+        {
+            Vector3 scale = { 346.0f, 20.0f, 1.0f };
+            // 外枠から内側に2pxずつマージンをとって配置
+            Vector3 translate = { halfClientW - 32.0f - scale.x, halfClientH - 32.0f - (scale.y / 2.0f), 0.1f }; // 中間
+            Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
+            hpBarInstancingData_[3].World = world;
+            hpBarInstancingData_[3].WVP = Multiply(world, viewProjSprite);
+            hpBarInstancingData_[3].color = { 0.05f, 0.05f, 0.05f, 0.95f }; // ほぼ黒のダークグレー（減少部分＝後ろの背景を消す目的）
+        }
+
+        // 5. ボスHPバー前景 (残HP)（インデックス4）
         {
             // 滑らかなbossHPVisual_を使用
             float hpRatio = std::clamp(bossHPVisual_ / bossMaxHP_, 0.0f, 1.0f);
             Vector3 scale = { 346.0f * hpRatio, 20.0f, 1.0f };
             // 背景の右端から4px内側に右端を固定 (左端が右へ向けて縮む ＝ 左から減る)
-            Vector3 translate = { (halfClientW - 34.0f) - scale.x, halfClientH - 32.0f - (scale.y / 2.0f), 0.0f };
+            Vector3 translate = { (halfClientW - 32.0f) - scale.x, halfClientH - 32.0f - (scale.y / 2.0f), 0.0f }; // 最前面
             if (scale.x <= 0.0f) scale.x = 0.0001f;
             Matrix4x4 world = MakeAffineMatrix(scale, Vector3{0, 0, 0}, translate);
-            hpBarInstancingData_[3].World = world;
-            hpBarInstancingData_[3].WVP = Multiply(world, viewProjSprite);
-            hpBarInstancingData_[3].color = { 0.5f, 0.0f, 0.0f, 1.0f }; // 濃い赤 (残HP)
+            hpBarInstancingData_[4].World = world;
+            hpBarInstancingData_[4].WVP = Multiply(world, viewProjSprite);
+            hpBarInstancingData_[4].color = { 0.8f, 0.1f, 0.1f, 1.0f }; // 赤 (残HP)
         }
     }
 
@@ -3362,6 +3549,31 @@ void GamePlayScene::Draw() {
                 for (int i = 0; i < kNumFloors; ++i) {
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                }
+            }
+
+            // 地面の破片(Debris)描画
+            if (debrisModel_) {
+                if (graphicsPipeline_ && graphicsPipeline_->GetObject3dBlendNormalPipelineState()) {
+                    commandList->SetPipelineState(graphicsPipeline_->GetObject3dBlendNormalPipelineState());
+                }
+
+                // ライティング・マテリアル乗算色・環境マップを破片描画用に変更 (設定対象は debrisModel_)
+                debrisModel_->SetLightingEnabled(false);
+                debrisModel_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+                debrisModel_->SetEnvironmentCoefficient(0.0f);
+
+                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+                for (int i = 0; i < kMaxDebris; ++i) {
+                    if (debris_[i].isAlive) {
+                        commandList->SetGraphicsRootConstantBufferView(1, debrisTransformResources_[i]->GetGPUVirtualAddress());
+                        debrisModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("isihahen.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                    }
+                }
+
+                if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
+                    commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
                 }
             }
 
@@ -3579,8 +3791,8 @@ void GamePlayScene::Draw() {
             if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
                 commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
                 if (particleModel_) {
-                    // ボスフェーズのときはボスHPバーも含めた4インスタンス、それ以外はプレイヤーHPバーのみの2インスタンスを描画
-                    UINT hpBarDrawCount = (currentPhase_ == GamePhase::kBossFight) ? 4 : 2;
+                    // ボスフェーズのときはボスHPバーも含めた5インスタンス、それ以外はプレイヤーHPバーのみの2インスタンスを描画
+                    UINT hpBarDrawCount = (currentPhase_ == GamePhase::kBossFight) ? 5 : 2;
                     particleModel_->Draw(
                         commandList, 
                         hpBarDrawCount, 
@@ -4765,5 +4977,39 @@ void GamePlayScene::ApplyPreset(int presetIndex) {
         useImpactFlash_ = true;
         flashColor_ = {0.35f, 0.0f, 0.55f, 1.0f};
         break;
+    }
+}
+
+void GamePlayScene::SpawnDebris(const Vector3& basePos) {
+    for (int i = 0; i < kMaxDebris; ++i) {
+        debris_[i].isAlive = true;
+        // 初期位置
+        debris_[i].position = basePos;
+        debris_[i].position.x += ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 4.0f;
+        debris_[i].position.y += ((float)(randomEngine_() % 100) / 100.0f) * 1.5f;
+        debris_[i].position.z += ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 4.0f;
+
+        // 飛び散る初速 (360度ランダムに広がる)
+        float angle = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
+        float speed = 15.0f + (float)(randomEngine_() % 35);
+        debris_[i].velocity.x = std::cos(angle) * speed * 0.7f;
+        debris_[i].velocity.y = 25.0f + (float)(randomEngine_() % 30); // 上への強い初速
+        debris_[i].velocity.z = std::sin(angle) * speed * 0.7f + 5.0f; // 前方へも少し流れる
+
+        // 初期回転と回転角速度 (3軸ランダム)
+        debris_[i].rotate.x = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
+        debris_[i].rotate.y = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
+        debris_[i].rotate.z = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
+
+        debris_[i].rotationSpeed.x = ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 10.0f;
+        debris_[i].rotationSpeed.y = ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 10.0f;
+        debris_[i].rotationSpeed.z = ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 10.0f;
+
+        // スケール (0.4〜1.6のランダム)
+        float sz = 0.4f + ((float)(randomEngine_() % 100) / 100.0f) * 1.2f;
+        debris_[i].scale = { sz, sz, sz };
+
+        debris_[i].lifeTime = 1.2f + ((float)(randomEngine_() % 100) / 100.0f) * 1.8f; // 1.2〜3.0秒
+        debris_[i].currentTime = 0.0f;
     }
 }

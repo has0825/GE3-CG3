@@ -65,21 +65,54 @@ def make_material(name, color):
     return mat
 
 
-def create_building_obj(name, gx, gy, gz, sx, sy, sz):
+def update_building_floors(self, context):
+    """建物の階数が変更されたときにスケールと位置を自動更新するコールバック"""
+    if self.get("ge3_type") != "BUILDING":
+        return
+    
+    floors = self.ge3_floors
+    if floors < 1:
+        self.ge3_floors = 1
+        return
+        
+    # ゲーム座標におけるYスケール（高さ）
+    sy = 10.0 * floors
+    # ゲーム座標における中心Y座標
+    gy = -20.0 + sy * 0.5
+    
+    # Blender座標に反映
+    self.scale.z = sy * SCALE
+    self.location.z = gy * SCALE
+    
+    # データ整合性のためにカスタムプロパティも更新
+    self["ge3_sy"] = sy
+
+
+def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0):
     """ビルオブジェクトをBlenderに作成"""
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(gx*SCALE, gz*SCALE, gy*SCALE))
+    # 初期位置は Z=0 付近にしておき、ge3_floors を設定することで自動的にスケールと位置が適用される
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(gx*SCALE, gz*SCALE, 0.0))
     obj = bpy.context.active_object
     obj.name = name
-    obj.scale = (sx*SCALE, sz*SCALE, sy*SCALE)
+    
+    # X, Y スケール（ゲーム座標の X, Z）を設定
+    obj.scale.x = sx * SCALE
+    obj.scale.y = sz * SCALE
+    
     mat = make_material("Mat_Building", BUILDING_COLOR)
     if obj.data.materials:
         obj.data.materials[0] = mat
     else:
         obj.data.materials.append(mat)
+        
     obj["ge3_type"] = "BUILDING"
+    # ge3_sx, ge3_sz も設定しておく
     obj["ge3_sx"]   = sx
-    obj["ge3_sy"]   = sy
     obj["ge3_sz"]   = sz
+    
+    # 登録プロパティを代入してコールバックをトリガーする
+    obj.ge3_floors = floors
+    
     add_to_collection(obj)
     return obj
 
@@ -147,7 +180,7 @@ class GE3_OT_ImportLayout(Operator):
         for obj in list(col.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
 
-        building_count = 0
+        buildings_raw = []
         floor_count    = 0
         enemy_count    = 0
 
@@ -162,9 +195,10 @@ class GE3_OT_ImportLayout(Operator):
                 if obj_type == "BUILDING" and len(parts) >= 10:
                     gx, gy, gz = float(parts[1]), float(parts[2]), float(parts[3])
                     sx, sy, sz = float(parts[4]), float(parts[5]), float(parts[6])
-                    name = f"GE3_Building_{building_count:03d}"
-                    create_building_obj(name, gx, gy, gz, sx, sy, sz)
-                    building_count += 1
+                    buildings_raw.append({
+                        "gx": gx, "gy": gy, "gz": gz,
+                        "sx": sx, "sy": sy, "sz": sz
+                    })
 
                 elif obj_type == "FLOOR" and len(parts) >= 7:
                     gx, gy, gz = float(parts[1]), float(parts[2]), float(parts[3])
@@ -182,7 +216,29 @@ class GE3_OT_ImportLayout(Operator):
                     create_enemy_obj(name, gx, gy, gz)
                     enemy_count += 1
 
-        msg = (f"Imported: {building_count} buildings, "
+        # ビルのグループ化処理 (X, Z 座標が近いものを同一ビルとして扱う)
+        building_groups = {}
+        for b in buildings_raw:
+            # 浮動小数点の誤差を考慮して丸める
+            key = (round(b["gx"], 1), round(b["gz"], 1))
+            if key not in building_groups:
+                building_groups[key] = {
+                    "gx": b["gx"],
+                    "gz": b["gz"],
+                    "sx": b["sx"],
+                    "sz": b["sz"],
+                    "gys": []
+                }
+            building_groups[key]["gys"].append(b["gy"])
+
+        building_count = 0
+        for key, group in building_groups.items():
+            floors = len(group["gys"])
+            name = f"GE3_Building_{building_count:03d}"
+            create_building_obj(name, group["gx"], group["gz"], floors, group["sx"], group["sz"])
+            building_count += 1
+
+        msg = (f"Imported: {building_count} buildings (grouped), "
                f"{floor_count} floors, {enemy_count} enemies")
         self.report({"INFO"}, msg)
         print(f"[Level Editor] {msg}")
@@ -211,11 +267,16 @@ class GE3_OT_ExportLayout(Operator):
             gy = obj.location.z / SCALE
 
             if ge3_type == "BUILDING":
-                sx = obj.get("ge3_sx", 10.0)
-                sy = obj.get("ge3_sy", 10.0)
-                sz = obj.get("ge3_sz", 10.0)
-                lines.append(f"BUILDING,{gx:.2f},{gy:.2f},{gz:.2f},"
-                             f"{sx:.2f},{sy:.2f},{sz:.2f},0.0,0.0,0.0")
+                floors = obj.ge3_floors if hasattr(obj, "ge3_floors") else obj.get("ge3_floors", 1)
+                # ユーザーがBlender上で直接スケール変更した場合も考慮して逆算
+                sx = obj.scale.x / SCALE
+                sz = obj.scale.y / SCALE
+                
+                # floors階分出力する。Y座標は基準面 -20.0f から 10.0刻み
+                for f in range(floors):
+                    layer_gy = -20.0 + f * 10.0 + 5.0
+                    lines.append(f"BUILDING,{gx:.2f},{layer_gy:.2f},{gz:.2f},"
+                                 f"{sx:.2f},10.00,{sz:.2f},0.0,0.0,0.0")
 
             elif ge3_type == "FLOOR":
                 lines.append(f"FLOOR,{gx:.2f},{gy:.2f},{gz:.2f},"
@@ -261,6 +322,16 @@ class GE3_PT_LevelEditorPanel(Panel):
         box2.label(text="Export to game:", icon="EXPORT")
         box2.operator("ge3.export_layout", icon="EXPORT")
 
+        active_obj = context.active_object
+        if active_obj and active_obj.get("ge3_type") == "BUILDING":
+            box3 = layout.box()
+            box3.label(text="Building Settings", icon="OBJECT_DATA")
+            box3.prop(active_obj, "ge3_floors", text="Floors")
+            
+            row = box3.row()
+            row.label(text=f"Width (X): {active_obj.scale.x / SCALE:.1f}")
+            row.label(text=f"Depth (Y): {active_obj.scale.y / SCALE:.1f}")
+
         layout.separator()
         layout.label(text="File: scene_layout.txt", icon="FILE_TEXT")
         layout.label(text="Edit objects, then Export.")
@@ -274,12 +345,27 @@ classes = [GE3_OT_ImportLayout, GE3_OT_ExportLayout, GE3_PT_LevelEditorPanel]
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    
+    # カスタムプロパティ ge3_floors を登録
+    bpy.types.Object.ge3_floors = bpy.props.IntProperty(
+        name="Floors",
+        description="Number of floors for the building",
+        default=1,
+        min=1,
+        max=100,
+        update=update_building_floors
+    )
+    
     print("[Level Editor] Registered! Check N-Panel > 'GE3 Sync' tab.")
 
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+        
+    # プロパティの削除
+    if hasattr(bpy.types.Object, "ge3_floors"):
+        del bpy.types.Object.ge3_floors
 
 
 # スクリプト直接実行時

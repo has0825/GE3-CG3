@@ -12,9 +12,11 @@ struct Material
 {
     float32_t4 color;
     int32_t enableLighting;
+    float32_t3 padding;
     float32_t4x4 uvTransform;
     float32_t shininess;
     float32_t environmentCoefficient; // 【追加】環境マップの反射係数
+    float32_t2 padding2; // C++側の padding2[2] に合わせる
 };
 
 // カメラデータ

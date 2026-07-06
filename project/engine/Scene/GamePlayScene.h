@@ -91,6 +91,7 @@ private:
 
     std::unique_ptr<Camera> camera_;
     std::unique_ptr<Model> particleModel_;
+    std::unique_ptr<Model> debrisModel_; // 破片専用モデル
     std::unique_ptr<Model> ringModel_;
     std::unique_ptr<Model> cylinderModel_;
 
@@ -337,13 +338,33 @@ private:
         Vector3 scale;
         Vector3 rotate;
         int floors; // 階数
+        bool isDestroyed = false;          // 破壊中フラグ
+        Vector3 velocity = { 0.0f, 0.0f, 0.0f };     // 吹き飛び速度
+        Vector3 rotationSpeed = { 0.0f, 0.0f, 0.0f }; // 回転速度
+        float destroyTimer = 0.0f;         // 破壊経過タイマー
     };
     static const int kMaxBuildings = 160;
-    static const int kMaxBuildingCBs = 800;
+    static const int kMaxBuildingCBs = 1000;
     std::vector<Building> buildings_;
     std::unique_ptr<Model> buildingModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> buildingTransformResources_[kMaxBuildingCBs];
     TransformationMatrix* buildingTransformData_[kMaxBuildingCBs] = { nullptr };
+
+    // 地面の破片演出用
+    struct Debris {
+        Vector3 position;
+        Vector3 velocity;
+        Vector3 rotate;
+        Vector3 rotationSpeed;
+        Vector3 scale;
+        float lifeTime;
+        float currentTime;
+        bool isAlive = false;
+    };
+    static const int kMaxDebris = 100;
+    std::vector<Debris> debris_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> debrisTransformResources_[kMaxDebris];
+    TransformationMatrix* debrisTransformData_[kMaxDebris] = { nullptr };
 
     // 床(Plane)用
     std::unique_ptr<Model> floorModel_;
@@ -393,6 +414,7 @@ private:
     float bgUvScrollY_ = 0.0f;     // Y方向UVスクロール量
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
+    void SpawnDebris(const Vector3& basePos);
     
     // プレイヤーの戦闘機用
     float playerRotationRoll_ = 0.0f;
@@ -505,7 +527,7 @@ private:
     float bossCollisionRadius_ = 18.0f;
 
     // HPバー（スプライト）描画用
-    static const uint32_t kHpBarInstanceCount = 4;
+    static const uint32_t kHpBarInstanceCount = 5;
     Microsoft::WRL::ComPtr<ID3D12Resource> hpBarInstancingResource_;
     ParticleForGPU* hpBarInstancingData_ = nullptr;
     D3D12_GPU_DESCRIPTOR_HANDLE hpBarInstancingSrvHandleGPU_{};
