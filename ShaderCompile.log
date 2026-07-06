@@ -1,8 +1,0 @@
-Begin CompileShader, path:Particle.VS.hlsl, profile:vs_6_0
-
-Compile Succeeded, path:Particle.VS.hlsl, profile:vs_6_0
-
-Begin CompileShader, path:Particle.PS.hlsl, profile:ps_6_0
-
-Compile Succeeded, path:Particle.PS.hlsl, profile:ps_6_0
-
