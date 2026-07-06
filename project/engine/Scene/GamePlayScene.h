@@ -291,18 +291,18 @@ private:
     static const int kEnemiesPerGroup = 5; // 1グループあたりの敵数
 
     struct Enemy {
-        Vector3 position;
-        Vector3 scale;
-        Vector3 rotate;
-        bool isAlive;
-        float radius;
-        float hp;
-        float maxHP;
+        Vector3 position = { 0.0f, 0.0f, 0.0f };
+        Vector3 scale = { 1.0f, 1.0f, 1.0f };
+        Vector3 rotate = { 0.0f, 0.0f, 0.0f };
+        bool isAlive = false;
+        float radius = 0.0f;
+        float hp = 0.0f;
+        float maxHP = 0.0f;
 
         // フォーメーション管理用メンバ
-        int groupIndex;      // 所属グループ (0~2)
-        int memberIndex;     // グループ内インデックス (0~4)
-        Vector3 localOffset; // グループ中心からの相対位置
+        int groupIndex = 0;      // 所属グループ (0~2)
+        int memberIndex = 0;     // グループ内インデックス (0~4)
+        Vector3 localOffset = { 0.0f, 0.0f, 0.0f };
 
         // ── 追加：敵の自律移動・特攻用のメンバ ──
         enum class State {
@@ -313,12 +313,12 @@ private:
         };
         State state = State::kSideWait;
         float stateTimer = 0.0f;     // 状態切り替え用のタイマー
-        Vector3 wanderAnchor;        // 動き回る際の基準位置
-        Vector3 diveDirection;       // 特攻の方向ベクトル
+        Vector3 wanderAnchor = { 0.0f, 0.0f, 0.0f };
+        Vector3 diveDirection = { 0.0f, 0.0f, 0.0f };
         float wanderPhase = 0.0f;    // ふわふわした動きを作るための位相値
         float speed = 0.0f;          // 移動速度
         float relativeZ = 120.0f;    // 追加：プレイヤーとの相対Z距離をキープするため
-        Vector3 appearStartPos;      // 追加：出現合流開始時の初期位置を記憶するため
+        Vector3 appearStartPos = { 0.0f, 0.0f, 0.0f };      // 追加：出現合流開始時の初期位置を記憶するため
     };
     static const int kMaxEnemies = 10; // 5体×2グループ = 計10体に調整
     std::vector<Enemy> enemies_;
@@ -334,10 +334,10 @@ private:
     std::unique_ptr<ParticleManager> particleManager_;
 
     struct Building {
-        Vector3 position;
-        Vector3 scale;
-        Vector3 rotate;
-        int floors; // 階数
+        Vector3 position = { 0.0f, 0.0f, 0.0f };
+        Vector3 scale = { 1.0f, 1.0f, 1.0f };
+        Vector3 rotate = { 0.0f, 0.0f, 0.0f };
+        int floors = 0; // 階数
         bool isDestroyed = false;          // 破壊中フラグ
         Vector3 velocity = { 0.0f, 0.0f, 0.0f };     // 吹き飛び速度
         Vector3 rotationSpeed = { 0.0f, 0.0f, 0.0f }; // 回転速度
@@ -352,13 +352,13 @@ private:
 
     // 地面の破片演出用
     struct Debris {
-        Vector3 position;
-        Vector3 velocity;
-        Vector3 rotate;
-        Vector3 rotationSpeed;
-        Vector3 scale;
-        float lifeTime;
-        float currentTime;
+        Vector3 position = { 0.0f, 0.0f, 0.0f };
+        Vector3 velocity = { 0.0f, 0.0f, 0.0f };
+        Vector3 rotate = { 0.0f, 0.0f, 0.0f };
+        Vector3 rotationSpeed = { 0.0f, 0.0f, 0.0f };
+        Vector3 scale = { 1.0f, 1.0f, 1.0f };
+        float lifeTime = 0.0f;
+        float currentTime = 0.0f;
         bool isAlive = false;
     };
     static const int kMaxDebris = 100;

@@ -117,7 +117,9 @@ void GamePlayScene::Initialize() {
     audio_->Initialize();
 
     graphicsPipeline_ = GraphicsPipeline::GetInstance();
-    graphicsPipeline_->Initialize(device);
+    if (graphicsPipeline_) {
+        graphicsPipeline_->Initialize(device);
+    }
 
     srvDescriptorHeap_ = SrvManager::GetInstance()->GetDescriptorHeap();
     descriptorSizeSRV_ = SrvManager::GetInstance()->GetDescriptorSize();
@@ -3578,7 +3580,7 @@ void GamePlayScene::Draw() {
             }
 
             // 天球(SkyDome)描画 ── 専用パイプライン（Zバッファ書き込みなし・常に最遠面・ぼかしサンプラー）で描画
-            if (skydomeModel_ && skydomeTransformRes_ && graphicsPipeline_->GetSkydomePipelineState()) {
+            if (skydomeModel_ && skydomeTransformRes_ && graphicsPipeline_ && graphicsPipeline_->GetSkydomePipelineState()) {
                 // 天球専用パイプラインとルートシグネチャに切り替える
                 commandList->SetPipelineState(graphicsPipeline_->GetSkydomePipelineState());
                 commandList->SetGraphicsRootSignature(graphicsPipeline_->GetSkydomeRootSignature());

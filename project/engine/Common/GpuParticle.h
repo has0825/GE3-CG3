@@ -79,15 +79,15 @@ private:
     PerView* perViewData_ = nullptr;
 
     // デスクリプタ
-    uint32_t srvIndex_;
-    uint32_t uavIndex_;
-    uint32_t freeListIndexUavIndex_;
-    uint32_t freeListUavIndex_;
+    uint32_t srvIndex_ = 0;
+    uint32_t uavIndex_ = 0;
+    uint32_t freeListIndexUavIndex_ = 0;
+    uint32_t freeListUavIndex_ = 0;
     
-    D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE uavHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE freeListIndexUavHandleGPU_;
-    D3D12_GPU_DESCRIPTOR_HANDLE freeListUavHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU_ = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE uavHandleGPU_ = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE freeListIndexUavHandleGPU_ = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE freeListUavHandleGPU_ = {};
 
     float time_ = 0.0f;
 };

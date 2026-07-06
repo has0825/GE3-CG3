@@ -109,7 +109,9 @@ void Framework::Initialize() {
     audio_->Initialize();
     
     graphicsPipeline_ = GraphicsPipeline::GetInstance();
-    graphicsPipeline_->Initialize(dxCommon_->GetDevice());
+    if (graphicsPipeline_) {
+        graphicsPipeline_->Initialize(dxCommon_->GetDevice());
+    }
 
     // SRVヒープ作成
     srvDescriptorHeap_ = CreateDescriptorHeap(dxCommon_->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);

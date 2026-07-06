@@ -97,20 +97,20 @@ private:
     const uint32_t kNumInstances = 2000;
     Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
     ParticleForGPU* instancingData_ = nullptr;
-    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_ = {};
     std::vector<Particle> particles_;
 
     // --- リングパーティクル (最大100インスタンス) ---
     const uint32_t kRingInstanceCount = 100;
     Microsoft::WRL::ComPtr<ID3D12Resource> ringInstancingResource_;
     ParticleForGPU* ringInstancingData_ = nullptr;
-    D3D12_GPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE ringInstancingSrvHandleGPU_ = {};
     std::vector<Particle> ringParticles_;
 
     // --- シリンダーパーティクル (最大50インスタンス) ---
     const uint32_t kCylinderInstanceCount = 50;
     Microsoft::WRL::ComPtr<ID3D12Resource> cylinderInstancingResource_;
     ParticleForGPU* cylinderInstancingData_ = nullptr;
-    D3D12_GPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleGPU_;
+    D3D12_GPU_DESCRIPTOR_HANDLE cylinderInstancingSrvHandleGPU_ = {};
     std::vector<Particle> cylinderParticles_;
 };

@@ -388,7 +388,7 @@ void GameOverScene::Draw() {
         }
 
         // ── 【修正】UIモデルを描画する直前でアルファブレンド用パイプラインステートに切り替える ──
-        if (graphicsPipeline_->GetObject3dBlendNormalPipelineState()) {
+        if (graphicsPipeline_ && graphicsPipeline_->GetObject3dBlendNormalPipelineState()) {
             commandList->SetPipelineState(graphicsPipeline_->GetObject3dBlendNormalPipelineState());
         }
 

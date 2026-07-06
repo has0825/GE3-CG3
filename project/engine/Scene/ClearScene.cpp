@@ -252,12 +252,12 @@ void ClearScene::Draw() {
         }
 
         // ── パーティクルの描画 ──
-        if (particleManager_ && graphicsPipeline_->GetRootSignature()) {
+        if (particleManager_ && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
             commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
             commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
             BlendMode blendMode = kBlendModeAdd;
-            if (graphicsPipeline_->GetPipelineState(blendMode)) {
+            if (graphicsPipeline_ && graphicsPipeline_->GetPipelineState(blendMode)) {
                 commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(blendMode));
                 
                 particleManager_->Draw(
