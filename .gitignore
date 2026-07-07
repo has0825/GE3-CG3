@@ -356,7 +356,6 @@ ShaderCompile.log
 # 不要ファイル・フォルダの除外設定
 **/Dumps/
 **/betusiryou/
-**/siryou/
 project/imgui.ini
 project/run_output.txt
 project/view_siryou*.html
