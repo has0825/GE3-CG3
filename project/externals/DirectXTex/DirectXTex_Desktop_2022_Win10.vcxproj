@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -64,14 +64,14 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">
-    <OutDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)..\generated\outputs\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)..\generated\obj\$(ProjectName)\$(Configuration)\</IntDir>
     <TargetName>DirectXTex</TargetName>
     <GenerateManifest>true</GenerateManifest>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|X64'">
-    <OutDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)..\generated\outputs\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)..\generated\obj\$(ProjectName)\$(Configuration)\</IntDir>
     <TargetName>DirectXTex</TargetName>
     <GenerateManifest>true</GenerateManifest>
   </PropertyGroup>
@@ -82,14 +82,14 @@
     <GenerateManifest>true</GenerateManifest>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Profile|X64'">
-    <OutDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)..\generated\outputs\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)..\generated\obj\$(ProjectName)\$(Configuration)\</IntDir>
     <TargetName>DirectXTex</TargetName>
     <GenerateManifest>true</GenerateManifest>
   </PropertyGroup>
   <PropertyGroup Condition="'$(SpectreMitigation)'!='' AND '$(SpectreMitigation)'!='false'">
-    <OutDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)Spectre\</OutDir>
-    <IntDir>Bin\Desktop_2022_Win10\$(Platform)\$(Configuration)Spectre\</IntDir>
+    <OutDir>$(SolutionDir)..\generated\outputs\$(Configuration)Spectre\</OutDir>
+    <IntDir>$(SolutionDir)..\generated\obj\$(ProjectName)\$(Configuration)Spectre\</IntDir>
     <TargetName>DirectXTex_Spectre</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">
