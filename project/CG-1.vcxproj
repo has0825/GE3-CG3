@@ -241,7 +241,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -269,7 +269,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <AdditionalOptions>/utf-8 /FS %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -299,7 +299,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>Disabled</Optimization>
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <AdditionalIncludeDirectories>C:\Users\k024g\Desktop\GE3&amp;CG3\project\externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)externals\assimp\include;$(ProjectDir);$(ProjectDir)engine\D3D12Util;$(ProjectDir)engine\Math;$(ProjectDir)engine\Model;$(ProjectDir)engine\Pipeline state;$(ProjectDir)engine\window;$(ProjectDir)engine\Input;$(ProjectDir)engine\Basic functions;$(ProjectDir)engine\Scene;$(ProjectDir)engine\Manager;$(ProjectDir)engine\Audio;$(ProjectDir)engine\Graphics;$(ProjectDir)engine\Framework;$(ProjectDir)engine\Common;$(ProjectDir)engine\Test</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
