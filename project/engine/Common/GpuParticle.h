@@ -37,13 +37,14 @@ struct PerFrame {
 
 class GpuParticleManager {
 public:
-    static const uint32_t kMaxParticles = 1024;
+    static const uint32_t kMaxParticles = 131072;
 
     void Initialize(ID3D12Device* device);
     void Update(const Matrix4x4& viewProjection, const Matrix4x4& billboardMatrix, float deltaTime);
     void Emit();
+    void TriggerEmit(const Vector3& position, uint32_t count);
     void UpdateCS();
-    void Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_DESCRIPTOR_HANDLE textureHandle);
+    void Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_DESCRIPTOR_HANDLE textureHandle, D3D12_VERTEX_BUFFER_VIEW* vbView, D3D12_INDEX_BUFFER_VIEW* ibView);
 
     // エミッターの位置を設定
     void SetTranslate(const Vector3& translate) {

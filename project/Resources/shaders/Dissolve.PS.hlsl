@@ -25,7 +25,7 @@ PixelShaderOutput main(VertexShaderOutput input) {
     output.color = gTexture.Sample(gSampler, input.texcoord);
     
     float32_t edge = 1.0f - smoothstep(threshold, threshold + edgeRange, mask);
-    output.color.rgb += edge * edgeColor;
+    // output.color.rgb += edge * edgeColor; // Disable red edge glow to show textures naturally
     
     return output;
 }

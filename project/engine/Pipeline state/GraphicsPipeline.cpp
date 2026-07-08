@@ -689,18 +689,18 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	gpuParticleInputElements[1] = { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
 	gpuParticlePsoDesc.InputLayout = { gpuParticleInputElements, _countof(gpuParticleInputElements) };
 
-	// Use Additive blend state
+	// Use Normal blend state (Alpha Blend)
 	{
-		D3D12_BLEND_DESC additiveBlendDesc{};
-		additiveBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-		additiveBlendDesc.RenderTarget[0].BlendEnable = TRUE;
-		additiveBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-		additiveBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		additiveBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
-		additiveBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-		additiveBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-		additiveBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-		gpuParticlePsoDesc.BlendState = additiveBlendDesc;
+		D3D12_BLEND_DESC normalBlendDesc{};
+		normalBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+		normalBlendDesc.RenderTarget[0].BlendEnable = TRUE;
+		normalBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+		normalBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		normalBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+		normalBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+		normalBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+		normalBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+		gpuParticlePsoDesc.BlendState = normalBlendDesc;
 	}
 
 	gpuParticlePsoDesc.RasterizerState = rasterizerDesc;

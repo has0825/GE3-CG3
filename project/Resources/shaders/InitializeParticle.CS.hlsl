@@ -1,4 +1,4 @@
-static const uint kMaxParticles = 1024;
+static const uint kMaxParticles = 131072;
 
 struct Particle {
     float3 translate;
@@ -10,8 +10,8 @@ struct Particle {
 };
 
 RWStructuredBuffer<Particle> gParticles : register(u0);
-RWStructuredBuffer<int32_t> gFreeListIndex : register(u1);
-RWStructuredBuffer<uint32_t> gFreeList : register(u2);
+RWStructuredBuffer<uint32_t> gEmitterIndex : register(u1); // 累積インデックスとして流用
+RWStructuredBuffer<uint32_t> gFreeList : register(u2);       // ダミー (未使用)
 
 [numthreads(1024, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -19,13 +19,10 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     if (particleIndex < kMaxParticles) {
         // パーティクルの初期化
         gParticles[particleIndex] = (Particle)0;
-        
-        // FreeListを連番で初期化
-        gFreeList[particleIndex] = particleIndex;
     }
 
     if (particleIndex == 0) {
-        // Indexが末尾を指すようにする
-        gFreeListIndex[0] = kMaxParticles - 1;
+        // 累積インデックスを0にリセット
+        gEmitterIndex[0] = 0;
     }
 }

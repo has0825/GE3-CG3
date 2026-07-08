@@ -131,7 +131,7 @@ void GamePlayScene::Initialize() {
     camera_->SetTranslate({ 0.0f, 0.0f, -15.0f });
 
     particleModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
-    debrisModel_ = std::unique_ptr<Model>(Model::CreateParticleModel(device));
+    TextureManager::GetInstance()->LoadTexture("isihahen.png");
     ringModel_ = std::unique_ptr<Model>(Model::CreateRingModel(device));
     cylinderModel_ = std::unique_ptr<Model>(Model::CreateCylinderModel(device));
 
@@ -196,7 +196,7 @@ void GamePlayScene::Initialize() {
     dissolveParamResource_ = CreateBufferResource(device, sizeof(DissolveParameter));
     dissolveParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&dissolveParamData_));
     dissolveParamData_->threshold = 1.0f;
-    dissolveParamData_->edgeColor = { 1.0f, 0.4f, 0.3f };
+    dissolveParamData_->edgeColor = { 1.0f, 1.0f, 1.0f };
     dissolveParamData_->edgeRange = 0.03f;
 
     randomParamResource_ = CreateBufferResource(device, sizeof(RandomParameter));
@@ -528,18 +528,7 @@ void GamePlayScene::Initialize() {
     hpBarInstancingSrvHandleGPU_ = SrvManager::GetInstance()->GetGPUDescriptorHandle(hpBarInstancingSrvIndex);
     device->CreateShaderResourceView(hpBarInstancingResource_.Get(), &hpBarInstancingSrvDesc, hpBarInstancingSrvHandleCPU);
 
-    // 地面の破片用テクスチャのロードと定数バッファ生成
-    TextureManager::GetInstance()->LoadTexture("isihahen.png");
-    for (int i = 0; i < kMaxDebris; ++i) {
-        debrisTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
-        debrisTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&debrisTransformData_[i]));
-        debrisTransformData_[i]->WVP = MakeIdentity4x4();
-        debrisTransformData_[i]->World = MakeIdentity4x4();
-    }
-    debris_.resize(kMaxDebris);
-    for (int i = 0; i < kMaxDebris; ++i) {
-        debris_[i].isAlive = false;
-    }
+
 
     // HP関連変数の初期化
     playerHP_ = 100.0f;
@@ -1334,10 +1323,7 @@ void GamePlayScene::Update() {
     if (ImGui::SliderFloat("Model Reflection", &modelEnvCoefficient_, 0.0f, 1.0f)) {
         if (playerModel_) playerModel_->SetEnvironmentCoefficient(modelEnvCoefficient_);
     }
-    static Vector3 gpuParticlePos = { -10.0f, 0.0f, 0.0f };
-    if (ImGui::DragFloat3("GPU Particle Position", &gpuParticlePos.x, 0.1f)) {
-        if (gpuParticleManager_) gpuParticleManager_->SetTranslate(gpuParticlePos);
-    }
+
 
     if (fighterModel_) {
         if (ImGui::DragFloat("Fighter Model Scale", &fighterModel_->transform.scale.x, 0.1f, 0.1f, 100.0f, "%.1f")) {
@@ -1381,7 +1367,10 @@ void GamePlayScene::Update() {
                 for (int i = 0; i < kMaxEnemies; ++i) {
                     repFileHdr << ",e" << i << "_alive,e" << i << "_x,e" << i << "_y,e" << i << "_z,e" << i << "_rz";
                 }
-                repFileHdr << ",boss_active,boss_x,boss_y,boss_z\n";
+                for (int i = 0; i < 20; ++i) {
+                    repFileHdr << ",b" << i << "_alive,b" << i << "_x,b" << i << "_y,b" << i << "_z";
+                }
+                repFileHdr << ",boss_active,boss_x,boss_y,boss_z,boss_ry\n";
                 repFileHdr.close();
             }
         }
@@ -1785,7 +1774,10 @@ void GamePlayScene::Update() {
                         for (int i = 0; i < kMaxEnemies; ++i) {
                             repFile << ",e" << i << "_alive,e" << i << "_x,e" << i << "_y,e" << i << "_z,e" << i << "_rz";
                         }
-                        repFile << ",boss_active,boss_x,boss_y,boss_z\n";
+                        for (int i = 0; i < 20; ++i) {
+                            repFile << ",b" << i << "_alive,b" << i << "_x,b" << i << "_y,b" << i << "_z";
+                        }
+                        repFile << ",boss_active,boss_x,boss_y,boss_z,boss_ry\n";
                         repFile.close();
                     }
                 }
@@ -1817,11 +1809,20 @@ void GamePlayScene::Update() {
                                 << "," << enemies_[i].position.z
                                 << "," << enemies_[i].rotate.z;
                     }
+                    // 弾の情報 (最大20発)
+                    for (int i = 0; i < 20; ++i) {
+                        bool bulletAlive = (playerBullets_[i].currentTime < playerBullets_[i].lifeTime);
+                        repFile << "," << (bulletAlive ? 1 : 0)
+                                << "," << playerBullets_[i].position.x
+                                << "," << playerBullets_[i].position.y
+                                << "," << playerBullets_[i].position.z;
+                    }
                     bool bossActiveRec = (currentPhase_ == GamePhase::kBossFight);
                     repFile << "," << (bossActiveRec ? 1 : 0)
                             << ",0.0"
                             << "," << (bossYOffset_ + bodyBounceRec + dropOffsetRec)
-                            << "," << (fighterWorldZ_ + bossZOffset_) << "\n";
+                            << "," << (fighterWorldZ_ + bossZOffset_)
+                            << "," << bossBodyRotY_ << "\n";
                     repFile.close();
                 }
             }
@@ -2199,8 +2200,9 @@ void GamePlayScene::Update() {
                         cameraShakeTimeMax_ = 0.78f;
                         hasShaken = true;
 
-                        // 地面の破片を飛び散らせる
-                        SpawnDebris(impactPos);
+                        // 地面の破片を飛び散らせる (GPUParticle放出トリガーをセット、Y座標を地面の-20.0fにする)
+                        triggerDebrisEmit_ = true;
+                        debrisEmitPos_ = Vector3(impactPos.x, -20.0f, impactPos.z);
 
                         // 極太の主幹雷撃(1.6fスケール)を走らせる（内部で純白コアとまとわりつく枝が自動生成される）
                         particleManager_->EmitLSystemLightning(lightningStart, impactPos, 4, 1.6f, lightningColor);
@@ -2208,9 +2210,8 @@ void GamePlayScene::Update() {
                         // 周囲の爆発エフェクトと大音響SE
                         particleManager_->EmitCylinder(impactPos, lightningColor);
                         particleManager_->EmitRing(impactPos, lightningColor);
-                        for (int j = 0; j < 15; ++j) {
-                            particleManager_->EmitHit(impactPos);
-                        }
+                        // 灰色の石のようなスパークを放出する
+                        particleManager_->EmitCustomSparks(impactPos, 25.0f, 15, { 0.5f, 0.5f, 0.5f }, 1.0f);
                         audio_->PlayWave(jumpSE_, false, 1.7f);
 
                         // ダメージ判定
@@ -3168,71 +3169,8 @@ void GamePlayScene::Update() {
             }
         }
 
-        // ── 地面の破片の更新と行列計算 ──
-        {
-            for (int i = 0; i < kMaxDebris; ++i) {
-                if (!debris_[i].isAlive) {
-                    // 非表示にするためにWVPのスケールを0にする
-                    debrisTransformData_[i]->WVP = MakeIdentity4x4();
-                    debrisTransformData_[i]->WVP.m[0][0] = 0.0f;
-                    debrisTransformData_[i]->WVP.m[1][1] = 0.0f;
-                    debrisTransformData_[i]->WVP.m[2][2] = 0.0f;
-                    debrisTransformData_[i]->WVP.m[3][3] = 0.0f;
-                    continue;
-                }
 
-                debris_[i].currentTime += kDeltaTime;
-                if (debris_[i].currentTime >= debris_[i].lifeTime) {
-                    debris_[i].isAlive = false;
-                    // 同様に非表示化
-                    debrisTransformData_[i]->WVP = MakeIdentity4x4();
-                    debrisTransformData_[i]->WVP.m[0][0] = 0.0f;
-                    debrisTransformData_[i]->WVP.m[1][1] = 0.0f;
-                    debrisTransformData_[i]->WVP.m[2][2] = 0.0f;
-                    debrisTransformData_[i]->WVP.m[3][3] = 0.0f;
-                    continue;
-                }
 
-                // 位置の更新
-                debris_[i].position.x += debris_[i].velocity.x * kDeltaTime;
-                debris_[i].position.y += debris_[i].velocity.y * kDeltaTime;
-                debris_[i].position.z += debris_[i].velocity.z * kDeltaTime;
-
-                // 重力適用 (少し強め)
-                debris_[i].velocity.y -= 9.8f * 4.0f * kDeltaTime;
-
-                // 回転の更新
-                debris_[i].rotate.x += debris_[i].rotationSpeed.x * kDeltaTime;
-                debris_[i].rotate.y += debris_[i].rotationSpeed.y * kDeltaTime;
-                debris_[i].rotate.z += debris_[i].rotationSpeed.z * kDeltaTime;
-
-                // 接地判定 (地面kFloorYに当たったら反発)
-                if (debris_[i].position.y < kFloorY) {
-                    debris_[i].position.y = kFloorY;
-                    debris_[i].velocity.y = -debris_[i].velocity.y * 0.35f; // 反発減衰
-                    debris_[i].velocity.x *= 0.55f; // 摩擦減衰
-                    debris_[i].velocity.z *= 0.55f;
-
-                    // 速度が極小になったら物理を止める
-                    if (std::abs(debris_[i].velocity.y) < 1.0f) {
-                        debris_[i].velocity = { 0.0f, 0.0f, 0.0f };
-                        debris_[i].rotationSpeed = { 0.0f, 0.0f, 0.0f };
-                    }
-                }
-
-                // ワールド行列とWVP行列の計算 (カメラに正対するビルボードを適用し、Z軸での回転も加える)
-                Matrix4x4 billboard = camera_->GetBillboardMatrix();
-                Matrix4x4 rotateZ = MakeRotateZMatrix(debris_[i].rotate.z); // Z軸回転
-                Matrix4x4 world = Multiply(MakeScaleMatrix(debris_[i].scale), rotateZ);
-                world = Multiply(world, billboard);
-                world.m[3][0] = debris_[i].position.x;
-                world.m[3][1] = debris_[i].position.y;
-                world.m[3][2] = debris_[i].position.z;
-
-                debrisTransformData_[i]->World = world;
-                debrisTransformData_[i]->WVP = Multiply(world, viewProjectionMatrix);
-            }
-        }
     }
 
     // 戦闘機モードの場合のジェット噴射エミッター位置の計算
@@ -3554,30 +3492,7 @@ void GamePlayScene::Draw() {
                 }
             }
 
-            // 地面の破片(Debris)描画
-            if (debrisModel_) {
-                if (graphicsPipeline_ && graphicsPipeline_->GetObject3dBlendNormalPipelineState()) {
-                    commandList->SetPipelineState(graphicsPipeline_->GetObject3dBlendNormalPipelineState());
-                }
 
-                // ライティング・マテリアル乗算色・環境マップを破片描画用に変更 (設定対象は debrisModel_)
-                debrisModel_->SetLightingEnabled(false);
-                debrisModel_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
-                debrisModel_->SetEnvironmentCoefficient(0.0f);
-
-                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
-                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-                for (int i = 0; i < kMaxDebris; ++i) {
-                    if (debris_[i].isAlive) {
-                        commandList->SetGraphicsRootConstantBufferView(1, debrisTransformResources_[i]->GetGPUVirtualAddress());
-                        debrisModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("isihahen.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
-                    }
-                }
-
-                if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState()) {
-                    commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());
-                }
-            }
 
             // 天球(SkyDome)描画 ── 専用パイプライン（Zバッファ書き込みなし・常に最遠面・ぼかしサンプラー）で描画
             if (skydomeModel_ && skydomeTransformRes_ && graphicsPipeline_ && graphicsPipeline_->GetSkydomePipelineState()) {
@@ -3835,9 +3750,30 @@ void GamePlayScene::Draw() {
 
     if (gpuParticleManager_) {
         SrvManager::GetInstance()->PreDraw();
-        gpuParticleManager_->Emit();
+        if (triggerDebrisEmit_) {
+            gpuParticleManager_->TriggerEmit(debrisEmitPos_, 30000);
+            triggerDebrisEmit_ = false;
+        }
         gpuParticleManager_->UpdateCS();
-        gpuParticleManager_->Draw(commandList, textureSrvHandleGPU_);
+
+        // 頂点バッファとインデックスバッファのポインタを取得してDrawに渡す (安全なバインド順序)
+        D3D12_VERTEX_BUFFER_VIEW* pVbView = nullptr;
+        D3D12_INDEX_BUFFER_VIEW* pIbView = nullptr;
+        D3D12_VERTEX_BUFFER_VIEW vbView{};
+        D3D12_INDEX_BUFFER_VIEW ibView{};
+        if (particleModel_) {
+            vbView = particleModel_->GetVertexBufferView();
+            ibView = particleModel_->GetIndexBufferView();
+            pVbView = &vbView;
+            pIbView = &ibView;
+        }
+
+        gpuParticleManager_->Draw(
+            commandList, 
+            TextureManager::GetInstance()->GetSrvHandleGPU("isihahen.png"),
+            pVbView,
+            pIbView
+        );
     }
     } // End of if (showParticles_)
 
@@ -4982,36 +4918,3 @@ void GamePlayScene::ApplyPreset(int presetIndex) {
     }
 }
 
-void GamePlayScene::SpawnDebris(const Vector3& basePos) {
-    for (int i = 0; i < kMaxDebris; ++i) {
-        debris_[i].isAlive = true;
-        // 初期位置
-        debris_[i].position = basePos;
-        debris_[i].position.x += ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 4.0f;
-        debris_[i].position.y += ((float)(randomEngine_() % 100) / 100.0f) * 1.5f;
-        debris_[i].position.z += ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 4.0f;
-
-        // 飛び散る初速 (360度ランダムに広がる)
-        float angle = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
-        float speed = 15.0f + (float)(randomEngine_() % 35);
-        debris_[i].velocity.x = std::cos(angle) * speed * 0.7f;
-        debris_[i].velocity.y = 25.0f + (float)(randomEngine_() % 30); // 上への強い初速
-        debris_[i].velocity.z = std::sin(angle) * speed * 0.7f + 5.0f; // 前方へも少し流れる
-
-        // 初期回転と回転角速度 (3軸ランダム)
-        debris_[i].rotate.x = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
-        debris_[i].rotate.y = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
-        debris_[i].rotate.z = ((float)(randomEngine_() % 360) * 3.14159265f) / 180.0f;
-
-        debris_[i].rotationSpeed.x = ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 10.0f;
-        debris_[i].rotationSpeed.y = ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 10.0f;
-        debris_[i].rotationSpeed.z = ((float)(randomEngine_() % 200) / 100.0f - 1.0f) * 10.0f;
-
-        // スケール (0.4〜1.6のランダム)
-        float sz = 0.4f + ((float)(randomEngine_() % 100) / 100.0f) * 1.2f;
-        debris_[i].scale = { sz, sz, sz };
-
-        debris_[i].lifeTime = 1.2f + ((float)(randomEngine_() % 100) / 100.0f) * 1.8f; // 1.2〜3.0秒
-        debris_[i].currentTime = 0.0f;
-    }
-}

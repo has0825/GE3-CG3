@@ -1,4 +1,4 @@
-static const uint32_t kMaxParticles = 1024;
+static const uint32_t kMaxParticles = 131072;
 
 struct Particle {
     float3 translate;
@@ -24,8 +24,8 @@ struct PerFrame {
 };
 
 RWStructuredBuffer<Particle> gParticles : register(u0);
-RWStructuredBuffer<int32_t> gFreeListIndex : register(u1);
-RWStructuredBuffer<uint32_t> gFreeList : register(u2);
+RWStructuredBuffer<uint32_t> gEmitterIndex : register(u1); // 累積インデックスとして流用
+RWStructuredBuffer<uint32_t> gFreeList : register(u2);       // ダミー (未使用)
 ConstantBuffer<EmitterSphere> gEmitter : register(b0);
 ConstantBuffer<PerFrame> gPerFrame : register(b1);
 
@@ -56,49 +56,55 @@ class RandomGenerator {
     }
 };
 
-[numthreads(1, 1, 1)]
+[numthreads(1024, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
-    if (gEmitter.emit != 0) {
-        RandomGenerator generator;
-        generator.seed = (DTid + gPerFrame.time) * gPerFrame.time;
-
-        for (uint32_t i = 0; i < gEmitter.count; ++i) {
-            int32_t freeListIndex;
-            InterlockedAdd(gFreeListIndex[0], -1, freeListIndex);
-
-            if (0 <= freeListIndex && freeListIndex < kMaxParticles) {
-                uint32_t particleIndex = gFreeList[freeListIndex];
-                
-                // スケールを資料に合わせて小さく、密度の高い見た目に
-                float s = generator.Generate1d() * 0.8f + 0.2f;
-                gParticles[particleIndex].scale = float3(s, s, s);
-
-                // 位置
-                gParticles[particleIndex].translate = gEmitter.translate + (generator.Generate3d() - 0.5f) * gEmitter.radius;
-
-                // 虹色（レインボー）の配色：インデックスと時間で色を回す
-                float h = frac(particleIndex * 0.05f + gPerFrame.time * 0.1f + generator.Generate1d() * 0.1f);
-                float3 rgb;
-                float h6 = h * 6.0f;
-                if (h6 < 1.0f) rgb = float3(1.0f, h6, 0.0f);
-                else if (h6 < 2.0f) rgb = float3(2.0f - h6, 1.0f, 0.0f);
-                else if (h6 < 3.0f) rgb = float3(0.0f, 1.0f, h6 - 2.0f);
-                else if (h6 < 4.0f) rgb = float3(0.0f, 4.0f - h6, 1.0f);
-                else if (h6 < 5.0f) rgb = float3(h6 - 4.0f, 0.0f, 1.0f);
-                else rgb = float3(1.0f, 0.0f, 6.0f - h6);
-
-                gParticles[particleIndex].color = float4(rgb, 0.1f); // さらに薄く（0.1）
-                
-                // 速度
-                gParticles[particleIndex].velocity = (generator.Generate3d() - 0.5f) * 1.5f;
-                
-                // 寿命
-                gParticles[particleIndex].lifeTime = 1.0f + generator.Generate1d() * 2.0f;
-                gParticles[particleIndex].currentTime = 0.0f;
-            } else {
-                InterlockedAdd(gFreeListIndex[0], 1);
-                break;
-            }
-        }
+    uint32_t threadIndex = DTid.x;
+    if (threadIndex >= gEmitter.count) {
+        return;
     }
+
+    RandomGenerator generator;
+    // スレッドIDと時間に基づくユニークなシード
+    generator.seed = (DTid + gPerFrame.time) * (gPerFrame.time + 0.137f);
+
+    int32_t emitIndex;
+    InterlockedAdd(gEmitterIndex[0], 1, emitIndex);
+
+    // 累積インデックスを最大数で割った余りをパーティクルインデックスとする
+    uint32_t particleIndex = uint32_t(emitIndex) % kMaxParticles;
+    
+    // スケールを小さめにして高密度に表現する (0.3〜1.0のランダム)
+    float sz = 0.3f + generator.Generate1d() * 0.7f;
+    gParticles[particleIndex].scale = float3(sz, sz, sz);
+
+    // 位置 (地面から少し上に向かってオフセットし、地面下に埋もれないようにする)
+    float3 offset;
+    offset.x = (generator.Generate1d() * 2.0f - 1.0f) * 6.0f;
+    offset.y = generator.Generate1d() * 4.0f; // 地面から0〜4m上に散らす
+    offset.z = (generator.Generate1d() * 2.0f - 1.0f) * 6.0f;
+    gParticles[particleIndex].translate = gEmitter.translate + offset;
+
+    // 土と石のランダムな配色 (茶色系〜灰色系)
+    float r = generator.Generate1d();
+    float3 baseColor;
+    if (r < 0.5f) {
+        // 土（茶色〜暗褐色）
+        baseColor = lerp(float3(0.25f, 0.15f, 0.08f), float3(0.48f, 0.32f, 0.18f), generator.Generate1d());
+    } else {
+        // 石（暗灰色〜明灰色）
+        baseColor = lerp(float3(0.20f, 0.20f, 0.20f), float3(0.55f, 0.55f, 0.55f), generator.Generate1d());
+    }
+    gParticles[particleIndex].color = float4(baseColor, 1.0f);
+    
+    // 速度 (当初の約0.8倍に調整し、遅すぎず速すぎないダイナミックな飛び散りを実現する)
+    float angle = generator.Generate1d() * 3.14159265f * 2.0f;
+    float speed = 8.0f + generator.Generate1d() * 16.0f; // 水平方向の拡散速度 (8〜24)
+    gParticles[particleIndex].velocity.x = cos(angle) * speed;
+    gParticles[particleIndex].velocity.y = 20.0f + generator.Generate1d() * 25.0f; // 上方向への噴出 (20〜45)
+    // プレイヤー方向（手前 -Z方向）への吹き飛ばしバイアス (-12.0f〜-24.0f)
+    gParticles[particleIndex].velocity.z = sin(angle) * speed - (12.0f + generator.Generate1d() * 12.0f);
+    
+    // 寿命 (1.5〜3.5秒、自機を通り過ぎるまで長持ちさせる)
+    gParticles[particleIndex].lifeTime = 1.5f + generator.Generate1d() * 2.0f;
+    gParticles[particleIndex].currentTime = 0.0f;
 }

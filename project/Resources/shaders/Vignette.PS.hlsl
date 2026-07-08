@@ -31,7 +31,7 @@ PixelShaderOutput main(VertexShaderOutput input) {
         
         // 雷の落ちた中心に近いほど強く揺れる色ズレ
         float localGlowFactor = saturate(1.0f - dX * 4.0f);
-        float2 shift = distFromCenter * (0.16f * intensity * (distSq + localGlowFactor * 0.25f));
+        float2 shift = distFromCenter * (0.0f * intensity * (distSq + localGlowFactor * 0.25f));
 
         float r = gTexture.Sample(gSampler, input.texcoord + shift).r;
         float g = gTexture.Sample(gSampler, input.texcoord).g;

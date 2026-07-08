@@ -91,7 +91,6 @@ private:
 
     std::unique_ptr<Camera> camera_;
     std::unique_ptr<Model> particleModel_;
-    std::unique_ptr<Model> debrisModel_; // 破片専用モデル
     std::unique_ptr<Model> ringModel_;
     std::unique_ptr<Model> cylinderModel_;
 
@@ -350,21 +349,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> buildingTransformResources_[kMaxBuildingCBs];
     TransformationMatrix* buildingTransformData_[kMaxBuildingCBs] = { nullptr };
 
-    // 地面の破片演出用
-    struct Debris {
-        Vector3 position = { 0.0f, 0.0f, 0.0f };
-        Vector3 velocity = { 0.0f, 0.0f, 0.0f };
-        Vector3 rotate = { 0.0f, 0.0f, 0.0f };
-        Vector3 rotationSpeed = { 0.0f, 0.0f, 0.0f };
-        Vector3 scale = { 1.0f, 1.0f, 1.0f };
-        float lifeTime = 0.0f;
-        float currentTime = 0.0f;
-        bool isAlive = false;
-    };
-    static const int kMaxDebris = 100;
-    std::vector<Debris> debris_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> debrisTransformResources_[kMaxDebris];
-    TransformationMatrix* debrisTransformData_[kMaxDebris] = { nullptr };
+    // GPUParticle 破片バースト放出用
+    bool triggerDebrisEmit_ = false;
+    Vector3 debrisEmitPos_ = { 0.0f, 0.0f, 0.0f };
 
     // 床(Plane)用
     std::unique_ptr<Model> floorModel_;
@@ -414,7 +401,6 @@ private:
     float bgUvScrollY_ = 0.0f;     // Y方向UVスクロール量
 
     void DrawSkeleton(const AdvAnim::Skeleton& skeleton, const Matrix4x4& baseWorldMatrix);
-    void SpawnDebris(const Vector3& basePos);
     
     // プレイヤーの戦闘機用
     float playerRotationRoll_ = 0.0f;

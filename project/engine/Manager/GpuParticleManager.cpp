@@ -21,8 +21,8 @@ void GpuParticleManager::Initialize(ID3D12Device* device) {
     SrvManager::GetInstance()->PreDraw();
     SrvManager::GetInstance()->SetComputeRootDescriptorTable(0, uavIndex_);
 
-    // Dispatch (1, 1, 1) - 1024個なので (InitializeParticle.CS.hlslはnumthreads(1024, 1, 1))
-    commandList->Dispatch(1, 1, 1);
+    // Dispatch (kMaxParticles / 1024, 1, 1) - (InitializeParticle.CS.hlslはnumthreads(1024, 1, 1))
+    commandList->Dispatch(kMaxParticles / 1024, 1, 1);
 
     // UAVバリア
     D3D12_RESOURCE_BARRIER barriers[3] = {};
@@ -44,14 +44,8 @@ void GpuParticleManager::Update(const Matrix4x4& viewProjection, const Matrix4x4
     perFrameData_->time = time_;
     perFrameData_->deltaTime = deltaTime;
 
-    // Emitterの更新処理 (資料に基づく)
-    emitterData_->frequencyTime += deltaTime;
-    if (emitterData_->frequency <= emitterData_->frequencyTime) {
-        emitterData_->frequencyTime -= emitterData_->frequency;
-        emitterData_->emit = 1;
-    } else {
-        emitterData_->emit = 0;
-    }
+    // Emitterの更新処理 (自動エミットは無効化)
+    emitterData_->emit = 0;
 }
 
 void GpuParticleManager::Emit() {
@@ -69,7 +63,7 @@ void GpuParticleManager::Emit() {
     // [2] b1 (PerFrame)
     commandList->SetComputeRootConstantBufferView(2, perFrameResource_->GetGPUVirtualAddress());
 
-    commandList->Dispatch(1, 1, 1);
+    commandList->Dispatch((emitterData_->count + 1023) / 1024, 1, 1);
 
     // UAVバリア (資料に基づき、次のUpdateCSで確実に読み込めるようにする)
     D3D12_RESOURCE_BARRIER barriers[3] = {};
@@ -80,6 +74,16 @@ void GpuParticleManager::Emit() {
     barriers[2].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     barriers[2].UAV.pResource = freeListResource_.Get();
     commandList->ResourceBarrier(_countof(barriers), barriers);
+}
+
+void GpuParticleManager::TriggerEmit(const Vector3& position, uint32_t count) {
+    if (emitterData_) {
+        emitterData_->translate = position;
+        emitterData_->count = count;
+        emitterData_->emit = 1;
+        Emit();
+        emitterData_->emit = 0;
+    }
 }
 
 void GpuParticleManager::UpdateCS() {
@@ -94,8 +98,8 @@ void GpuParticleManager::UpdateCS() {
     // [1] b0 (PerFrame)
     commandList->SetComputeRootConstantBufferView(1, perFrameResource_->GetGPUVirtualAddress());
 
-    // 1024スレッド実行
-    commandList->Dispatch(1, 1, 1);
+    // kMaxParticlesスレッド実行 (numthreads(1024, 1, 1))
+    commandList->Dispatch(kMaxParticles / 1024, 1, 1);
 
     // UAVバリア
     D3D12_RESOURCE_BARRIER barriers[3] = {};
@@ -108,7 +112,7 @@ void GpuParticleManager::UpdateCS() {
     commandList->ResourceBarrier(_countof(barriers), barriers);
 }
 
-void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_DESCRIPTOR_HANDLE textureHandle) {
+void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_DESCRIPTOR_HANDLE textureHandle, D3D12_VERTEX_BUFFER_VIEW* vbView, D3D12_INDEX_BUFFER_VIEW* ibView) {
     // 描画前に UAV -> SRV へ遷移させる
     D3D12_RESOURCE_BARRIER transitionBarrier{};
     transitionBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -123,6 +127,13 @@ void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_
     commandList->SetGraphicsRootSignature(graphicsPipeline->GetGpuParticleRootSignature());
     commandList->SetPipelineState(graphicsPipeline->GetGpuParticlePipelineState());
 
+    // グラフィックスPSOを設定した後にIAをバインド (安全な順序)
+    if (vbView && ibView) {
+        commandList->IASetVertexBuffers(0, 1, vbView);
+        commandList->IASetIndexBuffer(ibView);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    }
+
     // [0] PerView (b0)
     commandList->SetGraphicsRootConstantBufferView(0, perViewResource_->GetGPUVirtualAddress());
 
@@ -132,8 +143,8 @@ void GpuParticleManager::Draw(ID3D12GraphicsCommandList* commandList, D3D12_GPU_
     // [2] Texture (t1)
     commandList->SetGraphicsRootDescriptorTable(2, textureHandle);
 
-    // 描画コマンド (板ポリゴン 6頂点, 1024インスタンス)
-    commandList->DrawInstanced(6, kMaxParticles, 0, 0);
+    // 描画コマンド (板ポリゴン 6インデックス, 4096インスタンス)
+    commandList->DrawIndexedInstanced(6, kMaxParticles, 0, 0, 0);
 
     // 次フレームのために SRV -> UAV へ戻しておく
     transitionBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
