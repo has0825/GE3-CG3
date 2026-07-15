@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D3D12によるGPUパーティクル・多脚ボス制御と戦闘機アクション演出</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Orbitron:wght@500;700;900&family=Noto+Sans+JP:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 背景アニメーション用パーティクルコンテナ -->
+    <div class="bg-glow"></div>
+
+    <div class="app-container">
+        <!-- トップバー（操作ガイドおよび入力フォーム） -->
+        <header class="top-bar glass">
+            <div class="project-title-area">
+                <span class="badge">GE3 & CG3</span>
+                <h1>第1回進捗発表</h1>
+            </div>
+            
+            <div class="user-meta-inputs">
+                <div class="input-group">
+                    <label for="student-id-input">学籍番号</label>
+                    <input type="text" id="student-id-input" placeholder="LE3X_99" value="LE3X_99">
+                </div>
+                <div class="input-group">
+                    <label for="user-name-input">氏名</label>
+                    <input type="text" id="user-name-input" placeholder="ネオ 太郎" value="氏名">
+                </div>
+            </div>
+
+            <div class="utility-controls">
+                <button id="toggle-script-btn" class="btn secondary active">台本を表示</button>
+            </div>
+        </header>
+
+        <!-- スライド表示エリア -->
+        <main class="slide-viewport">
+            <!-- Slide 1: タイトル -->
+            <section class="slide active" id="slide-1">
+                <div class="slide-content title-slide">
+                    <div class="cyber-frame">
+                        <span class="slide-tag">PRESENTATION THEME</span>
+                        <h2 class="main-title">D3D12によるGPUパーティクル・<br>多脚ボス制御と<br><span class="neon-text">戦闘機アクション演出</span></h2>
+                        <p class="subtitle">3Dルート固定シューティングゲーム『プロトタイプ版』進捗発表</p>
+                        
+                        <div class="author-card glass">
+                            <div class="author-row">
+                                <span class="label">学籍番号 :</span>
+                                <span class="value replace-student-id">LE3X_99</span>
+                            </div>
+                            <div class="author-row">
+                                <span class="label">氏名 :</span>
+                                <span class="value replace-name">氏名</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 2: プロジェクト概要 -->
+            <section class="slide" id="slide-2">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">01</span> プロジェクト概要</h2>
+                    <div class="grid-2col">
+                        <div class="card glass">
+                            <h3>シューティングゲーム基本コンセプト</h3>
+                            <ul>
+                                <li>自機とカメラが完全に等速で自動前進する「3Dルート固定レールシューティング」</li>
+                                <li>ハイスピードで障害物を潜り抜けるスリリングな操作感と、美しいネオン調の高層ビル街</li>
+                                <li>不気味に歩行する巨大な蜘蛛ボスや、編隊飛行（フォーメーション）で迫る敵との緊迫した戦闘</li>
+                            </ul>
+                        </div>
+                        <div class="card glass">
+                            <h3>本プロトタイプ開発の目的・課題</h3>
+                            <ul>
+                                <li><strong>【課題と目的】</strong> 多数の敵AIや巨大蜘蛛ボスの歩行物理、数千個の破片描画による「メインスレッドの処理落ち（カクつき）」をいかに回避するか</li>
+                                <li><strong>【課題と目的】</strong> 単調なレール走行にせず、いかに「戦闘機ならではの爽快感（速度と破壊の手応え）」を低コストで演出するか</li>
+                                <li><strong>【解決】</strong> D3D12のCompute Shaderによる並列GPU計算や、数学的モデルを用いた動的アニメーション制御によってこれを解決</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 3: 現在の進捗状況 -->
+            <section class="slide" id="slide-3">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">02</span> 現在の進捗状況（できていること）</h2>
+                    <div class="grid-3col">
+                        <div class="card glass">
+                            <h3>① プレイヤー関係</h3>
+                            <ul>
+                                <li>自機移動（画面クランプ制限）および射撃（ターゲット吸着エイムアシスト）</li>
+                                <li>回避アクション：左Shiftキーによる360度『バレルロール回避挙動（0.65秒無敵）』</li>
+                                <li>速度演出：ブースト大加速（最高速度480m/s）および『ラジアルブラーポストプロセス』</li>
+                            </ul>
+                        </div>
+                        <div class="card glass">
+                            <h3>② 敵関係</h3>
+                            <ul>
+                                <li>組織飛行：4種類の『編隊飛行（フォーメーション）』（V字、円形、横一列、斜め一列）</li>
+                                <li>自律AI：4状態（待機 ➔ 合流 ➔ ふわふわ ➔ 特攻 kDive）と特攻時のすり抜け衝突判定</li>
+                                <li>ボス制御：HP率（50%以下）による段階的フェーズ管理と8脚の『歩行位相差ロジック』</li>
+                            </ul>
+                        </div>
+                        <div class="card glass">
+                            <h3>③ その他（ステージ・演出・システム）</h3>
+                            <ul>
+                                <li>ステージ：床の『無限スクロール（48タイル）』およびビルの『階数積層描画（1〜5階）』</li>
+                                <li>破壊・演出：ビルの物理崩壊（吹き飛び・回転）および『Compute Shader GPUパーティクル』</li>
+                                <li>ゲームループ：背景雲の天球UVスクロール、シーンマネージャーによる進行管理遷移</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 4: 技術トピック① -->
+            <section class="slide" id="slide-4">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">03</span> ボス関連：フェーズ移行制御と多脚（8本足）歩行位相差ロジック</h2>
+                    <div class="grid-2col-heavy-left">
+                        <div class="card glass highlight-card">
+                            <h3>ボスHPに同期した「フェーズ移行ロジック」</h3>
+                            <p><strong>【目的】</strong> ボス戦での単調な攻撃パターンを排し、HP量に応じて段階的に難易度を変化させたい。</p>
+                            <p><strong>【解決】</strong> ボスHPが50%以下になった際、瞬時に「フェーズ2」へ移行。攻撃間隔や動きのパターンを激化させる分岐制御をゲームループに組み込み。</p>
+                            
+                            <h3>8本足の「動的歩行位相差ロジック」</h3>
+                            <p><strong>【目的】</strong> 固定アニメーションアセットに依存すると、移動速度や旋回方向の変化に対して足がすべる不自然な現象を解決したい。</p>
+                            <p><strong>【解決と計算式】</strong> 各脚にタイミング遅延を組み合わせた位相角 \(\theta_i(t)\) を定義し、関節角をリアルタイム動的計算：</p>
+                            
+                            <div style="padding: 12px; margin-top: 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.1); font-family: 'Orbitron', monospace; font-size: 0.82rem; line-height: 1.5; color: #00ffcc;">
+                                <strong style="color: #fff; font-size: 0.85rem;">■ 歩行サイクル位相角:</strong><br>
+                                &nbsp;&nbsp;\(\theta_i(t) = 2 \pi f t + \phi_i \pmod{2\pi}\)<br>
+                                &nbsp;&nbsp;<span style="color: #a0a5c0; font-size: 0.72rem;">L1, R2, L3, R4 ➔ \(\phi_i = 0\) / R1, L2, R3, L4 ➔ \(\phi_i = \pi\) (半周期ずらし接地)</span><br><br>
+                                <strong style="color: #fff; font-size: 0.85rem;">■ 関節スイング・回転角 (Yaw / Pitch):</strong><br>
+                                &nbsp;&nbsp;根元 (Yaw): \(\psi_i(t) = \alpha_i + A_{yaw} \cdot \cos(\theta_i(t)) \cdot \cos(\phi_{move} - \alpha_i)\)<br>
+                                &nbsp;&nbsp;中間 (Pitch): \(\theta_{pitch, i}(t) = \beta_i + A_{pitch} \cdot \sin(\theta_i(t))\) &nbsp;<span style="color: #a0a5c0; font-size: 0.72rem;">(振幅 \(A_{pitch} \propto \|\mathbf{v}\|\))</span>
+                            </div>
+                        </div>
+                        <div class="card glass code-spec">
+                            <h3>💡 プログラマー向けの細かい工夫</h3>
+                            <div class="spec-list">
+                                <div class="spec-item">
+                                    <strong>非同期ステップ周期の構築</strong>
+                                    <span>8本の足が同時に地面を踏むのではなく、特定の位相差を持って順次接地する交互歩行パターンを数学的プログラムのみで制御。</span>
+                                </div>
+                                <div class="spec-item">
+                                    <strong>アセットレスなリアル多脚アニメーション</strong>
+                                    <span>逆運動学（IK）の計算や、移動速度と歩行周期の動的同期により、追加モーションデータなしで蜘蛛らしい生々しい動きを低コストで実現。</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 5: 技術トピック② -->
+            <section class="slide" id="slide-5">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">04</span> Particle関連：D3D12 Compute ShaderによるGPUパーティクル</h2>
+                    <div class="grid-2col-heavy-left">
+                        <div class="card glass highlight-card">
+                            <h3>Compute ShaderによるGPU物理演算</h3>
+                            <p><strong>【目的】</strong> 着弾時の火花や被弾破片など、数千個の粒子をCPUで計算するとメインスレッドが圧迫され、激しい戦闘中に処理落ちが頻発するのを防ぐ。</p>
+                            <p><strong>【解決】</strong> パーティクルのステート（位置・速度・生存寿命）を保持する「構造化バッファ（Structured Buffer）」をGPU上に直接配置。物理更新演算をGPUのCompute Shader（<code>GpuParticleManager</code>）で完結。</p>
+                            
+                            <h3>ビルの崩壊物理シミュレーションとの同期</h3>
+                            <p><strong>【解決】</strong> ビル自体に破壊フラグ（<code>isDestroyed</code>）、物理的な吹き飛び・回転パラメータを定義。ビル破壊のワールド座標をトリガーとして、GPUパーティクル破片バーストを一瞬で同期放出。</p>
+                        </div>
+                        <div class="card glass code-spec">
+                            <h3>💡 プログラマー向けの細かい工夫</h3>
+                            <div class="spec-list">
+                                <div class="spec-item">
+                                    <strong>GPU並列スレッド処理 (16x16)</strong>
+                                    <span>更新処理を「16x16スレッドグループ」によるGPU並列スレッドで実行。</span>
+                                </div>
+                                <div class="spec-item">
+                                    <strong>ゼロコピー・低遅延描画</strong>
+                                    <span>頂点バッファをCPUにMapし直さずに（Map解除状態のまま）GPUから直接書き込み、そのまま描画パイプラインへ転送。CPUの更新負荷を完全にゼロ（0ms）に抑制。</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 6: 技術トピック③ -->
+            <section class="slide" id="slide-6">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">05</span> プレイヤー関連：3D戦闘機制御とバレルロール無敵回避＆ブースト加速G演出</h2>
+                    <div class="grid-2col-heavy-left">
+                        <div class="card glass highlight-card">
+                            <h3>バレルロールによる無敵回避挙動</h3>
+                            <p><strong>【目的】</strong> レールシューティングにおける単調な移動を排し、敵の苛烈な弾幕を避ける戦術的回避操作を提供する。</p>
+                            <p><strong>【解決】</strong> 左Shiftキーをトリガーに360度ローリング（<code>playerRotationRoll_</code>）を行い、ロール進行タイマー（0.65秒）と連動した無敵回避時間をゲームループ内で処理。</p>
+                            
+                            <h3>ブースト時のラジアルブラーポストエフェクト</h3>
+                            <p><strong>【目的】</strong> 最高速度480m/sのブースト中において、速度数値を上げるだけでなく、圧倒的な「速度感と重力G」を視覚的にフィードバックする。</p>
+                            <p><strong>【解決】</strong> 加速開始時にピクセルシェーダで動作する「放射状ぼかし」ポストプロセスを適用。</p>
+                        </div>
+                        <div class="card glass code-spec">
+                            <h3>💡 プログラマー向けの細かい工夫</h3>
+                            <div class="spec-list">
+                                <div class="spec-item">
+                                    <strong>ピクセルシェーダ内サンプリング</strong>
+                                    <span>画面中心から外側へ向かう方向ベクトルに沿ってカラーバッファテクスチャ座標を動的に多点サンプリングし平均化。</span>
+                                </div>
+                                <div class="spec-item">
+                                    <strong>ブラー幅のフェードイン制御</strong>
+                                    <span>ブラー幅（<code>boostBlurWidth_</code>）を0.0から0.05へ動的変化させ、CPU負荷を最小に抑えつつ強烈な加速フィールを演出。</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 7: 開発スケジュールと今後の予定 -->
+            <section class="slide" id="slide-7">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">06</span> 開発スケジュールと今後の予定</h2>
+                    <div class="schedule-timeline">
+                        <div class="timeline-header glass">
+                            <span>期間</span>
+                            <span>優先度</span>
+                            <span>タスク内容（プロトタイプ完成：7月31日に向けて）</span>
+                        </div>
+                        <div class="timeline-row priority-s">
+                            <div class="time">07/11 〜 07/14</div>
+                            <div class="priority"><span class="badge s">Must [S]</span></div>
+                            <div class="task">ゲームループ（タイトル ➔ プレイ ➔ クリア / ゲームオーバー）全体の遷移バグフィックスおよび被弾判定・弾衝突の耐久テスト</div>
+                        </div>
+                        <div class="timeline-row priority-a">
+                            <div class="time">07/15 〜 07/18</div>
+                            <div class="priority"><span class="badge a">Should [A]</span></div>
+                            <div class="task">敵フォーメーションAI（出現、編隊維持、特攻開始タイミング）の行動パターンのバリエーション微調整および難易度チューニング</div>
+                        </div>
+                        <div class="timeline-row priority-s">
+                            <div class="time">07/19 〜 07/22</div>
+                            <div class="priority"><span class="badge s">Must [S]</span></div>
+                            <div class="task">蜘蛛ボスの「歩行位相差」（8本の足が交互に非同期に地面を踏むパターン）および不気味な関節の動きを再現するための数学的モデルの設計と基礎実装</div>
+                        </div>
+                        <div class="timeline-row priority-b">
+                            <div class="time">07/23 〜 07/26</div>
+                            <div class="priority"><span class="badge b">Should [B]</span></div>
+                            <div class="task">自機の新規戦闘スキル（バリアシールド、マルチロック、時間減速等）の仕様策定および操作感テスト用プロトタイプの開発</div>
+                        </div>
+                        <div class="timeline-row priority-a">
+                            <div class="time">07/27 〜 07/31</div>
+                            <div class="priority"><span class="badge a">Should [A]</span></div>
+                            <div class="task">プロトタイプ全体の結合テスト、バグフィックス、および次期マイルストーン（Alphaフェーズ：ゴースト機能、本格ステージ難易度設計）への設計移行</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 下部ナビゲーションバー（コントロール＆ページインジケータ） -->
+        <footer class="bottom-bar glass">
+            <button id="prev-btn" class="nav-btn">&lt; PREV</button>
+            <div class="slide-indicator">
+                <span id="current-slide-num">1</span> / <span id="total-slide-num">7</span>
+            </div>
+            <button id="next-btn" class="nav-btn">NEXT &gt;</button>
+        </footer>
+
+        <!-- 発表用台本エリア（表示ON/OFF切り替え可能） -->
+        <section id="script-panel" class="script-panel glass">
+            <div class="panel-header">
+                <h3>🎤 発表用台本 (発表時読み上げテキスト)</h3>
+                <span class="helper-text">※左右矢印キー / Space / Enter でスライドを切り替えられます</span>
+            </div>
+            <div class="panel-content">
+                <p id="script-text">台本テキストがここに表示されます。</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

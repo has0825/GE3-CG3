@@ -346,6 +346,14 @@ def load_replay():
     # ── オブジェクト作成 ──
     print("[Replay] Creating/importing objects...")
 
+    # 既存の古いリプレイオブジェクト（RP_で始まるもの）をすべて一旦削除して、新規の構成・設定が確実に反映されるようにする
+    delete_object_with_data(OBJ_PLAYER)
+    delete_object_with_data(OBJ_BOSS)
+    for i in range(MAX_ENEMIES):
+        delete_object_with_data(OBJ_ENEMY.format(i))
+    for i in range(MAX_BULLETS):
+        delete_object_with_data(OBJ_BULLET.format(i))
+
     # A. 既存の配置用オブジェクト（GE3_Player_Start, GE3_Enemy_xx）を非表示にする
     layout_player = bpy.data.objects.get("GE3_Player_Start")
     if layout_player:
@@ -381,48 +389,111 @@ def load_replay():
             "RP_Boss_Body",
             fallback_shape="uvsphere", fallback_size=5.0, color=(1.0, 0.1, 0.1, 1.0)
         )
-        # 足をインポート (低解像度版でインポート確実化)
-        boss_legs = import_or_fallback(
+        # 足モデルを一度だけインポートして複製元（ベース）にする
+        boss_legs_base = import_or_fallback(
             r"C:\Users\k024g\Desktop\GE3&CG3\project\Resources\big Spider\big+spider+arm_low.obj",
-            "RP_Boss_Legs",
+            "RP_Boss_Legs_Base",
             fallback_shape="cone", fallback_size=4.0, color=(0.8, 0.1, 0.1, 1.0)
         )
 
-        # 胴体と足をそれぞれ原点リセット後に結合して RP_Boss にする
-        for part in [boss_body, boss_legs]:
-            if part:
-                try:
-                    for o in list(bpy.data.objects):
+        leg_objs = []
+        if boss_legs_base:
+            # 接続パラメータ
+            BOSS_SCALE = 4.5
+            BOSS_BODY_SCALE = 58.8
+            BOSS_LEG_SCALE = 46.36
+            leg_scale_ratio = BOSS_LEG_SCALE / BOSS_BODY_SCALE # 約 0.7884
+            
+            leg_pair_pos = [
+                (1.50, -4.15, 5.40),   # 前足 (ペア0)
+                (2.00, -4.35, 5.80),   # 中前足 (ペア1)
+                (2.00, -4.55, -5.65),  # 中後足 (ペア2)
+                (1.55, -4.45, -5.60)   # 後足 (ペア3)
+            ]
+            leg_pair_rot_y = [180.0, 180.0, 15.0, 7.0]
+            
+            # 8本の足を複製して配置する
+            for i in range(8):
+                pair_idx = i if i < 4 else (i - 4)
+                is_left = (i < 4)
+                
+                # 選択解除
+                for o in list(bpy.data.objects):
+                    try:
                         o.select_set(False)
-                    bpy.context.view_layer.objects.active = part
-                    part.select_set(True)
-                    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='MEDIAN')
-                    part.select_set(False)
-                except Exception as e:
-                    print(f"[Replay] origin_set failed for {part.name}: {e}")
-
-        if boss_body and boss_legs:
+                    except Exception:
+                        pass
+                
+                # 複製を作成
+                leg_obj = boss_legs_base.copy()
+                leg_obj.data = boss_legs_base.data.copy()
+                bpy.context.collection.objects.link(leg_obj)
+                leg_obj.name = f"RP_Boss_Leg_{i}"
+                
+                # スケールを適用
+                leg_obj.scale = (leg_scale_ratio, leg_scale_ratio, leg_scale_ratio)
+                
+                # 配置位置 (胴体のローカル座標)
+                pos_offset = leg_pair_pos[pair_idx]
+                lx = -pos_offset[0] if is_left else pos_offset[0]
+                ly = pos_offset[1]
+                lz = pos_offset[2]
+                
+                to_local_ratio = BOSS_SCALE / BOSS_BODY_SCALE
+                bx = lx * to_local_ratio
+                by = lz * to_local_ratio
+                bz = ly * to_local_ratio
+                leg_obj.location = (bx, by, bz)
+                
+                # 初期回転
+                base_rot_y = leg_pair_rot_y[pair_idx]
+                if is_left:
+                    pitch0 = -0.1
+                    rot_y0 = -base_rot_y * math.pi / 180.0
+                else:
+                    pitch0 = 0.1
+                    rot_y0 = base_rot_y * math.pi / 180.0
+                    
+                # 胴体と同じ姿勢補正
+                leg_obj.rotation_euler = (pitch0 + math.pi / 2, 0.0, rot_y0 + (100.0 * math.pi / 180.0))
+                
+                # トランスフォームをメッシュに焼き込む
+                bpy.context.view_layer.objects.active = leg_obj
+                leg_obj.select_set(True)
+                bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+                leg_obj.select_set(False)
+                
+                leg_objs.append(leg_obj)
+            
+            # 複製元となったベース足モデルを削除する
+            delete_object_with_data("RP_Boss_Legs_Base")
+            
+        # 胴体と8本の足を結合する
+        if boss_body:
+            # 選択解除
             for o in list(bpy.data.objects):
                 try:
                     o.select_set(False)
                 except Exception:
                     pass
             boss_body.select_set(True)
-            boss_legs.select_set(True)
+            for leg in leg_objs:
+                leg.select_set(True)
             bpy.context.view_layer.objects.active = boss_body
             bpy.ops.object.join()
-            boss_obj = bpy.context.active_object
+            
+            boss_obj = boss_body
             boss_obj.name = OBJ_BOSS
         else:
-            boss_obj = boss_body if boss_body else boss_legs
-            if boss_obj:
+            if leg_objs:
+                boss_obj = leg_objs[0]
                 boss_obj.name = OBJ_BOSS
 
     cleanup_object_transforms(boss_obj, scale_val=35.0)
 
     # ボスの初期姿勢をメッシュ頂点に焼き込む（Transform Apply）
     # big+Spider_low.obj は OBJ インポート後にY軸方向に横倒しになるため
-    # X軸+90度で直立させてから transform_apply でメッシュに適用する。
+    # X軸+90度で直立させてから、完璧な正面を向くようにZ軸+100度（あと10度左）回転させてメッシュに適用する。
     # これにより、キーフレームループでは boss_ry だけを rotation_euler.z に設定すればよい。
     BOSS_PITCH_OFFSET = 0.0
     BOSS_YAW_OFFSET   = 0.0
@@ -434,7 +505,8 @@ def load_replay():
                 pass
         bpy.context.view_layer.objects.active = boss_obj
         boss_obj.select_set(True)
-        boss_obj.rotation_euler = (math.pi / 2, 0.0, math.pi / 2)
+        # Z軸の初期回転を 90度 (math.pi / 2) から 100度 (100.0 * math.pi / 180.0) に変更
+        boss_obj.rotation_euler = (math.pi / 2, 0.0, 100.0 * math.pi / 180.0)
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
         boss_obj.rotation_euler = (0.0, 0.0, 0.0)
         boss_obj.select_set(False)
@@ -442,7 +514,7 @@ def load_replay():
     except Exception as e:
         print(f"[Replay] Boss transform_apply failed: {e}. Using offset constants.")
         BOSS_PITCH_OFFSET = math.pi / 2
-        BOSS_YAW_OFFSET   = math.pi
+        BOSS_YAW_OFFSET   = 100.0 * math.pi / 180.0
 
     # 3. 敵
     enemy_objs = []
@@ -463,7 +535,7 @@ def load_replay():
         b_name = OBJ_BULLET.format(i)
         b_obj = bpy.data.objects.get(b_name)
         if not b_obj:
-            bpy.ops.mesh.primitive_uv_sphere_add(radius=8.0, location=(0.0, 0.0, -10000.0 * SCALE))
+            bpy.ops.mesh.primitive_uv_sphere_add(radius=2.0, location=(0.0, 0.0, -10000.0 * SCALE))
             b_obj = bpy.context.active_object
             b_obj.name = b_name
             # 発光する黄色のマテリアルを適用

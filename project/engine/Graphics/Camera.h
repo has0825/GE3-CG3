@@ -14,6 +14,8 @@ public:
 	void SetTranslate(const Vector3& translate) { transform_.translate = translate; }
 	void SetRotate(const Vector3& rotate) { transform_.rotate = rotate; }
 	void SetFov(float fov) { fov_ = fov; }
+	void SetTarget(const Vector3* target) { target_ = target; }
+	void ClearTarget() { target_ = nullptr; }
 
 	// --- ゲッター ---
 	const Matrix4x4& GetViewProjectionMatrix() const { return viewProjectionMatrix_; }
@@ -32,6 +34,7 @@ private:
 	Matrix4x4 projectionMatrix_;
 	Matrix4x4 viewProjectionMatrix_;
 	Matrix4x4 billboardMatrix_;
+	const Vector3* target_ = nullptr; // 注視ターゲットへのポインタ
 
 	float fov_;
 	float aspectRatio_;

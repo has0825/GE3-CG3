@@ -319,7 +319,7 @@ private:
         float relativeZ = 120.0f;    // 追加：プレイヤーとの相対Z距離をキープするため
         Vector3 appearStartPos = { 0.0f, 0.0f, 0.0f };      // 追加：出現合流開始時の初期位置を記憶するため
     };
-    static const int kMaxEnemies = 10; // 5体×2グループ = 計10体に調整
+    static const int kMaxEnemies = 30; // 最大敵数を30に拡張
     std::vector<Enemy> enemies_;
     EnemyGroup enemyGroups_[kNumGroups];
     Microsoft::WRL::ComPtr<ID3D12Resource> enemyTransformResources_[kMaxEnemies];
@@ -341,9 +341,12 @@ private:
         Vector3 velocity = { 0.0f, 0.0f, 0.0f };     // 吹き飛び速度
         Vector3 rotationSpeed = { 0.0f, 0.0f, 0.0f }; // 回転速度
         float destroyTimer = 0.0f;         // 破壊経過タイマー
+        float originalX = 0.0f;            // 初期X位置の記憶
+        float originalY = -20.0f;          // 初期Y位置(底面)の記憶
+        int originalFloors = 0;            // 初期階数の記憶
     };
-    static const int kMaxBuildings = 160;
-    static const int kMaxBuildingCBs = 1000;
+    static const int kMaxBuildings = 400;
+    static const int kMaxBuildingCBs = 3000;
     std::vector<Building> buildings_;
     std::unique_ptr<Model> buildingModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> buildingTransformResources_[kMaxBuildingCBs];
@@ -355,9 +358,9 @@ private:
 
     // 床(Plane)用
     std::unique_ptr<Model> floorModel_;
-    // 1列分のZ方向タイル数（中央・左・右の3列分バッファを確保）
-    static const int kNumFloorColumns = 16;              // Z方向のタイル数
-    static const int kNumRoadLanes    = 3;               // 左・中央・右の3列
+    // 1列分のZ方向タイル数（中央・左・右の列バッファを確保）
+    static const int kNumFloorColumns = 32;              // Z方向のタイル数に拡張
+    static const int kNumRoadLanes    = 5;               // 計5列の広い道路に拡張
     static const int kNumFloors       = kNumFloorColumns * kNumRoadLanes; // 合計バッファ数
     Vector3 floorPositions_[kNumFloors];
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
@@ -459,6 +462,8 @@ private:
     // ボス登場演出と画面シェイクの制御用メンバ変数
     float bossAppearanceTimer_ = -1.0f;
     float cameraShake_ = 0.0f;
+    bool isBossLanded_ = false;
+    bool isBossRoared_ = false;
 
     // 蜘蛛ボス用モデル
     std::unique_ptr<Model> bossBodyModel_;
@@ -663,4 +668,10 @@ private:
     bool isBossModelVisible_ = true; // ボス自体の表示フラグ
     bool hasHitBoss_ = false; // ボスにヒットしたか
     float bossDefeatHitTimer_ = 0.0f; // ヒット後の経過時間タイマー
+
+    // ── 地形(Terrain)用 ──
+    std::unique_ptr<Model> terrainModel_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformResource_;
+    TransformationMatrix* terrainTransformData_ = nullptr;
+    bool hasTerrain_ = false; // 地形モデルが存在するかどうか
 };

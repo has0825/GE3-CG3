@@ -1147,7 +1147,7 @@ void GamePlayScene::Update() {
                 StartPhaseIntro(2); // PHASE 2の表示演出
             } else if (currentPhase_ == GamePhase::kPhase2) {
                 currentPhase_ = GamePhase::kBossFight;
-                bossAppearanceTimer_ = 3.0f; // ボス登場演出開始（3秒）
+                bossAppearanceTimer_ = 5.0f; // ボス登場演出開始（5.0秒）
             }
         }
     }
@@ -1155,8 +1155,11 @@ void GamePlayScene::Update() {
     // ── ボス登場落下演出タイマーの更新 ──
     if (bossAppearanceTimer_ > 0.0f) {
         bossAppearanceTimer_ -= kDeltaTime;
-        if (bossAppearanceTimer_ <= 0.0f) {
-            bossAppearanceTimer_ = -1.0f;
+        float t = 5.0f - bossAppearanceTimer_; // 0.0f から 5.0f
+
+        // ① 1.8秒時点で着地 (1回限り)
+        if (t >= 1.8f && !isBossLanded_) {
+            isBossLanded_ = true;
             // 着地！画面シェイクと土煙・SE
             cameraShakeTimer_ = 0.50f;
             cameraShakeIntensity_ = 3.5f;
@@ -1172,6 +1175,114 @@ void GamePlayScene::Update() {
             }
             particleManager_->EmitRing(landPos);
             particleManager_->EmitCylinder(landPos);
+        }
+
+        // ② 4.0秒時点で咆哮・ビル吹き飛ばし (1回限り)
+        if (t >= 4.0f && !isBossRoared_) {
+            isBossRoared_ = true;
+            // 咆哮の大シェイク！ (シェイクの激しさを向上)
+            cameraShakeTimer_ = 1.20f;
+            cameraShakeIntensity_ = 10.0f;
+            activeShakeIntensity_ = 10.0f;
+            cameraShakeTimeMax_ = 1.20f;
+            
+            // 画面全体を赤いフラッシュで染める (フェードアウトは自動実行)
+            flashColor_ = { 1.0f, 0.15f, 0.15f };
+            flashAlpha_ = 0.95f;
+
+            if (audio_) {
+                audio_->PlayWave(jumpSE_, false, 3.0f); // 大音量の咆哮SE
+            }
+            
+            // ボス位置から赤い高威力エネルギー衝撃波群を大放出
+            Vector3 bossPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+            
+            // 巨大衝撃波リング＆シリンダー
+            particleManager_->EmitMegaRing(bossPos, {1.0f, 0.1f, 0.1f});
+            particleManager_->EmitMegaCylinder(bossPos, {1.0f, 0.1f, 0.1f});
+            
+            // 空間を走る赤い雷撃
+            particleManager_->EmitLightning(bossPos, 65.0f, 30, { 1.0f, 0.2f, 0.2f });
+            
+            // 重力渦（エネルギー凝縮）
+            particleManager_->EmitGravityVortex(bossPos, 35.0f, 40, { 0.8f, 0.1f, 0.1f });
+            
+            // 暗黒紫のカオスボイド
+            particleManager_->EmitChaosVoid(bossPos, 45.0f, 30, { 0.6f, 0.0f, 0.9f });
+            
+            // 激しい火花
+            particleManager_->EmitCustomSparks(bossPos, 90.0f, 50, { 1.0f, 0.4f, 0.1f }, 1.5f);
+
+            // 周囲のビルを衝撃波で吹き飛ばす
+            float roarZ = fighterWorldZ_ + bossZOffset_;
+            for (int i = 0; i < kMaxBuildings; ++i) {
+                if (!buildings_[i].isDestroyed) {
+                    float dz = buildings_[i].position.z - roarZ;
+                    if (std::abs(dz) < 250.0f) {
+                        buildings_[i].isDestroyed = true;
+                        buildings_[i].destroyTimer = 0.0f;
+                        
+                        // 咆哮の風圧で外側へ激しく吹き飛ばす
+                        float signX = (buildings_[i].position.x >= 0.0f) ? 1.0f : -1.0f;
+                        buildings_[i].velocity = { signX * 85.0f, 70.0f, -20.0f + (float)(randomEngine_() % 30) };
+                        buildings_[i].rotationSpeed = {
+                            ((float)(randomEngine_() % 200) / 100.0f) - 1.0f,
+                            ((float)(randomEngine_() % 200) / 100.0f) - 1.0f,
+                            -signX * 4.0f
+                        };
+                    }
+                }
+            }
+        }
+
+        // ③ 咆哮継続中のエネルギー連続噴出演出 ＆ 空気の振動ブラー(集中線) ＆ FOVズーム (4.0s ～ 5.0s)
+        if (t >= 4.0f && t < 5.0f) {
+            float roarProgress = (t - 4.0f) / 1.0f;
+            float easeRoar = std::sin(roarProgress * static_cast<float>(M_PI)); // 0 -> 1 -> 0
+
+            // ① 空気の振動ブラー (ラジアルブラーによる集中線)
+            activePostProcess_ = kRadialBlur;
+            if (radialBlurParamData_) {
+                radialBlurParamData_->center = { 0.5f, 0.5f };
+                radialBlurParamData_->blurWidth = -0.06f * easeRoar; // 最大 -0.06 の強烈なブラー
+            }
+
+            // ② カメラのFOVズームイン＆アウト (急激に寄って、衝撃で吹き飛ぶように引く)
+            float fov = 0.45f;
+            if (roarProgress < 0.25f) {
+                // 最初の0.25秒で一気にズームイン (FOV 0.45 -> 0.28)
+                float zoomT = roarProgress / 0.25f;
+                fov = std::lerp(0.45f, 0.28f, zoomT * zoomT);
+            } else {
+                // 残りの0.75秒で吹き飛ばされるようにズームアウトしてから通常に戻す (FOV 0.28 -> 0.52 -> 0.45)
+                float zoomT = (roarProgress - 0.25f) / 0.75f;
+                if (zoomT < 0.5f) {
+                    float backT = zoomT / 0.5f;
+                    fov = std::lerp(0.28f, 0.52f, backT);
+                } else {
+                    float backT = (zoomT - 0.5f) / 0.5f;
+                    fov = std::lerp(0.52f, 0.45f, backT);
+                }
+            }
+            camera_->SetFov(fov);
+
+            // ③ 継続的な口元からの火花・炎
+            static int emitCounter = 0;
+            emitCounter++;
+            if (emitCounter % 3 == 0) {
+                Vector3 bossPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+                Vector3 mouthPos = { bossPos.x, bossPos.y + 6.0f, bossPos.z - 22.0f };
+                particleManager_->EmitFlame(mouthPos, 70.0f, 6, { 1.0f, 0.1f, 0.1f });
+                particleManager_->EmitCustomSparks(mouthPos, 80.0f, 10, { 1.0f, 0.5f, 0.1f }, 1.0f);
+            }
+        }
+
+        // ④ 演出終了時のリセットとクリーンアップ
+        if (bossAppearanceTimer_ <= 0.0f) {
+            bossAppearanceTimer_ = -1.0f;
+            camera_->ClearTarget(); // 演出終了時に確実に注視ターゲットを解除
+            camera_->SetFov(0.45f); // FOVを確実に初期値に戻す
+            activePostProcess_ = kNone; // ラジアルブラーを解除
         }
     }
 
@@ -1472,7 +1583,7 @@ void GamePlayScene::Update() {
     if (input_->IsKeyTriggered(DIK_B)) {
         if (currentPhase_ != GamePhase::kBossFight) {
             currentPhase_ = GamePhase::kBossFight;
-            bossAppearanceTimer_ = 3.0f; // ボス登場演出（落下）開始（3秒）
+            bossAppearanceTimer_ = 5.0f; // ボス登場演出（落下）開始（5.0秒）
             phaseTimer_ = 0.0f;          // 通常フェーズのタイマーをリセット
         }
     }
@@ -1671,6 +1782,133 @@ void GamePlayScene::Update() {
                 fighterModel_->transform.rotate,
                 fighterWorldPos
             );
+
+            // ── ボス登場演出中のカメラワーク上書き ──
+            if (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f) {
+                float t = 5.0f - bossAppearanceTimer_; // 0.0f から 5.0f
+                
+                // ボスの落下オフセット（1.8秒で着地）
+                float dropOffset = 0.0f;
+                if (t < 1.8f) {
+                    float appRate = t / 1.8f;
+                    dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+                }
+                Vector3 bossDropPos = { 0.0f, bossYOffset_ + dropOffset, fighterWorldZ_ + bossZOffset_ };
+
+                Vector3 camPos{};
+                Vector3 camRot{};
+
+                // 通常のカメラ開始位置・目標位置
+                float targetCamX = fighterModel_ ? fighterModel_->transform.translate.x * 0.5f : 0.0f;
+                float targetCamY = fighterModel_ ? fighterModel_->transform.translate.y * 0.5f : 0.0f;
+                float targetY = fighterModel_ ? fighterModel_->transform.translate.y * 0.5f : 0.0f;
+
+                float dist = 140.0f; // 旋回半径
+
+                if (t < 1.8f) {
+                    // --- フェーズ1: 落下見上げ (t: 0.0s ～ 1.8s) ---
+                    float t_phase1 = t / 1.8f;
+                    float easedT = t_phase1 * t_phase1 * (3.0f - 2.0f * t_phase1); // Smoothstep
+
+                    // 開始位置（戦闘機背後）
+                    Vector3 startPos = { targetCamX, targetCamY, fighterWorldZ_ - 65.0f };
+                    // 目標位置（地面近く、以前の完璧な見上げアングル）
+                    Vector3 targetPos = { 0.0f, -16.0f, fighterWorldZ_ - 15.0f };
+
+                    camPos = {
+                        std::lerp(startPos.x, targetPos.x, easedT),
+                        std::lerp(startPos.y, targetPos.y, easedT),
+                        std::lerp(startPos.z, targetPos.z, easedT)
+                    };
+
+                    camera_->SetTarget(&bossDropPos); // ボスをロックオン
+                }
+                else if (t < 4.0f) {
+                    // --- フェーズ2: ボスを中心とした上空からの360度公転旋回 (t: 1.8s ～ 4.0s) ---
+                    float t_spin = (t - 1.8f) / 2.2f;
+                    float easedT = t_spin * t_spin * (3.0f - 2.0f * t_spin); // Smoothstep
+
+                    // 旋回角度（ヨー）: 時計回りに360度公転 (2*PI から 0.0 へ)
+                    float yawAngle = (1.0f - easedT) * 2.0f * static_cast<float>(M_PI);
+
+                    // Y高さ: ボスの上空 (+30.0f) から、らせんの終端高さ (+45.0f) へ徐々に上昇させる
+                    float camY = bossDropPos.y + 30.0f + (15.0f * easedT);
+
+                    // カメラの本来の公転位置
+                    Vector3 orbitPos{};
+                    orbitPos.x = bossDropPos.x - std::sin(yawAngle) * dist;
+                    orbitPos.y = camY;
+                    orbitPos.z = bossDropPos.z - std::cos(yawAngle) * dist;
+
+                    // 1.8s切り替え時のワープを防ぐため、フェーズ1の終了位置からのスムーズなブレンド接続 (最初の0.8秒)
+                    float blendDuration = 0.8f;
+                    float elapsedInPhase2 = t - 1.8f;
+                    if (elapsedInPhase2 < blendDuration) {
+                        float blendRate = elapsedInPhase2 / blendDuration;
+                        float easedBlend = blendRate * blendRate * (3.0f - 2.0f * blendRate); // Smoothstep
+
+                        // フェーズ1の終了位置（地面近く）
+                        Vector3 lastPos = { 0.0f, -16.0f, fighterWorldZ_ - 15.0f };
+                        camPos = {
+                            std::lerp(lastPos.x, orbitPos.x, easedBlend),
+                            std::lerp(lastPos.y, orbitPos.y, easedBlend),
+                            std::lerp(lastPos.z, orbitPos.z, easedBlend)
+                        };
+                    } else {
+                        camPos = orbitPos;
+                    }
+
+                    camera_->SetTarget(&bossDropPos); // ボスをロックオン
+                }
+                else {
+                    // --- フェーズ3: 旋回完了位置から通常アングルへのスムーズな復帰 + 咆哮微振動 (t: 4.0s ～ 5.0s) ---
+                    camera_->ClearTarget(); // ターゲットを解除して通常アングルの首振り角度（オイラー角）補間に戻す
+
+                    float t_phase3 = (t - 4.0f) / 1.0f;
+                    float easedT = t_phase3 * t_phase3 * (3.0f - 2.0f * t_phase3); // Smoothstep
+
+                    // 4.0s時点のボス位置（着地状態のでdropOffset=0）
+                    Vector3 bossDropPos35 = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+                    
+                    // 旋回完了時の位置（ボスの後方上空、らせんの終端高さ 45.0f に合わせる）
+                    Vector3 startPos = { bossDropPos35.x, bossDropPos35.y + 45.0f, bossDropPos35.z - dist };
+                    // 通常位置（戦闘機背後）
+                    Vector3 targetPos = { targetCamX, targetY, fighterWorldZ_ - 65.0f };
+
+                    camPos = {
+                        std::lerp(startPos.x, targetPos.x, easedT),
+                        std::lerp(startPos.y, targetPos.y, easedT),
+                        std::lerp(startPos.z, targetPos.z, easedT)
+                    };
+
+                    // 咆哮時の激しいカメラ微振動（最初の0.5秒ほどが最大で徐々に収まる）
+                    float shakeIntensity = 2.5f * (1.0f - t_phase3);
+                    std::uniform_real_distribution<float> distShake(-1.0f, 1.0f);
+                    camPos.x += distShake(randomEngine_) * shakeIntensity;
+                    camPos.y += distShake(randomEngine_) * shakeIntensity;
+                    camPos.z += distShake(randomEngine_) * shakeIntensity;
+
+                    // 角度計算：ボスのLookAtから通常カメラの首振り角度へ補間
+                    Vector3 dir = Subtract(bossDropPos, camPos);
+                    Vector3 dirNorm = Normalize(dir);
+                    float lookRotY = std::asin(std::clamp(dirNorm.x, -1.0f, 1.0f));
+                    float lookRotX = std::atan2(-dirNorm.y, dirNorm.z);
+
+                    float targetCamRotateY = fighterModel_ ? fighterModel_->transform.translate.x * 0.003f : 0.0f;
+                    float targetCamRotateX = fighterModel_ ? -fighterModel_->transform.translate.y * 0.003f : 0.0f;
+
+                    float blendT = easedT * easedT; // 最後に向けて急激に通常カメラ角度に戻す
+                    camRot.x = std::lerp(lookRotX, targetCamRotateX, blendT);
+                    camRot.y = std::lerp(lookRotY, targetCamRotateY, blendT);
+                    camRot.z = 0.0f;
+                }
+
+                // カメラに適用
+                camTrans.translate = camPos;
+                if (t >= 4.0f) {
+                    camTrans.rotate = camRot;
+                }
+            }
 
             // ── 背景テクスチャの切り替え（Tキー）──
             if (input_->IsKeyTriggered(DIK_T)) {
@@ -1880,7 +2118,9 @@ void GamePlayScene::Update() {
             aimReticlePos_.z = std::lerp(aimReticlePos_.z, targetReticlePos.z, aimLerpSpeed);
             Vector3 reticlePos = aimReticlePos_;
 
-            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_) {
+            // ボス登場演出中は射撃を禁止
+            bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
+            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_ && !isBossIntro) {
                 Vector3 leftWing  = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
                 Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
 
@@ -1908,7 +2148,8 @@ void GamePlayScene::Update() {
             aimingInstancingData_->World = reticleWorld;
 
             // ── 自機と敵・ボスの衝突判定 ────────────────────────
-            if (currentPhase_ == GamePhase::kBossFight) {
+            // ボス登場演出中は衝突判定を行わない
+            if (currentPhase_ == GamePhase::kBossFight && !(bossAppearanceTimer_ > 0.0f)) {
                 // 落下登場演出時のオフセット
                 float dropOffset = 0.0f;
                 if (bossAppearanceTimer_ > 0.0f) {
@@ -1984,7 +2225,8 @@ void GamePlayScene::Update() {
                 playerBullets_[i].position = Add(playerBullets_[i].position, Scale(playerBullets_[i].velocity, kDeltaTime));
                 playerBullets_[i].currentTime += kDeltaTime;
 
-                if (currentPhase_ == GamePhase::kBossFight) {
+                // ボス登場演出中は弾との衝突判定を行わない
+                if (currentPhase_ == GamePhase::kBossFight && !(bossAppearanceTimer_ > 0.0f)) {
                 // 落下登場演出時のオフセット
                 float dropOffset = 0.0f;
                 if (bossAppearanceTimer_ > 0.0f) {
@@ -2461,8 +2703,11 @@ void GamePlayScene::Update() {
         // 落下登場演出時のオフセット
         float dropOffset = 0.0f;
         if (bossAppearanceTimer_ > 0.0f) {
-            float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
-            dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+            float t = 5.0f - bossAppearanceTimer_;
+            if (t < 1.8f) {
+                float appRate = t / 1.8f;
+                dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+            }
         }
 
         // 胴体のワールド行列計算
@@ -2471,6 +2716,29 @@ void GamePlayScene::Update() {
         Vector3 bossBodyScale = { bossBodyScale_, bossBodyScale_, bossBodyScale_ }; // 胴体専用スケール
         // Y軸回転に加えて、Z軸のロール回転を合成
         Vector3 bossRotate = { 0.0f, bossBodyRotY_ * (float)M_PI / 180.0f, bodyRoll };
+
+        // ボス咆哮時の姿勢（4.0秒から5.0秒の咆哮フェーズで上を向いて吠えるポーズと微振動を適用）
+        if (bossAppearanceTimer_ > 0.0f) {
+            float t = 5.0f - bossAppearanceTimer_;
+            if (t >= 4.0f && t < 5.0f) {
+                float roarProgress = (t - 4.0f) / 1.0f;
+                float easeRoar = std::sin(roarProgress * static_cast<float>(M_PI)); // 0 -> 1 -> 0
+
+                // 咆哮で天を仰ぐのけぞり (X軸回転、最大 -0.5ラジアン)
+                bossRotate.x = -0.5f * easeRoar;
+
+                // 胴体を大きく上方に持ち上げ、身を起こす威嚇動作 (最大 12.0m 上昇、8.0m 後退)
+                bossPos.y += 12.0f * easeRoar;
+                bossPos.z += 8.0f * easeRoar;
+
+                // 咆哮の全身超激震 (高周波激震)
+                float shakeFreq = 65.0f;
+                bossRotate.y += std::sin(t * shakeFreq) * 0.08f;
+                bossRotate.z += std::cos(t * shakeFreq) * 0.08f;
+                bossPos.y += std::sin(t * shakeFreq) * 0.45f;
+                bossPos.z += std::cos(t * shakeFreq) * 0.30f;
+            }
+        }
 
         Matrix4x4 bossWorld = MakeAffineMatrix(bossBodyScale, bossRotate, bossPos);
         bossBodyTransformData_->World = bossWorld;
@@ -2571,6 +2839,23 @@ void GamePlayScene::Update() {
                         }
                     }
                 }
+
+                // 咆哮演出中 (4.0s ～ 5.0s) の前脚威嚇モーション
+                if (bossAppearanceTimer_ > 0.0f) {
+                    float t_appearance = 5.0f - bossAppearanceTimer_;
+                    if (t_appearance >= 4.0f && t_appearance < 5.0f) {
+                        float roarProgress = (t_appearance - 4.0f) / 1.0f;
+                        float easeRoar = std::sin(roarProgress * static_cast<float>(M_PI));
+
+                        if (i == 0 || i == 1) { // 左側の前脚
+                            currentPitch = std::lerp(normalPitch, 1.5f, easeRoar);
+                            currentRotY += std::sin(t_appearance * 80.0f) * 0.15f * easeRoar; // ガタガタ動かす
+                        } else {
+                            // 後ろ脚：踏みしめる
+                            currentPitch = std::lerp(normalPitch, -0.4f, easeRoar);
+                        }
+                    }
+                }
                 
                 legRotate = { 
                     currentPitch, 
@@ -2640,6 +2925,24 @@ void GamePlayScene::Update() {
                             float t = (bossActionTimer_ - 5.3f) / 1.5f;
                             currentRotY = targetRotY - diffRotY * t;
                             currentPitch = std::lerp(strikePitch, normalPitch, t);
+                        }
+                    }
+                }
+
+                // 咆哮演出中 (4.0s ～ 5.0s) の前脚威嚇モーション
+                if (bossAppearanceTimer_ > 0.0f) {
+                    float t_appearance = 5.0f - bossAppearanceTimer_;
+                    if (t_appearance >= 4.0f && t_appearance < 5.0f) {
+                        float roarProgress = (t_appearance - 4.0f) / 1.0f;
+                        float easeRoar = std::sin(roarProgress * static_cast<float>(M_PI));
+
+                        if (i == 4 || i == 5) { // 右側の前脚
+                            // 前脚：天高く持ち上げる ＆ 小刻みに震わせる (右足なのでマイナス方向)
+                            currentPitch = std::lerp(normalPitch, -1.5f, easeRoar);
+                            currentRotY += std::sin(t_appearance * 80.0f) * 0.15f * easeRoar;
+                        } else {
+                            // 後ろ脚：踏みしめる
+                            currentPitch = std::lerp(normalPitch, 0.4f, easeRoar);
                         }
                     }
                 }
@@ -3018,7 +3321,9 @@ void GamePlayScene::Update() {
     // ── ビルと床(Plane)の更新・再配置（オブジェクトプール） ──
     // ボス戦中もビルの物理シミュレーション・衝突判定・行列計算を更新する。
     if (sceneMode_ == SceneMode::kFighter) {
-        float cameraZ = camera_->GetTransform().translate.z;
+        // ボス登場演出中は、カメラの円運動によるZ往復運動で再配置が破綻するのを防ぐため、基準Z座標を固定する
+        bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
+        float cameraZ = isBossIntro ? (fighterWorldZ_ - 65.0f) : camera_->GetTransform().translate.z;
 
         // ビルの画面外再配置（ボス戦中も進行感を出すため常に処理）
         {
@@ -3028,25 +3333,15 @@ void GamePlayScene::Update() {
                     buildings_[i].position.z += (float)kMaxBuildings * kBuildingInterval * 0.25f;
                     
                     // 破壊されているビルを元のきれいな状態にリセット
-                    int columnType = i % 4;
-                    if (columnType == 0) buildings_[i].position.x = -45.0f;
-                    else if (columnType == 1) buildings_[i].position.x = 45.0f;
-                    else if (columnType == 2) buildings_[i].position.x = -85.0f;
-                    else buildings_[i].position.x = 85.0f;
-                    
-                    buildings_[i].position.y = kFloorY;
+                    buildings_[i].position.x = buildings_[i].originalX;
+                    buildings_[i].position.y = buildings_[i].originalY;
                     buildings_[i].rotate = { 0.0f, 0.0f, 0.0f };
                     buildings_[i].isDestroyed = false;
                     buildings_[i].velocity = { 0.0f, 0.0f, 0.0f };
                     buildings_[i].rotationSpeed = { 0.0f, 0.0f, 0.0f };
                     buildings_[i].destroyTimer = 0.0f;
 
-                    // 再配置した際にビルの階数を再抽選する（内側は1〜5階、外側は5〜10階）
-                    if (columnType == 2 || columnType == 3) {
-                        buildings_[i].floors = 5 + (randomEngine_() % 6); // 外側のビルは高め
-                    } else {
-                        buildings_[i].floors = 1 + (randomEngine_() % 5); // 内側のビル
-                    }
+                    buildings_[i].floors = buildings_[i].originalFloors;
                 }
             }
         }
@@ -3167,6 +3462,18 @@ void GamePlayScene::Update() {
                 floorTransformData_[i]->World = worldMatrix;
                 floorTransformData_[i]->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
             }
+        }
+
+        // 地形(Terrain)のワールド・WVP行列を計算
+        if (hasTerrain_ && terrainTransformData_) {
+            // Blenderスケール 0.1 で出力されているため、ゲーム上では等倍(1.0f)のスケールにするために10倍にする
+            const Vector3 terrainScale = { 10.0f, 10.0f, 10.0f };
+            const Vector3 terrainRotate = { 0.0f, 0.0f, 0.0f };
+            const Vector3 terrainTranslate = { 0.0f, 0.0f, 0.0f };
+            
+            Matrix4x4 worldMatrix = MakeAffineMatrix(terrainScale, terrainRotate, terrainTranslate);
+            terrainTransformData_->World = worldMatrix;
+            terrainTransformData_->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
         }
 
 
@@ -3492,6 +3799,14 @@ void GamePlayScene::Draw() {
                 }
             }
 
+            // 地形(Terrain)描画
+            if (hasTerrain_ && terrainModel_ && terrainTransformResource_) {
+                if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
+                if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+                commandList->SetGraphicsRootConstantBufferView(1, terrainTransformResource_->GetGPUVirtualAddress());
+                terrainModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("human/white.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+            }
+
 
 
             // 天球(SkyDome)描画 ── 専用パイプライン（Zバッファ書き込みなし・常に最遠面・ぼかしサンプラー）で描画
@@ -3556,8 +3871,9 @@ void GamePlayScene::Draw() {
                 float bossWorldZ = fighterWorldZ_ + bossZOffset_;
                 float cameraWorldZ = camera_->GetTransform().translate.z;
 
-                // ボスがカメラより一定以上後ろ（手前）に通り過ぎていない場合のみ描画
-                if (bossWorldZ >= cameraWorldZ - 20.0f) {
+                // ボス登場演出中、またはボスがカメラより一定以上後ろ（手前）に通り過ぎていない場合のみ描画
+                bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
+                if (isBossIntro || bossWorldZ >= cameraWorldZ - 20.0f) {
                     if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                     if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
 
@@ -3598,8 +3914,9 @@ void GamePlayScene::Draw() {
             }
         }
         
-        // エイミング(レティクル)の描画
-        if (graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+        // エイミング(レティクル)の描画 (ボス登場演出中は非表示)
+        bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
+        if (!isBossIntro && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
             commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
             commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
