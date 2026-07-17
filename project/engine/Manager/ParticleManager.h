@@ -47,7 +47,10 @@ public:
         bool isBoosting,
         bool isFighterMode,
         int currentEffect,
-        const Vector3& emitterPos);
+        const Vector3& emitterPos,
+        const Vector3& leftJetPos = { 0.0f, 0.0f, 0.0f },
+        const Vector3& rightJetPos = { 0.0f, 0.0f, 0.0f },
+        const Vector3& jetDirection = { 0.0f, 0.0f, 1.0f });
         
     // 描画処理（各種モデルと対応するテクスチャSRVハンドルを受け取って一括描画）
     void Draw(
@@ -87,7 +90,13 @@ public:
 
 private:
     // 個別のパーティクル生成用のヘルパー関数（自律オブジェクトプール用）
-    Particle MakeNewParticle(int type, const Vector3& emitterPos, float cameraZ, const Vector3& fighterWorldPos, bool isBoosting);
+    Particle MakeNewParticle(
+        int type,
+        const Vector3& emitterPos,
+        float cameraZ,
+        const Vector3& fighterWorldPos,
+        bool isBoosting,
+        const Vector3& jetDirection = { 0.0f, 0.0f, 1.0f });
 
 private:
     ID3D12Device* device_ = nullptr;

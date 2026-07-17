@@ -96,15 +96,12 @@ void ParticleManager::Update(
     bool isBoosting,
     bool isFighterMode,
     int currentEffect,
-    const Vector3& emitterPos) {
+    const Vector3& emitterPos,
+    const Vector3& leftJetPos,
+    const Vector3& rightJetPos,
+    const Vector3& jetDirection) {
 
     // ── 1. 通常 / 回転パーティクルの更新 ──
-    Vector3 leftJetPos = { 0.0f, 0.0f, 0.0f };
-    Vector3 rightJetPos = { 0.0f, 0.0f, 0.0f };
-    if (isFighterMode) {
-        leftJetPos  = { fighterWorldPos.x - 0.3f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
-        rightJetPos = { fighterWorldPos.x + 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
-    }
 
     for (uint32_t i = 0; i < kNumInstances; ++i) {
         bool isStardust = (isFighterMode && i >= kNumInstances / 2);
@@ -115,10 +112,10 @@ void ParticleManager::Update(
             
             if (isFighterMode) {
                 if (isStardust) {
-                    particles_[i] = MakeNewParticle(51, fighterWorldPos, cameraZ, fighterWorldPos, isBoosting); // 51: kTypeStardust
+                    particles_[i] = MakeNewParticle(51, fighterWorldPos, cameraZ, fighterWorldPos, isBoosting, jetDirection); // 51: kTypeStardust
                 } else {
                     Vector3 jetPos = (i % 2 == 0) ? leftJetPos : rightJetPos;
-                    particles_[i] = MakeNewParticle(50, jetPos, cameraZ, fighterWorldPos, isBoosting); // 50: kTypeJetExhaust
+                    particles_[i] = MakeNewParticle(50, jetPos, cameraZ, fighterWorldPos, isBoosting, jetDirection); // 50: kTypeJetExhaust
                 }
             } else {
                 // デモモードなど非戦闘機モードでは自動リポップさせず、非表示状態を維持する
@@ -415,7 +412,8 @@ ParticleManager::Particle ParticleManager::MakeNewParticle(
     const Vector3& emitterPos, 
     float cameraZ, 
     const Vector3& fighterWorldPos, 
-    bool isBoosting) {
+    bool isBoosting,
+    const Vector3& jetDirection) {
 
     Particle particle;
     particle.scale = { 1.0f, 1.0f, 1.0f };
@@ -530,12 +528,19 @@ ParticleManager::Particle ParticleManager::MakeNewParticle(
                 emitterPos.z + distSpread(randomEngine_)
             };
 
-            std::uniform_real_distribution<float> distVelZ(5.0f, 15.0f);
+            // 進行方向の逆方向（後方）ベクトル
+            Vector3 backDir = { -jetDirection.x, -jetDirection.y, -jetDirection.z };
+
+            // 後方への噴射速度
+            std::uniform_real_distribution<float> distSpeed(5.0f, 15.0f);
+            float speed = distSpeed(randomEngine_);
+
+            // ランダムな拡散速度
             std::uniform_real_distribution<float> distVelSpread(-0.8f, 0.8f);
             particle.velocity = {
-                distVelSpread(randomEngine_),
-                distVelSpread(randomEngine_),
-                distVelZ(randomEngine_)
+                backDir.x * speed + distVelSpread(randomEngine_),
+                backDir.y * speed + distVelSpread(randomEngine_),
+                backDir.z * speed + distVelSpread(randomEngine_)
             };
 
             std::uniform_real_distribution<float> distScale(0.3f, 0.6f);

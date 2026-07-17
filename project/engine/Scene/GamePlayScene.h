@@ -282,9 +282,10 @@ private:
     // 敵小隊（グループ）管理用
     struct EnemyGroup {
         FormationType formation;
-        float centerX; // 小隊の中心X
-        float centerY; // 小隊の中心Y
-        float centerZ; // 小隊の中心Z
+        float centerX; // 小隊の中心（レール左右方向の相対値）
+        float centerY; // 小隊の中心（レール上方向の相対値）
+        float centerZ; // 小隊の中心Z（聲潄互換性のため残留）
+        float centerRailProgress; // レール累積距離基準の小隊中心位置
     };
     static const int kNumGroups = 2;       // 総グループ数
     static const int kEnemiesPerGroup = 5; // 1グループあたりの敵数
@@ -318,6 +319,11 @@ private:
         float speed = 0.0f;          // 移動速度
         float relativeZ = 120.0f;    // 追加：プレイヤーとの相対Z距離をキープするため
         Vector3 appearStartPos = { 0.0f, 0.0f, 0.0f };      // 追加：出現合流開始時の初期位置を記憶するため
+        // レール空間ベースの位置管理用フィールド
+        float railProgress = 0.0f;          // レール上の累積距離（出現判定・積算用）
+        float wanderAnchorRailProgress = 0.0f; // wanderAnchorのレール累積距離
+        float wanderAnchorRelX = 0.0f;      // wanderAnchorのレール左右方向相対値
+        float wanderAnchorRelY = 0.0f;      // wanderAnchorのレール上方向相対値
     };
     static const int kMaxEnemies = 30; // 最大敵数を30に拡張
     std::vector<Enemy> enemies_;
@@ -345,8 +351,8 @@ private:
         float originalY = -20.0f;          // 初期Y位置(底面)の記憶
         int originalFloors = 0;            // 初期階数の記憶
     };
-    static const int kMaxBuildings = 400;
-    static const int kMaxBuildingCBs = 3000;
+    static const int kMaxBuildings = 3000;
+    static const int kMaxBuildingCBs = 12000;
     std::vector<Building> buildings_;
     std::unique_ptr<Model> buildingModel_;
     Microsoft::WRL::ComPtr<ID3D12Resource> buildingTransformResources_[kMaxBuildingCBs];
@@ -359,10 +365,11 @@ private:
     // 床(Plane)用
     std::unique_ptr<Model> floorModel_;
     // 1列分のZ方向タイル数（中央・左・右の列バッファを確保）
-    static const int kNumFloorColumns = 32;              // Z方向のタイル数に拡張
+    static const int kNumFloorColumns = 150;              // Z方向のタイル数に拡張
     static const int kNumRoadLanes    = 5;               // 計5列の広い道路に拡張
     static const int kNumFloors       = kNumFloorColumns * kNumRoadLanes; // 合計バッファ数
     Vector3 floorPositions_[kNumFloors];
+    Vector3 floorRotations_[kNumFloors];
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
     TransformationMatrix* floorTransformData_[kNumFloors] = { nullptr };
 
@@ -674,4 +681,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> terrainTransformResource_;
     TransformationMatrix* terrainTransformData_ = nullptr;
     bool hasTerrain_ = false; // 地形モデルが存在するかどうか
+
+    // ── レール移動（曲がり道・坂対応）用 ──
+    std::vector<Vector3> waypoints_;
+    std::vector<float> waypointDistances_;
+    float camRelativeX_ = 0.0f;
+    float camRelativeY_ = 0.0f;
+    Vector3 GetRailPosition(float progress);
+    Vector3 GetRailDirection(float progress);
+    Vector3 CalculateRailRight(const Vector3& dir);
+    Vector3 CalculateRailUp(const Vector3& dir, const Vector3& right);
+    Vector3 GetBossPosition(float bodyBounce, float dropOffset = 0.0f, float yAttackOffset = 0.0f);
 };

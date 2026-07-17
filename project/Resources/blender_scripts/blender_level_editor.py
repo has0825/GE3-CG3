@@ -54,11 +54,20 @@ def get_or_create_collection():
 
 def add_to_collection(obj):
     col = get_or_create_collection()
-    if obj.name not in col.objects:
-        col.objects.link(obj)
-    # メインシーンから除外（重複防止）
+    
+    # GE3_LevelEditor 以外の他の全コレクションから unlink する（重複登録防止）
+    for other_col in list(bpy.data.collections):
+        if other_col != col:
+            if obj.name in other_col.objects:
+                other_col.objects.unlink(obj)
+                
+    # 最上位シーンコレクションからも unlink する
     if obj.name in bpy.context.scene.collection.objects:
         bpy.context.scene.collection.objects.unlink(obj)
+        
+    # 専用コレクションにのみ link する
+    if obj.name not in col.objects:
+        col.objects.link(obj)
 
 
 def make_material(name, color):
@@ -72,18 +81,22 @@ def make_material(name, color):
     return mat
 
 
-def make_window_material():
-    """夜のビル窓を表現するプロシージャルマテリアルを作成・取得"""
-    mat = bpy.data.materials.get("Mat_Building_Window")
-    if mat is None:
-        mat = bpy.data.materials.new("Mat_Building_Window")
+def make_image_material(name, relative_image_path):
+    """画像テクスチャを用いたマテリアルを生成または取得"""
+    mat = bpy.data.materials.get(name)
+    if not mat:
+        mat = bpy.data.materials.new(name=name)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
-        
-        # 初期状態のノードをクリア
         nodes.clear()
         
+        # ビューポート用の表示色を設定 (真っ白になるのを防ぐ)
+        if name == "Mat_Building":
+            mat.diffuse_color = (0.05, 0.05, 0.07, 1.0) # 深い黒鉄色
+        else:
+            mat.diffuse_color = (0.2, 0.2, 0.2, 1.0) # アスファルトグレー
+            
         # 必要なノードを作成
         node_output = nodes.new("ShaderNodeOutputMaterial")
         node_output.location = (400, 0)
@@ -91,47 +104,62 @@ def make_window_material():
         node_bsdf = nodes.new("ShaderNodeBsdfPrincipled")
         node_bsdf.location = (100, 0)
         
-        # Brick Texture を使用して窓のグリッドを表現
-        node_brick = nodes.new("ShaderNodeTexBrick")
-        node_brick.location = (-200, 0)
-        node_brick.inputs["Offset"].default_value = 0.0
-        node_brick.inputs["Frequency"].default_value = 1
-        node_brick.inputs["Squash"].default_value = 1.0
-        # 窓の色と壁の色を設定 (窓は黄色/オレンジ系、壁はダークグレー系)
-        node_brick.inputs["Color1"].default_value = (0.05, 0.05, 0.06, 1.0) # 窓消灯
-        node_brick.inputs["Color2"].default_value = (1.0, 0.75, 0.25, 1.0) # 窓点灯 (温かみのある黄色)
-        node_brick.inputs["Mortar"].default_value = (0.1, 0.12, 0.15, 1.0) # 外壁のコンクリート
+        # 反射と粗さを調整し、白飛びを防ぐ
+        if "Specular" in node_bsdf.inputs:
+            node_bsdf.inputs["Specular"].default_value = 0.05
+        elif "Specular IOR Level" in node_bsdf.inputs: # Blender 4.0+
+            node_bsdf.inputs["Specular IOR Level"].default_value = 0.1
+        if "Roughness" in node_bsdf.inputs:
+            node_bsdf.inputs["Roughness"].default_value = 0.8
+            
+        # 画像テクスチャノードを作成
+        node_tex = nodes.new("ShaderNodeTexImage")
+        node_tex.location = (-200, 0)
         
-        node_brick.inputs["Scale"].default_value = 15.0
-        node_brick.inputs["Mortar Size"].default_value = 0.06
-        node_brick.inputs["Row Height"].default_value = 0.5
-        node_brick.inputs["Brick Width"].default_value = 0.5
+        # 画像をロード
+        resources_dir = os.path.dirname(LAYOUT_PATH)
+        abs_img_path = os.path.abspath(os.path.join(resources_dir, relative_image_path))
         
-        # Mapping でビルの大きさに合わせてテクスチャ座標を調整
-        node_mapping = nodes.new("ShaderNodeMapping")
-        node_mapping.location = (-400, 0)
-        
-        # Texture Coordinate (Object 座標を用いることでビルの変形に窓グリッドが追従)
-        node_coord = nodes.new("ShaderNodeTexCoord")
-        node_coord.location = (-600, 0)
-        
+        if os.path.exists(abs_img_path):
+            try:
+                # すでにロードされているか確認してロード
+                img = bpy.data.images.load(abs_img_path, check_existing=True)
+                img.filepath = abs_img_path
+                # 画像データをBlenderファイル内にパックして表示を確実にする
+                if not img.packed_file:
+                    img.pack()
+                node_tex.image = img
+            except Exception as e:
+                print(f"[Level Editor] Failed to load image {abs_img_path}: {e}")
+        else:
+            print(f"[Level Editor] Image not found at {abs_img_path}")
+            
         # ノード接続
-        links.new(node_coord.outputs["Object"], node_mapping.inputs["Vector"])
-        links.new(node_mapping.outputs["Vector"], node_brick.inputs["Vector"])
-        links.new(node_brick.outputs["Color"], node_bsdf.inputs["Base Color"])
+        links.new(node_tex.outputs["Color"], node_bsdf.inputs["Base Color"])
         
-        # 窓を発光（Emission）させて夜景を表現
-        if "Emission" in node_bsdf.inputs: # Blender 4.0+
-            links.new(node_brick.outputs["Color"], node_bsdf.inputs["Emission"])
-        elif "Emission Color" in node_bsdf.inputs: # Blender 3.x
-            links.new(node_brick.outputs["Color"], node_bsdf.inputs["Emission Color"])
-            
-        if "Emission Strength" in node_bsdf.inputs:
-            node_bsdf.inputs["Emission Strength"].default_value = 2.0
-            
+        # もしビル用のマテリアルの場合は、発光(Emission)にも画像の色を繋いで発光させる
+        if name == "Mat_Building":
+            if "Emission" in node_bsdf.inputs: # Blender 4.0+
+                links.new(node_tex.outputs["Color"], node_bsdf.inputs["Emission"])
+            elif "Emission Color" in node_bsdf.inputs: # Blender 3.x
+                links.new(node_tex.outputs["Color"], node_bsdf.inputs["Emission Color"])
+                
+            if "Emission Strength" in node_bsdf.inputs:
+                node_bsdf.inputs["Emission Strength"].default_value = 1.0 # ほどよく光らせる
+                
         links.new(node_bsdf.outputs["Shader"], node_output.inputs["Surface"])
         
     return mat
+
+
+def set_material_preview_mode():
+    """すべての3Dビューポートの表示モードをマテリアルプレビュー（テクスチャ表示）に変更"""
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    space.shading.type = 'MATERIAL'
+        
 
 
 def update_building_floors(self, context):
@@ -217,7 +245,7 @@ def import_building_template():
     return None
 
 
-def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0):
+def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0, rot_y=0.0):
     """ビルオブジェクトをBlenderに作成（テンプレート優先でZ軸方向に配列複製）"""
     template = bpy.data.objects.get("GE3_Building_Template")
     
@@ -230,15 +258,15 @@ def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0):
         obj.hide_viewport = False
         obj.hide_render = False
         
-        # 向きは初期状態(直立)のまま
-        obj.rotation_euler = (0.0, 0.0, 0.0)
+        # 向きを設定 (ヨー回転のみ)
+        obj.rotation_euler = (0.0, 0.0, rot_y)
         
         # 位置を設定 (Zは底面接地)
         obj.location.x = gx * SCALE
         obj.location.y = gz * SCALE
         obj.location.z = base_gy * SCALE
         
-        # Zアップ標準のスケール設定 (Z=1階分の高さ)
+        # Zアップ標準 of スケール設定 (Z=1階分の高さ)
         obj.scale.x = sx * SCALE
         obj.scale.y = sz * SCALE
         obj.scale.z = 10.0 * SCALE  # 1階分の高さスケールに固定
@@ -261,22 +289,25 @@ def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0):
         obj.location.y = gz * SCALE
         obj.location.z = (base_gy + sy * 0.5) * SCALE
         
-        obj.rotation_euler = (0.0, 0.0, 0.0)
+        obj.rotation_euler = (0.0, 0.0, rot_y)
         obj.scale.x = sx * SCALE
         obj.scale.y = sz * SCALE
         obj.scale.z = sy * SCALE
     
-    mat = make_window_material()
-    if obj.data.materials:
-        obj.data.materials[0] = mat
-    else:
-        obj.data.materials.append(mat)
+    # メッシュデータをコピーしてシングルユーザー（個別データ）にし、マテリアル競合を防ぐ
+    if obj.data:
+        obj.data = obj.data.copy()
+        
+    mat = make_image_material("Mat_Building", "building/buillding_uv.png")
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
         
     obj["ge3_type"] = "BUILDING"
     obj["ge3_sx"]   = sx
     obj["ge3_sz"]   = sz
     obj["ge3_base_gy"] = base_gy
     obj["ge3_sy"]   = 10.0 * floors
+    obj["ge3_ry"]   = rot_y
     
     # 登録プロパティを代入してコールバックをトリガーする
     obj.ge3_floors = floors
@@ -285,17 +316,22 @@ def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0):
     return obj
 
 
-def create_floor_obj(name, gx, gy, gz):
+def create_floor_obj(name, gx, gy, gz, rot_x=0.0, rot_y=0.0, rot_z=0.0):
     """床オブジェクトをBlenderに作成"""
-    bpy.ops.mesh.primitive_plane_add(size=20*SCALE, location=(gx*SCALE, gz*SCALE, gy*SCALE))
+    bpy.ops.mesh.primitive_plane_add(size=80*SCALE)
     obj = bpy.context.active_object
     obj.name = name
-    mat = make_material("Mat_Floor", FLOOR_COLOR)
-    if obj.data.materials:
-        obj.data.materials[0] = mat
-    else:
-        obj.data.materials.append(mat)
+    obj.location.x = gx * SCALE
+    obj.location.y = gz * SCALE
+    obj.location.z = gy * SCALE
+    obj.rotation_euler = (rot_x, rot_z, rot_y)
+    mat = make_image_material("Mat_Floor", "douro.jpg")
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
     obj["ge3_type"] = "FLOOR"
+    obj["ge3_rx"] = rot_x
+    obj["ge3_ry"] = rot_y
+    obj["ge3_rz"] = rot_z
     add_to_collection(obj)
     return obj
 
@@ -355,7 +391,7 @@ def export_terrain(terrain_obj):
             export_selected_objects=True,
             export_normals=True,
             export_uv=True,
-            export_materials=False,
+            export_materials=True,  # douro.jpg を MTL に含める
             export_colors=False
         )
     except AttributeError:
@@ -365,7 +401,7 @@ def export_terrain(terrain_obj):
             use_selection=True,
             use_normals=True,
             use_uvs=True,
-            use_materials=False
+            use_materials=True  # douro.jpg を MTL に含める
         )
         
     # 選択状態を復元
@@ -417,15 +453,20 @@ class GE3_OT_ImportLayout(Operator):
                 if obj_type == "BUILDING" and len(parts) >= 10:
                     gx, gy, gz = float(parts[1]), float(parts[2]), float(parts[3])
                     sx, sy, sz = float(parts[4]), float(parts[5]), float(parts[6])
+                    ry = float(parts[8]) if len(parts) >= 10 else 0.0
                     buildings_raw.append({
                         "gx": gx, "gy": gy, "gz": gz,
-                        "sx": sx, "sy": sy, "sz": sz
+                        "sx": sx, "sy": sy, "sz": sz,
+                        "ry": ry
                     })
 
                 elif obj_type == "FLOOR" and len(parts) >= 7:
                     gx, gy, gz = float(parts[1]), float(parts[2]), float(parts[3])
+                    rx, ry, rz = 0.0, 0.0, 0.0
+                    if len(parts) >= 13:
+                        rx, ry, rz = float(parts[10]), float(parts[11]), float(parts[12])
                     name = f"GE3_Floor_{floor_count:03d}"
-                    create_floor_obj(name, gx, gy, gz)
+                    create_floor_obj(name, gx, gy, gz, rx, ry, rz)
                     floor_count += 1
 
                 elif obj_type == "PLAYER" and len(parts) >= 4:
@@ -448,6 +489,7 @@ class GE3_OT_ImportLayout(Operator):
                     "gz": b["gz"],
                     "sx": b["sx"],
                     "sz": b["sz"],
+                    "ry": b["ry"],
                     "gys": []
                 }
             building_groups[key]["gys"].append(b["gy"])
@@ -461,14 +503,13 @@ class GE3_OT_ImportLayout(Operator):
             min_gy = min(group["gys"])
             base_gy = min_gy - 5.0
             
-            create_building_obj(name, group["gx"], group["gz"], floors, group["sx"], group["sz"], base_gy)
+            create_building_obj(name, group["gx"], group["gz"], floors, group["sx"], group["sz"], base_gy, group["ry"])
             
             building_count += 1
 
         msg = (f"Imported: {building_count} buildings (grouped), "
                f"{floor_count} floors, {enemy_count} enemies")
-        self.report({"INFO"}, msg)
-        print(f"[Level Editor] {msg}")
+        set_material_preview_mode()
         return {"FINISHED"}
 
 
@@ -482,6 +523,9 @@ class GE3_OT_ExportLayout(Operator):
         col = get_or_create_collection()
         lines = []
         terrain_obj = None
+        
+        # 走行ルート（WAYPOINT）の抽出用
+        all_floors = []
 
         for obj in col.objects:
             ge3_type = obj.get("ge3_type", None)
@@ -497,23 +541,33 @@ class GE3_OT_ExportLayout(Operator):
                 floors = obj.ge3_floors if hasattr(obj, "ge3_floors") else obj.get("ge3_floors", 1)
                 sx = obj.get("ge3_sx", 10.0)
                 sz = obj.get("ge3_sz", 10.0)
+                ry = obj.get("ge3_ry", obj.rotation_euler[2])
                 
-                # 起伏に沿った底面高さを逆算する
-                # テンプレート配列ビルの場合はオブジェクト原点が底面にあるためgyがそのまま底面、Cubeは中心なので逆算する
                 if obj.modifiers.get("GE3_Floors"):
                     base_gy = gy
                 else:
                     base_gy = gy - 10.0 * floors * 0.5
                 
-                # floors階分出力する。各フロアの重心Yは底面から積み上げ
                 for f in range(floors):
                     layer_gy = base_gy + f * 10.0 + 5.0
                     lines.append(f"BUILDING,{gx:.2f},{layer_gy:.2f},{gz:.2f},"
-                                 f"{sx:.2f},10.00,{sz:.2f},0.0,0.0,0.0")
+                                 f"{sx:.2f},10.00,{sz:.2f},0.0,{ry:.4f},0.0")
 
             elif ge3_type == "FLOOR":
+                rx = obj.get("ge3_rx", obj.rotation_euler[0])
+                ry = obj.get("ge3_ry", obj.rotation_euler[2])
+                rz = obj.get("ge3_rz", obj.rotation_euler[1])
                 lines.append(f"FLOOR,{gx:.2f},{gy:.2f},{gz:.2f},"
-                             f"300.0,1.0,200.0")
+                             f"300.0,1.0,200.0,0.0,0.0,0.0,{rx:.4f},{ry:.4f},{rz:.4f}")
+                
+                # 辞書アクセスを優先して lane プロパティを取得
+                lane = -1
+                if "ge3_lane" in obj:
+                    lane = obj["ge3_lane"]
+                else:
+                    lane = obj.get("ge3_lane", -1)
+                
+                all_floors.append((gz, gx, gy, lane))
 
             elif ge3_type == "PLAYER":
                 lines.append(f"PLAYER,{gx:.2f},{gy:.2f},{gz:.2f},"
@@ -525,6 +579,40 @@ class GE3_OT_ExportLayout(Operator):
             
             elif ge3_type == "TERRAIN":
                 terrain_obj = obj
+
+        # ── 軌道（WAYPOINT）の抽出アルゴリズム (Nearest Neighborによる物理的接続順ソート) ──
+        # まずは lane == 0 (中央車線) のタイルを抽出する
+        center_floors = [f for f in all_floors if f[3] == 0]
+        
+        # lane == 0 が見つからない場合は、全タイルを対象にする（手動配置などのフォールバック）
+        if not center_floors:
+            center_floors = all_floors
+
+        # プレイヤーの初期位置（または原点）を取得してソートのスタート地点とする
+        player_pos = (0.0, 0.0, 0.0)
+        for obj in col.objects:
+            if obj.get("ge3_type") == "PLAYER":
+                player_pos = (obj.location.x / SCALE, obj.location.z / SCALE, obj.location.y / SCALE) # ゲーム座標 (gx, gy, gz)
+                break
+
+        road_floors = []
+        if center_floors:
+            remaining = list(center_floors)
+            # 最初の一点は、プレイヤーのZ位置に最も近く、かつX位置にも近いものを選ぶ
+            remaining.sort(key=lambda x: (x[0] - player_pos[2])**2 + (x[1] - player_pos[0])**2)
+            curr = remaining.pop(0)
+            road_floors.append((curr[0], curr[1], curr[2]))
+            
+            # 隣接するタイルを順に繋いでいく
+            while remaining:
+                # curr に最も近い未訪問の点を探す（3次元距離の二乗）
+                remaining.sort(key=lambda x: (x[0] - curr[0])**2 + (x[1] - curr[1])**2 + (x[2] - curr[2])**2)
+                curr = remaining.pop(0)
+                road_floors.append((curr[0], curr[1], curr[2]))
+
+        # WAYPOINT を出力に追加
+        for gz, gx, gy in road_floors:
+            lines.append(f"WAYPOINT,{gx:.2f},{gy:.2f},{gz:.2f}")
 
         with open(LAYOUT_PATH, "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -541,6 +629,127 @@ class GE3_OT_ExportLayout(Operator):
         return {"FINISHED"}
 
 
+class GE3_OT_TurnRouteFromSelected(Operator):
+    """選択したオブジェクト以降の道路や建物を一括して方向転換（回転）させる"""
+    bl_idname = "ge3.turn_route_from_selected"
+    bl_label = "Turn Route From Selected"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        active_obj = context.active_object
+        if not active_obj:
+            self.report({"WARNING"}, "オブジェクトを選択してください。基準にする道路タイルなどを選択した状態で実行します。")
+            return {"CANCELLED"}
+
+        scene = context.scene
+        turn_angle_deg = scene.ge3_manual_turn_angle
+        rad = math.radians(turn_angle_deg)
+        
+        # 選択オブジェクトのBlender座標での位置をピボットとする
+        pivot_x = active_obj.location.x
+        pivot_y = active_obj.location.y # Blender YがゲームのZ (進行方向)
+
+        col = get_or_create_collection()
+        moved_count = 0
+        
+        # 進行方向 (Blender Y) が、選択オブジェクトのY以上のオブジェクトをすべて回転
+        for obj in col.objects:
+            ge3_type = obj.get("ge3_type", None)
+            if ge3_type in ["BUILDING", "FLOOR", "ENEMY", "PLAYER"]:
+                # 選択オブジェクトの手前にあるものは対象外。
+                # 誤差を考慮して pivot_y - 0.1f 以上のものを対象とする
+                if obj.location.y >= pivot_y - 0.1:
+                    # ピボット回転
+                    if obj != active_obj:
+                        dx = obj.location.x - pivot_x
+                        dy = obj.location.y - pivot_y
+                        
+                        # Z軸の回転（BlenderのXY平面上の2D回転）
+                        # 右曲がり（ゲーム右➔Blender Xプラス方向）はZ軸回転の減少
+                        a = -rad
+                        new_x = pivot_x + (dx * math.cos(a) - dy * math.sin(a))
+                        new_y = pivot_y + (dx * math.sin(a) + dy * math.cos(a))
+                        
+                        obj.location.x = new_x
+                        obj.location.y = new_y
+                        moved_count += 1
+                    
+                    # オブジェクト自身の向きも同期回転
+                    obj.rotation_euler[2] -= rad
+                    if "ge3_ry" in obj:
+                        obj["ge3_ry"] = obj.rotation_euler[2]
+
+        self.report({"INFO"}, f"{moved_count}個のオブジェクトを{turn_angle_deg}度曲げました。")
+        return {"FINISHED"}
+
+
+class GE3_OT_AlignLanesToCenter(Operator):
+    """手動でずれた他の車線(1,2,3,4)を、最寄りの中央車線(lane=0)に吸着・自動整列させる"""
+    bl_idname = "ge3.align_lanes_to_center"
+    bl_label = "Align Lanes to Center Route"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        col = get_or_create_collection()
+        centers = []
+        others = []
+        
+        for obj in col.objects:
+            if obj.get("ge3_type") == "FLOOR":
+                lane = obj.get("ge3_lane", -1)
+                if lane == 0:
+                    centers.append(obj)
+                elif lane in [1, 2, 3, 4]:
+                    others.append(obj)
+
+        if not centers:
+            self.report({"WARNING"}, "中央道路 (lane=0) が見つかりません。")
+            return {"CANCELLED"}
+
+        aligned_count = 0
+        road_width = 8.0 # ゲーム内 80.0 ➔ Blenderスケール 0.1 で 8.0m
+
+        for other in others:
+            best_center = None
+            min_dist = 999999.0
+            for center in centers:
+                dist = abs(other.location.y - center.location.y)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_center = center
+
+            if best_center and min_dist < 40.0:
+                cx = best_center.location.x
+                cy = best_center.location.y
+                cz = best_center.location.z
+
+                yaw = best_center.rotation_euler[2]
+                right_vec = (math.cos(yaw), -math.sin(yaw))
+
+                lane = other.get("ge3_lane")
+                lane_offsets = {1: 1.0, 2: -1.0, 3: 2.0, 4: -2.0}
+                offset_factor = lane_offsets.get(lane, 0.0)
+
+                # 位置を同期
+                other.location.x = cx + right_vec[0] * (road_width * offset_factor)
+                other.location.y = cy + right_vec[1] * (road_width * offset_factor)
+                other.location.z = cz
+
+                # 回転を同期
+                other.rotation_euler[0] = best_center.rotation_euler[0]
+                other.rotation_euler[1] = best_center.rotation_euler[1]
+                other.rotation_euler[2] = best_center.rotation_euler[2]
+
+                if "ge3_rx" in other: other["ge3_rx"] = other.rotation_euler[0]
+                if "ge3_ry" in other: other["ge3_ry"] = other.rotation_euler[2]
+                if "ge3_rz" in other: other["ge3_rz"] = other.rotation_euler[1]
+
+                aligned_count += 1
+
+        self.report({"INFO"}, f"{aligned_count}枚の車線道路を中央ルートに整列同期しました。")
+        return {"FINISHED"}
+
+
 class GE3_OT_GenerateCity(Operator):
     """起伏のある地形と街並み（ビル・敵・道路・自機）をプロシージャル自動生成する"""
     bl_idname  = "ge3.generate_city"
@@ -549,17 +758,24 @@ class GE3_OT_GenerateCity(Operator):
 
     def execute(self, context):
         scene = context.scene
-        city_length = scene.ge3_city_length
         building_density = scene.ge3_building_density
         max_floors = scene.ge3_max_floors
         noise_scale = scene.ge3_height_noise_scale
         noise_strength = scene.ge3_height_noise_strength
         enemy_spawn_rate = scene.ge3_enemy_spawn_rate
         
+        # 新しい区画制御パラメータ
+        num_sections = scene.ge3_num_sections
+        section_length = scene.ge3_section_length
+        city_length = num_sections * section_length
+        behaviors_str = scene.ge3_section_behaviors
+        curve_angle_deg = scene.ge3_curve_angle
+        slope_height = scene.ge3_slope_height
+        
         # 配置定数（5列幅に拡張）
         road_width = 80.0
         road_flat_width = 220.0 # 5列道路全体 (X = -160 〜 160) をカバーする平坦化幅
-        max_height = 25.0       # 街に合わせて谷や山を大幅に浅く調整 (旧 80.0)
+        max_height = 25.0       # 街に合わせて谷や山を大幅に浅く調整
         
         # テンプレートビルの読み込み
         import_building_template()
@@ -568,13 +784,95 @@ class GE3_OT_GenerateCity(Operator):
         col = get_or_create_collection()
         for obj in list(col.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
+
+        # ──────────────────────────────────────────
+        # 0. 軌道（ウェイポイント）のプロシージャル生成 & スプライン補間
+        # ──────────────────────────────────────────
+        def catmull_rom_func(p0, p1, p2, p3, t):
+            return 0.5 * (
+                (2.0 * p1) +
+                (-p0 + p2) * t +
+                (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t**2 +
+                (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t**3
+            )
+
+        # 挙動のパース
+        behaviors = [s.strip().upper() for s in behaviors_str.split(",")]
+        while len(behaviors) < num_sections:
+            behaviors.append("S")
+
+        # ウェイポイント生成のステート
+        cur_pos = [0.0, -20.0, 0.0]
+        cur_yaw = 0.0  # Z軸に対する角度（0はZプラス方向）
+        
+        wp = []
+        wp.append((cur_pos[0], cur_pos[1], cur_pos[2]))
+        
+        for i in range(num_sections):
+            behavior = behaviors[i]
+            
+            # Yaw (回転) 変更
+            yaw_delta = 0.0
+            if "R" in behavior:
+                yaw_delta = math.radians(curve_angle_deg)  # 右曲がり (時計回り)
+            elif "L" in behavior:
+                yaw_delta = -math.radians(curve_angle_deg) # 左曲がり
+                
+            cur_yaw += yaw_delta
+            
+            # Pitch (高度) 変更
+            y_delta = 0.0
+            if "U" in behavior:
+                y_delta = slope_height  # 上り坂
+            elif "D" in behavior:
+                y_delta = -slope_height # 下り坂
+                
+            # 次の位置を進行方向に基づいて計算
+            dx = math.sin(cur_yaw) * section_length
+            dz = math.cos(cur_yaw) * section_length
+            
+            cur_pos[0] += dx
+            cur_pos[1] += y_delta
+            cur_pos[2] += dz
+            
+            wp.append((cur_pos[0], cur_pos[1], cur_pos[2]))
+
+        # スプライン補間用に前後を延長
+        extended_wp = []
+        extended_wp.append((wp[0][0] - (wp[1][0] - wp[0][0]), 
+                            wp[0][1] - (wp[1][1] - wp[0][1]), 
+                            wp[0][2] - (wp[1][2] - wp[0][2])))
+        extended_wp.extend(wp)
+        extended_wp.append((wp[-1][0] + (wp[-1][0] - wp[-2][0]), 
+                            wp[-1][1] + (wp[-1][1] - wp[-2][1]), 
+                            wp[-1][2] + (wp[-1][2] - wp[-2][2])))
+
+        path_points = []
+        step_distance = 10.0
+        total_steps = int(city_length / step_distance)
+        
+        for step in range(total_steps + 1):
+            progress = step * step_distance
+            seg_idx = int(progress / section_length)
+            seg_idx = min(seg_idx, num_sections - 1)
+            
+            t = (progress - seg_idx * section_length) / section_length
+            
+            p0 = extended_wp[seg_idx]
+            p1 = extended_wp[seg_idx + 1]
+            p2 = extended_wp[seg_idx + 2]
+            p3 = extended_wp[seg_idx + 3]
+            
+            x_val = catmull_rom_func(p0[0], p1[0], p2[0], p3[0], t)
+            y_val = catmull_rom_func(p0[1], p1[1], p2[1], p3[1], t)
+            z_val = catmull_rom_func(p0[2], p1[2], p2[2], p3[2], t)
+            
+            path_points.append((x_val, y_val, z_val))
             
         # ──────────────────────────────────────────
-        # 1. 地形メッシュ (GE3_Terrain) の生成 (幅を 600m に拡張)
+        # 1. 地形メッシュ (GE3_Terrain) の生成
         # ──────────────────────────────────────────
         terrain_width = 600.0
-        
-        # 大きさに応じたサンプリングセグメント数（解像度の維持）
         subdivisions_x = max(16, int(terrain_width / 15.0))
         subdivisions_y = max(16, int(city_length / 15.0))
         
@@ -588,35 +886,37 @@ class GE3_OT_GenerateCity(Operator):
         dx = terrain_width / (subdivisions_x - 1)
         dz = city_length / (subdivisions_y - 1)
         
-        # 地形高さを計算する式 (谷や山が浅くなるように制限)
         def get_terrain_height(gx, gz):
-            # 複数のサイン波の重ね合わせによるコヒーレントノイズ
             val = (
                 math.sin(gz / (noise_scale * 1.0)) * 0.5 +
                 math.sin(gx / (noise_scale * 0.7)) * 0.3 +
                 math.cos(gz / (noise_scale * 0.3) + gx / (noise_scale * 0.5)) * 0.2
             )
-            gy = val * max_height * noise_strength
+            base_noise_y = -20.0 + val * max_height * noise_strength
             
-            # 中央の広い道路部分は完全に平坦（路面基準高さ -20.0）に減衰
-            dist_from_center = abs(gx)
+            # gz に基づいて path_points から補間
+            idx = int(gz / step_distance)
+            idx = max(0, min(len(path_points) - 1, idx))
+            road_pt = path_points[idx]
+            road_x = road_pt[0]
+            road_y = road_pt[1]
+            
+            dist_from_center = abs(gx - road_x)
             if dist_from_center < road_flat_width:
                 t = dist_from_center / road_flat_width
                 factor = t * t * (3.0 - 2.0 * t)
-                road_gy = -20.0
-                gy = road_gy + (gy - road_gy) * factor
+                gy = road_y + (base_noise_y - road_y) * factor
+            else:
+                gy = base_noise_y
             return gy
 
-        # 頂点データの計算
         for j in range(subdivisions_y):
             gz = j * dz
             for i in range(subdivisions_x):
                 gx = -terrain_width / 2.0 + i * dx
                 gy = get_terrain_height(gx, gz)
-                # Blender座標系にスケール変換
                 vertices.append((gx * SCALE, gz * SCALE, gy * SCALE))
                 
-        # 面接続データの計算
         for j in range(subdivisions_y - 1):
             for i in range(subdivisions_x - 1):
                 v0 = j * subdivisions_x + i
@@ -628,7 +928,6 @@ class GE3_OT_GenerateCity(Operator):
         mesh_data.from_pydata(vertices, [], faces)
         mesh_data.update()
         
-        # UV展開
         uv_layer = mesh_data.uv_layers.new(name="UVMap")
         for loop in mesh_data.loops:
             v_idx = loop.vertex_index
@@ -638,64 +937,114 @@ class GE3_OT_GenerateCity(Operator):
             v = j / (subdivisions_y - 1)
             uv_layer.data[loop.index].uv = (u * (terrain_width / 50.0), v * (city_length / 50.0))
             
-        # 地形用マテリアルを適用
-        mat_terrain = make_material("Mat_Terrain", (0.08, 0.09, 0.08, 1.0))
+        mat_terrain = make_image_material("Mat_Terrain", "douro.jpg")
         terrain_obj.data.materials.append(mat_terrain)
         terrain_obj["ge3_type"] = "TERRAIN"
         
         # ──────────────────────────────────────────
-        # 2. 道路 (FLOOR) の生成 (5列化)
+        # 2. 道路 (FLOOR) の生成 (軌道に沿って配置)
         # ──────────────────────────────────────────
-        floor_size_z = 200.0
-        num_floor_columns = math.ceil(city_length / floor_size_z)
+        floor_size_z = 100.0
+        num_floors = math.ceil(city_length / floor_size_z)
         
         floor_count = 0
-        # lane 0:中央, 1:右1, 2:左1, 3:右2, 4:左2
         lane_offsets = [0.0, +road_width, -road_width, +road_width * 2.0, -road_width * 2.0]
-        for lane in range(5):
-            gx = lane_offsets[lane]
-            for col_idx in range(num_floor_columns):
-                gz = col_idx * floor_size_z
+        
+        for i in range(num_floors):
+            z_val = i * floor_size_z
+            idx = int(z_val / step_distance)
+            idx = max(0, min(len(path_points) - 1, idx))
+            p = path_points[idx]
+            
+            next_idx = min(idx + int(floor_size_z / step_distance), len(path_points) - 1)
+            if next_idx == idx:
+                next_idx = len(path_points) - 1
+                prev_idx = max(0, idx - 1)
+                dir_vec = [path_points[next_idx][c] - path_points[prev_idx][c] for c in range(3)]
+            else:
+                dir_vec = [path_points[next_idx][c] - path_points[idx][c] for c in range(3)]
+                
+            length = math.sqrt(sum(c**2 for c in dir_vec))
+            if length > 0.001:
+                dir_vec = [c / length for c in dir_vec]
+            else:
+                dir_vec = [0.0, 0.0, 1.0]
+                
+            right_vec = [-dir_vec[2], 0.0, dir_vec[0]]
+            right_len = math.sqrt(right_vec[0]**2 + right_vec[2]**2)
+            if right_len > 0.001:
+                right_vec = [c / right_len for c in right_vec]
+            else:
+                right_vec = [-1.0, 0.0, 0.0]
+                
+            rot_y = math.atan2(dir_vec[0], dir_vec[2])
+            rot_x = math.atan2(-dir_vec[1], math.sqrt(dir_vec[0]**2 + dir_vec[2]**2))
+            
+            for lane in range(5):
+                offset = lane_offsets[lane]
+                gx = p[0] + offset * right_vec[0]
+                gy = p[1] + offset * right_vec[1]
+                gz = p[2] + offset * right_vec[2]
+                
                 name = f"GE3_Floor_{floor_count:03d}"
-                create_floor_obj(name, gx, -20.0, gz)
+                floor_obj = create_floor_obj(name, gx, gy, gz, rot_x, rot_y, 0.0)
+                floor_obj["ge3_lane"] = lane
                 floor_count += 1
                 
         # ──────────────────────────────────────────
-        # 3. ビル (BUILDING) の自動生成 (10列に配置を拡張)
+        # 3. ビル (BUILDING) の自動生成 (軌道に沿って配置)
         # ──────────────────────────────────────────
         building_count = 0
         enemy_count = 0
         random.seed(42)
         
-        # 道路の両側、および外側を含む広範囲な10列
         building_cols = [-45.0, 45.0, -85.0, 85.0, -125.0, 125.0, -205.0, 205.0, -285.0, 285.0]
         building_interval = 80.0
         num_buildings_y = int(city_length / building_interval)
         
         for i in range(num_buildings_y):
-            gz = 50.0 + i * building_interval
-            if gz > city_length - 100.0:
+            gz_val = 50.0 + i * building_interval
+            if gz_val > city_length - 100.0:
                 continue
                 
+            idx = int(gz_val / step_distance)
+            idx = max(0, min(len(path_points) - 1, idx))
+            p = path_points[idx]
+            
+            next_idx = min(idx + 1, len(path_points) - 1)
+            dir_vec = [path_points[next_idx][c] - path_points[idx][c] for c in range(3)]
+            length = math.sqrt(sum(c**2 for c in dir_vec))
+            if length > 0.001:
+                dir_vec = [c / length for c in dir_vec]
+            else:
+                dir_vec = [0.0, 0.0, 1.0]
+                
+            right_vec = [-dir_vec[2], 0.0, dir_vec[0]]
+            right_len = math.sqrt(right_vec[0]**2 + right_vec[2]**2)
+            if right_len > 0.001:
+                right_vec = [c / right_len for c in right_vec]
+            else:
+                right_vec = [-1.0, 0.0, 0.0]
+                
+            rot_y = math.atan2(dir_vec[0], dir_vec[2])
+            
             for col_x in building_cols:
-                # 限界数に達した場合はブレイク
                 if building_count >= 400:
                     break
                     
-                # 密度確率判定
                 if random.random() > building_density:
                     continue
                     
-                gx = col_x
+                gx = p[0] + col_x * right_vec[0]
+                gz = p[2] + col_x * right_vec[2]
+                
                 base_gy = get_terrain_height(gx, gz)
                 
                 # 地形起伏に応じた階数設定
-                terrain_factor = (base_gy - (-20.0)) / max_height
-                if abs(gx) > 120.0:
-                    # 外側（郊外・山頂付近）はさらに高層
+                terrain_factor = (base_gy - p[1]) / max_height
+                if abs(col_x) > 120.0:
                     floors = int(6 + terrain_factor * 10 + random.randint(0, 5))
                 else:
-                    # 道路の近辺は中低層ビル
                     floors = int(1 + terrain_factor * 5 + random.randint(0, 3))
                     
                 floors = max(1, min(max_floors, floors))
@@ -704,14 +1053,12 @@ class GE3_OT_GenerateCity(Operator):
                 sz = 9.0 + random.random() * 5.0
                 
                 name = f"GE3_Building_{building_count:03d}"
-                create_building_obj(name, gx, gz, floors, sx, sz, base_gy)
+                create_building_obj(name, gx, gz, floors, sx, sz, base_gy, rot_y)
                 sy = 10.0 * floors
                 
                 building_count += 1
                 
-                # ──────────────────────────────────────────
-                # 敵 (ENEMY) の自動生成 (最大 30体)
-                # ──────────────────────────────────────────
+                # 敵の配置
                 if random.random() < enemy_spawn_rate and enemy_count < 30:
                     enemy_gy = base_gy + sy + 15.0 + random.random() * 12.0
                     enemy_gx = gx * 0.8
@@ -733,8 +1080,7 @@ class GE3_OT_GenerateCity(Operator):
         
         msg = (f"Generated: {building_count} buildings (obj model applied if found), "
                f"{floor_count} floors, {enemy_count} enemies. Terrain exported.")
-        self.report({"INFO"}, msg)
-        print(f"[City Generator] {msg}")
+        set_material_preview_mode()
         return {"FINISHED"}
 
 
@@ -756,14 +1102,38 @@ class GE3_PT_LevelEditorPanel(Panel):
         # 自動生成ボックス
         box_gen = layout.box()
         box_gen.label(text="City & Terrain Generator", icon="WORLD")
-        box_gen.prop(scene, "ge3_city_length", text="City Length")
+        
+        # 基本設定
+        box_gen.label(text="--- Basic Settings ---")
         box_gen.prop(scene, "ge3_building_density", text="Density")
         box_gen.prop(scene, "ge3_max_floors", text="Max Floors")
         box_gen.prop(scene, "ge3_height_noise_scale", text="Noise Scale")
         box_gen.prop(scene, "ge3_height_noise_strength", text="Terrain Height")
         box_gen.prop(scene, "ge3_enemy_spawn_rate", text="Enemy Rate")
+        
+        # 区画制御
+        box_gen.separator()
+        box_gen.label(text="--- Section-based Route Settings ---")
+        box_gen.prop(scene, "ge3_num_sections", text="Num Sections")
+        box_gen.prop(scene, "ge3_section_length", text="Section Length")
+        box_gen.prop(scene, "ge3_section_behaviors", text="Behaviors")
+        box_gen.prop(scene, "ge3_curve_angle", text="Turn Angle (deg)")
+        box_gen.prop(scene, "ge3_slope_height", text="Slope Height")
+        
         box_gen.separator()
         box_gen.operator("ge3.generate_city", text="Generate Terrain & City", icon="MOD_OCEAN")
+
+        # 手動編集支援ツール
+        box_manual = layout.box()
+        box_manual.label(text="Manual Edit Helper Tools", icon="TOOL_SETTINGS")
+        
+        # 車線整列
+        box_manual.operator("ge3.align_lanes_to_center", text="Align Lanes to Center", icon="SNAP_GRID")
+        
+        # 選択以降を方向転換
+        box_manual.separator()
+        box_manual.prop(scene, "ge3_manual_turn_angle", text="Turn Angle")
+        box_manual.operator("ge3.turn_route_from_selected", text="Turn Route From Selected", icon="FORCE_CURVE")
 
         layout.separator()
 
@@ -793,6 +1163,8 @@ classes = [
     GE3_OT_ImportLayout, 
     GE3_OT_ExportLayout, 
     GE3_OT_GenerateCity, 
+    GE3_OT_TurnRouteFromSelected,
+    GE3_OT_AlignLanesToCenter,
     GE3_PT_LevelEditorPanel
 ]
 
@@ -848,12 +1220,68 @@ def register():
         min=0.0,
         max=5.0
     )
+    bpy.types.Scene.ge3_curve_strength = bpy.props.FloatProperty(
+        name="Curve Strength",
+        description="Horizontal road curving strength",
+        default=30.0,
+        min=0.0,
+        max=100.0
+    )
+    bpy.types.Scene.ge3_slope_strength = bpy.props.FloatProperty(
+        name="Slope Strength",
+        description="Vertical road slope strength",
+        default=8.0,
+        min=0.0,
+        max=30.0
+    )
     bpy.types.Scene.ge3_enemy_spawn_rate = bpy.props.FloatProperty(
         name="Enemy Spawn Rate",
         description="Probability of spawning an enemy near buildings",
         default=0.05,
         min=0.0,
         max=0.5
+    )
+    
+    # 区画ベース自動生成用のパラメータ
+    bpy.types.Scene.ge3_num_sections = bpy.props.IntProperty(
+        name="Num Sections",
+        description="Number of sections in the course",
+        default=20,
+        min=5,
+        max=100
+    )
+    bpy.types.Scene.ge3_section_length = bpy.props.FloatProperty(
+        name="Section Length",
+        description="Length of each section (game units)",
+        default=160.0,
+        min=50.0,
+        max=500.0
+    )
+    bpy.types.Scene.ge3_section_behaviors = bpy.props.StringProperty(
+        name="Section Behaviors",
+        description="Behavior for each section (S: Straight, R: Right, L: Left, U: Up, D: Down). E.g. S,S,S,R,S,S,L,S,U,S",
+        default="S,S,S,S,S,S,S,S,S,S,S,S,S,S,S,S,S,S,S,S"
+    )
+    bpy.types.Scene.ge3_curve_angle = bpy.props.FloatProperty(
+        name="Curve Angle",
+        description="Turn angle in degrees for R/L sections",
+        default=22.5,
+        min=0.0,
+        max=90.0
+    )
+    bpy.types.Scene.ge3_slope_height = bpy.props.FloatProperty(
+        name="Slope Height",
+        description="Height offset in game units for U/D sections",
+        default=15.0,
+        min=0.0,
+        max=50.0
+    )
+    bpy.types.Scene.ge3_manual_turn_angle = bpy.props.FloatProperty(
+        name="Manual Turn Angle",
+        description="Angle in degrees to turn the route from selected object",
+        default=15.0,
+        min=-90.0,
+        max=90.0
     )
     
     print("[Level Editor] Registered! Check N-Panel > 'GE3 Sync' tab.")
@@ -868,7 +1296,10 @@ def unregister():
         del bpy.types.Object.ge3_floors
         
     for prop in ["ge3_city_length", "ge3_building_density", "ge3_max_floors", 
-                 "ge3_height_noise_scale", "ge3_height_noise_strength", "ge3_enemy_spawn_rate"]:
+                 "ge3_height_noise_scale", "ge3_height_noise_strength", 
+                 "ge3_curve_strength", "ge3_slope_strength", "ge3_enemy_spawn_rate",
+                 "ge3_num_sections", "ge3_section_length", "ge3_section_behaviors",
+                 "ge3_curve_angle", "ge3_slope_height", "ge3_manual_turn_angle"]:
         if hasattr(bpy.types.Scene, prop):
             delattr(bpy.types.Scene, prop)
 

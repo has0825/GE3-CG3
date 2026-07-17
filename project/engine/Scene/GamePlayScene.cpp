@@ -29,6 +29,7 @@ namespace {
         "dds/qwantani_night_puresky_2k.dds"
     };
     const size_t kNumSkyboxTextures = sizeof(kSkyboxTextures) / sizeof(kSkyboxTextures[0]);
+    const float kWorldShiftX = 0.0f;
 }
 
 // staticメンバの定義
@@ -355,6 +356,7 @@ void GamePlayScene::Initialize() {
         enemyGroups_[g].centerX = distX(randomEngine_);
         enemyGroups_[g].centerY = distY(randomEngine_);
         enemyGroups_[g].centerZ = 250.0f + (float)g * 300.0f; // 250m, 550m, 850m
+        enemyGroups_[g].centerRailProgress = enemyGroups_[g].centerZ; // レール空間でも同じ初期値
     }
 
     for (int i = 0; i < kMaxEnemies; ++i) {
@@ -375,15 +377,14 @@ void GamePlayScene::Initialize() {
         enemies_.push_back(enemy);
     }
 
-    // 初期フォーメーション位置の適用
-    for (int g = 0; g < kNumGroups; ++g) {
-        ApplyGroupFormation(g);
+    // 最初はすべての小隊メンバーを生存（Alive）にして初期フォーメーション位置を適用
+    // (Z距離がそれぞれ 250m, 550m に分散されます)
+    for (int i = 0; i < kMaxEnemies; ++i) {
+        enemies_[i].isAlive = true;
     }
-
-    // 最初はすべてのグループをアクティブ化して配置 (Z距離がそれぞれ分散されます)
     activeGroupIndex_ = 0;
     for (int g = 0; g < kNumGroups; ++g) {
-        RespawnEnemyGroup(g, fighterWorldZ_);
+        ApplyGroupFormation(g);
     }
 
     // ── ビル(Building)の初期化とバッファ生成 ──
@@ -704,6 +705,7 @@ void GamePlayScene::Initialize() {
     bossTime_ = 0.0f;
     StartPhaseIntro(1);
 
+    /*
     // 現在の配置をBlender用にファイル出力する
     std::ofstream layoutFile("Resources/scene_layout.txt");
     if (layoutFile.is_open()) {
@@ -738,6 +740,172 @@ void GamePlayScene::Initialize() {
             }
         }
         layoutFile.close();
+    }
+    */
+
+    // ── scene_layout.txt のインポート処理 ──
+    std::ifstream layoutInFile("Resources/scene_layout.txt");
+    if (layoutInFile.is_open()) {
+        // すべてのビルを一旦クリア (floors = 0 にして描画を無効化)
+        for (int i = 0; i < kMaxBuildings; ++i) {
+            buildings_[i].floors = 0;
+            buildings_[i].isDestroyed = false;
+        }
+
+        // すべての敵を一旦非アクティブ化
+        for (int i = 0; i < kMaxEnemies; ++i) {
+            enemies_[i].isAlive = false;
+        }
+
+        // すべての床を一旦画面外へ（描画非表示用）および回転クリア
+        for (int i = 0; i < kNumFloors; ++i) {
+            floorPositions_[i] = { 0.0f, -10000.0f, 0.0f };
+            floorRotations_[i] = { 0.0f, 0.0f, 0.0f };
+        }
+
+        waypoints_.clear();
+
+        std::string line;
+        int buildingCount = 0;
+        int enemyCount = 0;
+        int floorCount = 0;
+
+        while (std::getline(layoutInFile, line)) {
+            if (line.empty()) continue;
+            std::stringstream ss(line);
+            std::string type;
+            std::getline(ss, type, ',');
+
+            if (type == "BUILDING") {
+                std::string s_gx, s_gy, s_gz, s_sx, s_sy, s_sz, s_rx, s_ry, s_rz;
+                std::getline(ss, s_gx, ',');
+                std::getline(ss, s_gy, ',');
+                std::getline(ss, s_gz, ',');
+                std::getline(ss, s_sx, ',');
+                std::getline(ss, s_sy, ',');
+                std::getline(ss, s_sz, ',');
+                std::getline(ss, s_rx, ',');
+                std::getline(ss, s_ry, ',');
+                std::getline(ss, s_rz, ',');
+
+                float gx = std::stof(s_gx);
+                float gy = std::stof(s_gy);
+                float gz = std::stof(s_gz);
+                float sx = std::stof(s_sx);
+                float sz = std::stof(s_sz);
+                float rx = s_rx.empty() ? 0.0f : std::stof(s_rx);
+                float ry = s_ry.empty() ? 0.0f : std::stof(s_ry);
+                float rz = s_rz.empty() ? 0.0f : std::stof(s_rz);
+
+                // 既にずれている座標と比較するため、読み込んだ gx にも kWorldShiftX を加算
+                float shiftedGx = gx + kWorldShiftX;
+                int foundIdx = -1;
+                for (int i = 0; i < buildingCount; ++i) {
+                    if (std::abs(buildings_[i].position.x - shiftedGx) < 1.0f &&
+                        std::abs(buildings_[i].position.z - gz) < 1.0f) {
+                        foundIdx = i;
+                        break;
+                    }
+                }
+
+                if (foundIdx != -1) {
+                    buildings_[foundIdx].floors++;
+                    buildings_[foundIdx].originalFloors = buildings_[foundIdx].floors;
+                } else if (buildingCount < kMaxBuildings) {
+                    Building b;
+                    b.position = { shiftedGx, -20.0f, gz }; // 底面を基準高さ -20.0f
+                    b.scale = { sx, 10.0f, sz };     
+                    b.rotate = { rx, ry, rz };
+                    b.floors = 1;
+                    b.originalX = shiftedGx;
+                    b.originalY = -20.0f;
+                    b.originalFloors = 1;
+                    b.isDestroyed = false;
+                    b.velocity = { 0.0f, 0.0f, 0.0f };
+                    b.rotationSpeed = { 0.0f, 0.0f, 0.0f };
+                    b.destroyTimer = 0.0f;
+
+                    buildings_[buildingCount] = b;
+                    buildingCount++;
+                }
+            } else if (type == "ENEMY") {
+                std::string s_gx, s_gy, s_gz;
+                std::getline(ss, s_gx, ',');
+                std::getline(ss, s_gy, ',');
+                std::getline(ss, s_gz, ',');
+
+                float gx = std::stof(s_gx);
+                float gy = std::stof(s_gy);
+                float gz = std::stof(s_gz);
+
+                if (enemyCount < kMaxEnemies) {
+                    enemies_[enemyCount].position = { gx + kWorldShiftX, gy, gz };
+                    enemies_[enemyCount].isAlive = true;
+                    enemies_[enemyCount].hp = 3.0f;
+                    enemies_[enemyCount].radius = 3.8f;
+                    enemyCount++;
+                }
+            } else if (type == "FLOOR") {
+                std::string s_gx, s_gy, s_gz;
+                std::getline(ss, s_gx, ',');
+                std::getline(ss, s_gy, ',');
+                std::getline(ss, s_gz, ',');
+
+                // 不要なスケールやダミー回転を読み飛ばす (300.0, 1.0, 200.0, 0.0, 0.0, 0.0)
+                std::string dummy;
+                for (int d = 0; d < 6; ++d) {
+                    std::getline(ss, dummy, ',');
+                }
+
+                std::string s_rx, s_ry, s_rz;
+                std::getline(ss, s_rx, ',');
+                std::getline(ss, s_ry, ',');
+                std::getline(ss, s_rz, ',');
+
+                float gx = std::stof(s_gx);
+                float gy = std::stof(s_gy);
+                float gz = std::stof(s_gz);
+                float rx = s_rx.empty() ? 0.0f : std::stof(s_rx);
+                float ry = s_ry.empty() ? 0.0f : std::stof(s_ry);
+                float rz = s_rz.empty() ? 0.0f : std::stof(s_rz);
+
+                if (floorCount < kNumFloors) {
+                    floorPositions_[floorCount] = { gx + kWorldShiftX, gy, gz };
+                    floorRotations_[floorCount] = { rx, ry, rz };
+                    floorCount++;
+                }
+            } else if (type == "WAYPOINT") {
+                std::string s_gx, s_gy, s_gz;
+                std::getline(ss, s_gx, ',');
+                std::getline(ss, s_gy, ',');
+                std::getline(ss, s_gz, ',');
+
+                float gx = std::stof(s_gx);
+                float gy = std::stof(s_gy);
+                float gz = std::stof(s_gz);
+
+                waypoints_.push_back({ gx + kWorldShiftX, gy, gz });
+            }
+        }
+        layoutInFile.close();
+    }
+
+    if (waypoints_.empty()) {
+        for (float z = 0.0f; z <= 10000.0f; z += 10.0f) {
+            waypoints_.push_back({ kWorldShiftX, -20.0f, z });
+        }
+    }
+
+    // ── 累積距離（アークレングス）の事前計算 ──
+    waypointDistances_.clear();
+    if (!waypoints_.empty()) {
+        waypointDistances_.resize(waypoints_.size());
+        waypointDistances_[0] = 0.0f;
+        for (size_t i = 1; i < waypoints_.size(); ++i) {
+            Vector3 diff = Subtract(waypoints_[i], waypoints_[i - 1]);
+            float dist = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+            waypointDistances_[i] = waypointDistances_[i - 1] + dist;
+        }
     }
 
     // ── デモ用データの初期化 ──
@@ -961,7 +1129,7 @@ void GamePlayScene::Update() {
             if (bossLegSwingSpeed_ > 0.0f) {
                 bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
             }
-            Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+            Vector3 bossPos = GetBossPosition(bodyBounce);
             
             // 弾の速度ベクトル (ボスへ向かう方向)
             Vector3 dir = Normalize(Subtract(bossPos, defeatBulletPos_));
@@ -988,7 +1156,7 @@ void GamePlayScene::Update() {
             if (bossLegSwingSpeed_ > 0.0f) {
                 bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
             }
-            Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+            Vector3 bossPos = GetBossPosition(bodyBounce);
             
             // 衝突判定 (ボスの衝突半径または弾がボスを追い抜いたか)
             Vector3 diff = Subtract(defeatBulletPos_, bossPos);
@@ -1169,7 +1337,7 @@ void GamePlayScene::Update() {
                 audio_->PlayWave(jumpSE_, false, 2.0f); // 大音量で着地SE
             }
             // 土煙パーティクル
-            Vector3 landPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+            Vector3 landPos = GetBossPosition(0.0f);
             for (int k = 0; k < 12; ++k) {
                 particleManager_->EmitHit(landPos);
             }
@@ -1195,7 +1363,7 @@ void GamePlayScene::Update() {
             }
             
             // ボス位置から赤い高威力エネルギー衝撃波群を大放出
-            Vector3 bossPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+            Vector3 bossPos = GetBossPosition(0.0f);
             
             // 巨大衝撃波リング＆シリンダー
             particleManager_->EmitMegaRing(bossPos, {1.0f, 0.1f, 0.1f});
@@ -1213,12 +1381,13 @@ void GamePlayScene::Update() {
             // 激しい火花
             particleManager_->EmitCustomSparks(bossPos, 90.0f, 50, { 1.0f, 0.4f, 0.1f }, 1.5f);
 
-            // 周囲のビルを衝撃波で吹き飛ばす
-            float roarZ = fighterWorldZ_ + bossZOffset_;
+            // 周囲のビルを衝撃波で吹き飛ばす（3Dのワールド直線距離で判定し、曲がり角での一斉消滅を防止）
+            Vector3 roarPos = GetBossPosition(0.0f, 0.0f, 0.0f);
             for (int i = 0; i < kMaxBuildings; ++i) {
                 if (!buildings_[i].isDestroyed) {
-                    float dz = buildings_[i].position.z - roarZ;
-                    if (std::abs(dz) < 250.0f) {
+                    Vector3 diff = Subtract(buildings_[i].position, roarPos);
+                    float distSq = diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
+                    if (distSq < 180.0f * 180.0f) { // 180m 以内のビルを吹き飛ばす
                         buildings_[i].isDestroyed = true;
                         buildings_[i].destroyTimer = 0.0f;
                         
@@ -1270,8 +1439,11 @@ void GamePlayScene::Update() {
             static int emitCounter = 0;
             emitCounter++;
             if (emitCounter % 3 == 0) {
-                Vector3 bossPos = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
-                Vector3 mouthPos = { bossPos.x, bossPos.y + 6.0f, bossPos.z - 22.0f };
+                Vector3 bossPos = GetBossPosition(0.0f);
+                float bossProgress = fighterWorldZ_ + bossZOffset_;
+                Vector3 bossRailDir = GetRailDirection(bossProgress);
+                Vector3 bossRailUp = Cross(bossRailDir, Normalize(Vector3{ -bossRailDir.z, 0.0f, bossRailDir.x }));
+                Vector3 mouthPos = Add(bossPos, Add(Scale(bossRailUp, 6.0f), Scale(bossRailDir, -22.0f)));
                 particleManager_->EmitFlame(mouthPos, 70.0f, 6, { 1.0f, 0.1f, 0.1f });
                 particleManager_->EmitCustomSparks(mouthPos, 80.0f, 10, { 1.0f, 0.5f, 0.1f }, 1.0f);
             }
@@ -1585,6 +1757,12 @@ void GamePlayScene::Update() {
             currentPhase_ = GamePhase::kBossFight;
             bossAppearanceTimer_ = 5.0f; // ボス登場演出（落下）開始（5.0秒）
             phaseTimer_ = 0.0f;          // 通常フェーズのタイマーをリセット
+            bossZOffset_ = 169.0f;       // ボスZオフセットを初期位置にリセット
+            bossTime_ = 0.0f;            // ボスタイマーのリセット
+            isBossLanded_ = false;       // 着地フラグのリセット
+            isBossRoared_ = false;       // 咆哮フラグのリセット
+            bossActionState_ = BossActionState::kIdle; // アクションステートのリセット
+            bossActionTimer_ = 0.0f;     // アクションタイマーのリセット
         }
     }
 
@@ -1687,18 +1865,21 @@ void GamePlayScene::Update() {
         }
 
         // ── 2. カメラは等速追従（直接代入）をベースにしつつ、ブースト時はG遅延（最大120m）を適用 ──
+        float currentDist = 65.0f;
         if (isBoosting_) {
             // バレルロール進行度を正弦波（0〜1〜0）にマップしてカメラを後方に引き離す
             float t = barrelRollTimer_ / kBarrelRollDuration;
             float wave = std::sin(t * static_cast<float>(M_PI));
 
             // ブースト時カメラ引き離しG演出（通常65m ➔ 最大120m引き離す）
-            float currentDist = 65.0f + wave * 55.0f;
-            camTrans.translate.z = fighterWorldZ_ - currentDist;
-        } else {
-            // 通常時はプレイヤーと完全に等速（遅延lerpなしの直接代入）
-            camTrans.translate.z = fighterWorldZ_ - 65.0f;
+            currentDist = 65.0f + wave * 55.0f;
         }
+
+        float camProgress = fighterWorldZ_ - currentDist;
+        Vector3 camRailPos = GetRailPosition(camProgress);
+        Vector3 camRailDir = GetRailDirection(camProgress);
+        Vector3 camRailRight = CalculateRailRight(camRailDir);
+        Vector3 camRailUp = CalculateRailUp(camRailDir, camRailRight);
 
         // ── 3. 自機の横/縦移動（画面内相対）─────────────────────────
         if (fighterModel_) {
@@ -1720,33 +1901,84 @@ void GamePlayScene::Update() {
             fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -playerLimitX_, playerLimitX_);
             fighterModel_->transform.translate.y = std::clamp(fighterModel_->transform.translate.y, -playerLimitY_, playerLimitY_);
 
+            // ── プレイヤーのワールド座標（Z はfighterWorldZ_を直接使う）──
+            Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
+            Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
+            Vector3 playerRailRight = CalculateRailRight(playerRailDir);
+            Vector3 playerRailUp = CalculateRailUp(playerRailDir, playerRailRight);
+
+            // 基準高さは路面 -20.0f からプレイヤーは通常 -3.0f (つまり相対 +17.0f)
+            float playerOffsetUp = fighterModel_->transform.translate.y + 17.0f;
+            Vector3 fighterWorldPos = Add(playerRailPos, Add(Scale(playerRailRight, fighterModel_->transform.translate.x), Scale(playerRailUp, playerOffsetUp)));
+
             // スターフォックス風のカメラX/Y追従
             float cameraLag = 0.08f;
             float targetCamX = fighterModel_->transform.translate.x * 0.5f;
             float targetCamY = fighterModel_->transform.translate.y * 0.5f;
-            camTrans.translate.x = std::lerp(camTrans.translate.x, targetCamX, cameraLag);
-            camTrans.translate.y = std::lerp(camTrans.translate.y, targetCamY, cameraLag);
+            camRelativeX_ = std::lerp(camRelativeX_, targetCamX, cameraLag);
+            camRelativeY_ = std::lerp(camRelativeY_, targetCamY, cameraLag);
 
-            // ── Star Fox / Ex-Zodiac 風のダイナミックなカメラの首振り（ピッチ・ヨー・ロール） ──
-            float targetCamRotateY = fighterModel_->transform.translate.x * 0.003f;
-            float targetCamRotateX = -fighterModel_->transform.translate.y * 0.003f;
-            
-            float targetCamRotateZ = -inputDir.x * 0.03f;
-            if (isBarrelRolling_) {
-                float rollT = barrelRollTimer_ / kBarrelRollDuration;
-                targetCamRotateZ += std::sin(rollT * static_cast<float>(M_PI)) * 0.15f;
+            // カメラの目標位置を計算
+            // 基準高さは路面 -20.0f から通常 +6.0f (つまり相対 +26.0f)
+            float camOffsetUp = camRelativeY_ + 26.0f;
+            Vector3 targetCamPos = Add(camRailPos, Add(Scale(camRailRight, camRelativeX_), Scale(camRailUp, camOffsetUp)));
+
+            // カメラ位置のスムーズ追従 (Smooth Follow)
+            float posLerpFactor = 0.08f;
+            Vector3 camDiff = Subtract(targetCamPos, camTrans.translate);
+            float camDistSq = camDiff.x * camDiff.x + camDiff.y * camDiff.y + camDiff.z * camDiff.z;
+            if (camDistSq > 10000.0f) { // 100m以上離れている場合は即座にワープ
+                camTrans.translate = targetCamPos;
+            } else {
+                camTrans.translate = Lerp(camTrans.translate, targetCamPos, posLerpFactor);
             }
 
-            camTrans.rotate.x = std::lerp(camTrans.rotate.x, targetCamRotateX, 0.08f);
-            camTrans.rotate.y = std::lerp(camTrans.rotate.y, targetCamRotateY, 0.08f);
-            camTrans.rotate.z = std::lerp(camTrans.rotate.z, targetCamRotateZ, 0.08f);
+            // ── カメラの注視ターゲット（LookAhead & LookAt）の計算 ──
+            // プレイヤーの少し先（20.0m 先）を注視点とする
+            float lookAheadDist = 20.0f;
+            Vector3 lookAheadTarget = Add(fighterWorldPos, Scale(playerRailDir, lookAheadDist));
+            // プレイヤーの少し上（5.0m 上）を狙う
+            Vector3 cameraTarget = Add(lookAheadTarget, Scale(playerRailUp, 5.0f));
 
-            // ── プレイヤーのワールド座標（Z はfighterWorldZ_を直接使う）──
-            Vector3 fighterWorldPos = {
-                camTrans.translate.x + fighterModel_->transform.translate.x,
-                camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
-                fighterWorldZ_   // ← カメラZ+固定オフセットではなく、独立Z座標を使用
-            };
+            // カメラの現在位置から注視ターゲットへの方向ベクトル
+            Vector3 lookDir = Subtract(cameraTarget, camTrans.translate);
+            float lookDist = std::sqrt(lookDir.x * lookDir.x + lookDir.y * lookDir.y + lookDir.z * lookDir.z);
+            if (lookDist > 0.001f) {
+                lookDir = Scale(lookDir, 1.0f / lookDist);
+            } else {
+                lookDir = camRailDir; // フォールバック
+            }
+
+            // 方向ベクトルからオイラー角を計算
+            float baseCamRotY = -std::atan2(lookDir.x, lookDir.z);
+            float baseCamRotX = std::atan2(-lookDir.y, std::sqrt(lookDir.x * lookDir.x + lookDir.z * lookDir.z));
+
+            float targetCamRotateY = fighterModel_->transform.translate.x * 0.003f;
+            float targetCamRotateX = -fighterModel_->transform.translate.y * 0.003f;
+
+            float targetRotY = baseCamRotY + targetCamRotateY;
+            float targetRotX = baseCamRotX + targetCamRotateX;
+
+            // カメラの回転角のスムーズ首振り（最短角度差による補間）
+            float rotLerpFactor = 0.15f;
+
+            float diffY = targetRotY - camTrans.rotate.y;
+            while (diffY < -static_cast<float>(M_PI)) diffY += 2.0f * static_cast<float>(M_PI);
+            while (diffY > static_cast<float>(M_PI)) diffY -= 2.0f * static_cast<float>(M_PI);
+            camTrans.rotate.y += diffY * rotLerpFactor;
+
+            float diffX = targetRotX - camTrans.rotate.x;
+            while (diffX < -static_cast<float>(M_PI)) diffX += 2.0f * static_cast<float>(M_PI);
+            while (diffX > static_cast<float>(M_PI)) diffX -= 2.0f * static_cast<float>(M_PI);
+            camTrans.rotate.x += diffX * rotLerpFactor;
+
+            // ロール回転は入力とバレルロールに追従
+            float targetRotZ = -inputDir.x * 0.03f;
+            if (isBarrelRolling_) {
+                float rollT = barrelRollTimer_ / kBarrelRollDuration;
+                targetRotZ += std::sin(rollT * static_cast<float>(M_PI)) * 0.15f;
+            }
+            camTrans.rotate.z = std::lerp(camTrans.rotate.z, targetRotZ, rotLerpFactor);
 
             // ── 4. バレルロール開始（LSHIFTのブースト切り替え時に連動） ──
 
@@ -1775,13 +2007,43 @@ void GamePlayScene::Update() {
             }
 
             fighterModel_->transform.rotate.z = rollAngle;
-            fighterModel_->transform.rotate.x = playerRotationPitch_;
 
-            fighterTransformData_->World = MakeAffineMatrix(
-                fighterModel_->transform.scale,
-                fighterModel_->transform.rotate,
-                fighterWorldPos
-            );
+            // 機体自体の向きをレールの進行方向に滑らかに合わせる
+            float basePlayerRotY = std::atan2(playerRailDir.x, playerRailDir.z);
+            float basePlayerRotX = std::atan2(-playerRailDir.y, std::sqrt(playerRailDir.x * playerRailDir.x + playerRailDir.z * playerRailDir.z));
+
+            // 進行方向に向かせるための回転角（符号を反転して180度オフセット）
+            float targetPlayerRotY = -basePlayerRotY + static_cast<float>(M_PI);
+            float diffPlayerY = targetPlayerRotY - fighterModel_->transform.rotate.y;
+            while (diffPlayerY < -static_cast<float>(M_PI)) diffPlayerY += 2.0f * static_cast<float>(M_PI);
+            while (diffPlayerY > static_cast<float>(M_PI)) diffPlayerY -= 2.0f * static_cast<float>(M_PI);
+            fighterModel_->transform.rotate.y += diffPlayerY * 0.15f;
+
+            // ピッチはレールの傾きを除いた入力分のみ
+            float targetPlayerRotX = playerRotationPitch_;
+            float diffPlayerX = targetPlayerRotX - fighterModel_->transform.rotate.x;
+            while (diffPlayerX < -static_cast<float>(M_PI)) diffPlayerX += 2.0f * static_cast<float>(M_PI);
+            while (diffPlayerX > static_cast<float>(M_PI)) diffPlayerX -= 2.0f * static_cast<float>(M_PI);
+            fighterModel_->transform.rotate.x += diffPlayerX * 0.15f;
+
+            // レールに沿った回転行列を構築 (r = playerRailRight, u = playerRailUp, d = playerRailDir)
+            Matrix4x4 R_rail = MakeIdentity4x4();
+            R_rail.m[0][0] = playerRailRight.x; R_rail.m[0][1] = playerRailRight.y; R_rail.m[0][2] = playerRailRight.z;
+            R_rail.m[1][0] = playerRailUp.x;    R_rail.m[1][1] = playerRailUp.y;    R_rail.m[1][2] = playerRailUp.z;
+            R_rail.m[2][0] = playerRailDir.x;   R_rail.m[2][1] = playerRailDir.y;   R_rail.m[2][2] = playerRailDir.z;
+
+            // モデルのローカル回転 (Z:ロール -> X:ピッチ -> Y:180度反転)
+            Matrix4x4 rotateY = MakeRotateYMatrix(static_cast<float>(M_PI));
+            Matrix4x4 rotateX = MakeRotateXMatrix(playerRotationPitch_);
+            Matrix4x4 rotateZ = MakeRotateZMatrix(rollAngle);
+            Matrix4x4 R_local = Multiply(Multiply(rotateZ, rotateX), rotateY);
+
+            // 最終姿勢行列の算出とワールド行列の組み立て
+            Matrix4x4 R_final = Multiply(R_local, R_rail);
+            Matrix4x4 scaleMatrix = MakeScaleMatrix(fighterModel_->transform.scale);
+            Matrix4x4 translateMatrix = MakeTranslateMatrix(fighterWorldPos);
+            fighterTransformData_->World = Multiply(Multiply(scaleMatrix, R_final), translateMatrix);
+
 
             // ── ボス登場演出中のカメラワーク上書き ──
             if (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f) {
@@ -1793,7 +2055,13 @@ void GamePlayScene::Update() {
                     float appRate = t / 1.8f;
                     dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
                 }
-                Vector3 bossDropPos = { 0.0f, bossYOffset_ + dropOffset, fighterWorldZ_ + bossZOffset_ };
+                Vector3 bossDropPos = GetBossPosition(0.0f, dropOffset);
+
+                // カメラ演出用のレール姿勢の事前計算
+                Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
+                Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
+                Vector3 playerRailRight = CalculateRailRight(playerRailDir);
+                Vector3 playerRailUp = CalculateRailUp(playerRailDir, playerRailRight);
 
                 Vector3 camPos{};
                 Vector3 camRot{};
@@ -1810,10 +2078,10 @@ void GamePlayScene::Update() {
                     float t_phase1 = t / 1.8f;
                     float easedT = t_phase1 * t_phase1 * (3.0f - 2.0f * t_phase1); // Smoothstep
 
-                    // 開始位置（戦闘機背後）
-                    Vector3 startPos = { targetCamX, targetCamY, fighterWorldZ_ - 65.0f };
-                    // 目標位置（地面近く、以前の完璧な見上げアングル）
-                    Vector3 targetPos = { 0.0f, -16.0f, fighterWorldZ_ - 15.0f };
+                    // 開始位置（戦闘機背後、レール追従）
+                    Vector3 startPos = Add(playerRailPos, Add(Scale(playerRailRight, targetCamX), Add(Scale(playerRailUp, targetCamY + 26.0f), Scale(playerRailDir, -65.0f))));
+                    // 目標位置（地面近く、レール追従）
+                    Vector3 targetPos = Add(playerRailPos, Add(Scale(playerRailUp, 4.0f), Scale(playerRailDir, -15.0f)));
 
                     camPos = {
                         std::lerp(startPos.x, targetPos.x, easedT),
@@ -1834,11 +2102,17 @@ void GamePlayScene::Update() {
                     // Y高さ: ボスの上空 (+30.0f) から、らせんの終端高さ (+45.0f) へ徐々に上昇させる
                     float camY = bossDropPos.y + 30.0f + (15.0f * easedT);
 
+                    // レールのローカル軸を取得して、らせん公転位置をレール系で計算
+                    float bossProgress = fighterWorldZ_ + bossZOffset_;
+                    Vector3 bossRailDir = GetRailDirection(bossProgress);
+                    Vector3 bossRailRight = Normalize(Vector3{ bossRailDir.z, 0.0f, -bossRailDir.x });
+                    Vector3 bossRailUp = Cross(bossRailDir, bossRailRight);
+
                     // カメラの本来の公転位置
-                    Vector3 orbitPos{};
-                    orbitPos.x = bossDropPos.x - std::sin(yawAngle) * dist;
-                    orbitPos.y = camY;
-                    orbitPos.z = bossDropPos.z - std::cos(yawAngle) * dist;
+                    Vector3 orbitPos = Add(bossDropPos, Add(
+                        Scale(bossRailRight, -std::sin(yawAngle) * dist),
+                        Add(Scale(bossRailUp, 30.0f + (15.0f * easedT)), Scale(bossRailDir, -std::cos(yawAngle) * dist))
+                    ));
 
                     // 1.8s切り替え時のワープを防ぐため、フェーズ1の終了位置からのスムーズなブレンド接続 (最初の0.8秒)
                     float blendDuration = 0.8f;
@@ -1847,8 +2121,8 @@ void GamePlayScene::Update() {
                         float blendRate = elapsedInPhase2 / blendDuration;
                         float easedBlend = blendRate * blendRate * (3.0f - 2.0f * blendRate); // Smoothstep
 
-                        // フェーズ1の終了位置（地面近く）
-                        Vector3 lastPos = { 0.0f, -16.0f, fighterWorldZ_ - 15.0f };
+                        // フェーズ1の終了位置（地面近く、レール追従）
+                        Vector3 lastPos = Add(playerRailPos, Add(Scale(playerRailUp, 4.0f), Scale(playerRailDir, -15.0f)));
                         camPos = {
                             std::lerp(lastPos.x, orbitPos.x, easedBlend),
                             std::lerp(lastPos.y, orbitPos.y, easedBlend),
@@ -1868,12 +2142,17 @@ void GamePlayScene::Update() {
                     float easedT = t_phase3 * t_phase3 * (3.0f - 2.0f * t_phase3); // Smoothstep
 
                     // 4.0s時点のボス位置（着地状態のでdropOffset=0）
-                    Vector3 bossDropPos35 = { 0.0f, bossYOffset_, fighterWorldZ_ + bossZOffset_ };
+                    Vector3 bossDropPos35 = GetBossPosition(0.0f);
                     
-                    // 旋回完了時の位置（ボスの後方上空、らせんの終端高さ 45.0f に合わせる）
-                    Vector3 startPos = { bossDropPos35.x, bossDropPos35.y + 45.0f, bossDropPos35.z - dist };
-                    // 通常位置（戦闘機背後）
-                    Vector3 targetPos = { targetCamX, targetY, fighterWorldZ_ - 65.0f };
+                    float bossProgress = fighterWorldZ_ + bossZOffset_;
+                    Vector3 bRailDir = GetRailDirection(bossProgress);
+                    Vector3 bRailRight = CalculateRailRight(bRailDir);
+                    Vector3 bRailUp = CalculateRailUp(bRailDir, bRailRight);
+
+                    // 旋回完了時の位置（ボスの後方上空、らせんの終端高さ 45.0f に合わせる、レール追従）
+                    Vector3 startPos = Add(bossDropPos35, Add(Scale(bRailDir, -dist), Scale(bRailUp, 45.0f)));
+                    // 通常位置（戦闘機背後、レール追従）
+                    Vector3 targetPos = Add(playerRailPos, Add(Scale(playerRailRight, targetCamX), Add(Scale(playerRailUp, targetY + 26.0f), Scale(playerRailDir, -65.0f))));
 
                     camPos = {
                         std::lerp(startPos.x, targetPos.x, easedT),
@@ -1891,15 +2170,30 @@ void GamePlayScene::Update() {
                     // 角度計算：ボスのLookAtから通常カメラの首振り角度へ補間
                     Vector3 dir = Subtract(bossDropPos, camPos);
                     Vector3 dirNorm = Normalize(dir);
-                    float lookRotY = std::asin(std::clamp(dirNorm.x, -1.0f, 1.0f));
-                    float lookRotX = std::atan2(-dirNorm.y, dirNorm.z);
+                    float lookRotY = -std::atan2(dirNorm.x, dirNorm.z); // 符号をマイナスに修正
+                    float lookRotX = std::atan2(-dirNorm.y, std::sqrt(dirNorm.x * dirNorm.x + dirNorm.z * dirNorm.z));
 
-                    float targetCamRotateY = fighterModel_ ? fighterModel_->transform.translate.x * 0.003f : 0.0f;
-                    float targetCamRotateX = fighterModel_ ? -fighterModel_->transform.translate.y * 0.003f : 0.0f;
+                    // レール進行方向のベース角度
+                    float baseCamRotY = -std::atan2(playerRailDir.x, playerRailDir.z); // 符号をマイナスに修正
+                    float baseCamRotX = std::atan2(-playerRailDir.y, std::sqrt(playerRailDir.x * playerRailDir.x + playerRailDir.z * playerRailDir.z));
+
+                    float targetCamRotateY = baseCamRotY + (fighterModel_ ? fighterModel_->transform.translate.x * 0.003f : 0.0f);
+                    float targetCamRotateX = baseCamRotX + (fighterModel_ ? -fighterModel_->transform.translate.y * 0.003f : 0.0f);
 
                     float blendT = easedT * easedT; // 最後に向けて急激に通常カメラ角度に戻す
-                    camRot.x = std::lerp(lookRotX, targetCamRotateX, blendT);
-                    camRot.y = std::lerp(lookRotY, targetCamRotateY, blendT);
+
+                    // ヨー角 (Y) の差分を [-PI, PI] にクランプして最短経路で補間
+                    float diffRotY = targetCamRotateY - lookRotY;
+                    while (diffRotY < -static_cast<float>(M_PI)) diffRotY += 2.0f * static_cast<float>(M_PI);
+                    while (diffRotY > static_cast<float>(M_PI)) diffRotY -= 2.0f * static_cast<float>(M_PI);
+                    camRot.y = lookRotY + diffRotY * blendT;
+
+                    // ピッチ角 (X) の差分を [-PI, PI] にクランプして最短経路で補間
+                    float diffRotX = targetCamRotateX - lookRotX;
+                    while (diffRotX < -static_cast<float>(M_PI)) diffRotX += 2.0f * static_cast<float>(M_PI);
+                    while (diffRotX > static_cast<float>(M_PI)) diffRotX -= 2.0f * static_cast<float>(M_PI);
+                    camRot.x = lookRotX + diffRotX * blendT;
+
                     camRot.z = 0.0f;
                 }
 
@@ -2095,13 +2389,17 @@ void GamePlayScene::Update() {
             }
 
             // ── 弾の発射（LCtrl） ────────────────────────────────────
-            Vector3 defaultReticlePos = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldPos.z + 120.0f };
+            // デフォルトのレティクル位置をレールの進行方向120m前に設定
+            Vector3 defaultReticlePos = Add(fighterWorldPos, Scale(playerRailDir, 120.0f));
 
             float bestDist2D = 30.0f;
             Enemy* lockedEnemy = nullptr;
             for (auto& enemy : enemies_) {
                 if (!enemy.isAlive) continue;
-                if (enemy.position.z > fighterWorldPos.z) {
+                // レールの進行方向に対して「前方」にいる敵のみロックオン対象
+                Vector3 toEnemy = Subtract(enemy.position, fighterWorldPos);
+                float forwardDot = toEnemy.x * playerRailDir.x + toEnemy.y * playerRailDir.y + toEnemy.z * playerRailDir.z;
+                if (forwardDot > 0.0f) {
                     float dx = enemy.position.x - fighterWorldPos.x;
                     float dy = enemy.position.y - fighterWorldPos.y;
                     float dist2D = std::sqrt(dx * dx + dy * dy);
@@ -2121,8 +2419,9 @@ void GamePlayScene::Update() {
             // ボス登場演出中は射撃を禁止
             bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
             if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_ && !isBossIntro) {
-                Vector3 leftWing  = { fighterWorldPos.x - 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
-                Vector3 rightWing = { fighterWorldPos.x + 2.5f, fighterWorldPos.y + 0.8f, fighterWorldPos.z };
+                // 翼の発射位置をレールのright/up方向で計算
+                Vector3 leftWing  = Add(fighterWorldPos, Add(Scale(playerRailRight, -2.5f), Scale(playerRailUp, 0.8f)));
+                Vector3 rightWing = Add(fighterWorldPos, Add(Scale(playerRailRight,  2.5f), Scale(playerRailUp, 0.8f)));
 
                 Vector3 dirLeft  = Normalize({ reticlePos.x - leftWing.x,  reticlePos.y - leftWing.y,  reticlePos.z - leftWing.z });
                 Vector3 dirRight = Normalize({ reticlePos.x - rightWing.x, reticlePos.y - rightWing.y, reticlePos.z - rightWing.z });
@@ -2162,7 +2461,7 @@ void GamePlayScene::Update() {
                 if (bossLegSwingSpeed_ > 0.0f) {
                     bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
                 }
-                Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + dropOffset, fighterWorldZ_ + bossZOffset_ };
+                Vector3 bossPos = GetBossPosition(bodyBounce, dropOffset);
                 Vector3 diff = Subtract(fighterWorldPos, bossPos);
                 float dist = Length(diff);
                 if (dist <= (bossCollisionRadius_ + playerCollisionRadius_)) { // 自機半径
@@ -2238,7 +2537,7 @@ void GamePlayScene::Update() {
                 if (bossLegSwingSpeed_ > 0.0f) {
                     bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
                 }
-                Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + dropOffset, fighterWorldZ_ + bossZOffset_ };
+                Vector3 bossPos = GetBossPosition(bodyBounce, dropOffset);
 
                 Vector3 diff = Subtract(playerBullets_[i].position, bossPos);
                 float dist = Length(diff);
@@ -2300,7 +2599,7 @@ void GamePlayScene::Update() {
 }
 
     // ── 蜘蛛ボス（Big Spider）の攻撃AIと攻撃更新 ──
-    if (currentPhase_ == GamePhase::kBossFight && !isBossDefeatedSequence_) {
+    if (currentPhase_ == GamePhase::kBossFight && !isBossDefeatedSequence_ && bossAppearanceTimer_ <= 0.0f) {
         bossActionTimer_ += kDeltaTime;
 
         // 攻撃周期：2.5秒ごとに攻撃を切り替える（高速化）
@@ -2325,10 +2624,11 @@ void GamePlayScene::Update() {
                 bossZOffset_ = std::lerp(169.0f, 65.0f, t);
                 hasShaken = false; // 振りかぶりフェーズではシェイクフラグをリセット
                 
-                // 振りかぶり中にプレイヤーの位置を追従し、ターゲットエリアを決定
-                if (fighterWorldPos.x < -15.0f) {
+                // 振りかぶり中にプレイヤーの位置を追従し、ターゲットエリアを決定（レールローカル横位置で判定するように修正）
+                float playerLocalX = fighterModel_ ? fighterModel_->transform.translate.x : 0.0f;
+                if (playerLocalX < -15.0f) {
                     bossAttackTargetArea_ = 0; // 左
-                } else if (fighterWorldPos.x > 15.0f) {
+                } else if (playerLocalX > 15.0f) {
                     bossAttackTargetArea_ = 2; // 右
                 } else {
                     bossAttackTargetArea_ = 1; // 中央
@@ -2380,7 +2680,16 @@ void GamePlayScene::Update() {
                 float targetX = 0.0f;
                 if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                 else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                Vector3 warningPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+
+                // ターゲット位置のレール座標系を算出
+                float targetProgress = fighterWorldZ_ + 65.0f;
+                Vector3 targetRailPos = GetRailPosition(targetProgress);
+                Vector3 targetRailDir = GetRailDirection(targetProgress);
+                Vector3 targetRailRight = Normalize(Vector3{ targetRailDir.z, 0.0f, -targetRailDir.x });
+                Vector3 targetRailUp = Cross(targetRailDir, targetRailRight);
+                float targetRelY = bossYOffset_ + 14.0f; // -20m路面に対する相対Y
+
+                Vector3 warningPos = Add(targetRailPos, Add(Scale(targetRailRight, targetX), Scale(targetRailUp, targetRelY)));
                 particleManager_->EmitLightning(warningPos, 5.0f, 1, lightningColor);
 
             } else if (bossActionTimer_ <= 5.3f) {
@@ -2395,7 +2704,15 @@ void GamePlayScene::Update() {
                 float targetX = 0.0f;
                 if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                 else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                Vector3 warningPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+
+                float targetProgress = fighterWorldZ_ + 65.0f;
+                Vector3 targetRailPos = GetRailPosition(targetProgress);
+                Vector3 targetRailDir = GetRailDirection(targetProgress);
+                Vector3 targetRailRight = Normalize(Vector3{ targetRailDir.z, 0.0f, -targetRailDir.x });
+                Vector3 targetRailUp = Cross(targetRailDir, targetRailRight);
+                float targetRelY = bossYOffset_ + 14.0f;
+
+                Vector3 warningPos = Add(targetRailPos, Add(Scale(targetRailRight, targetX), Scale(targetRailUp, targetRelY)));
                 particleManager_->EmitLightning(currentBossPos, 12.0f, 2, lightningColor);
                 particleManager_->EmitLightning(warningPos, 12.0f, 2, lightningColor);
 
@@ -2404,14 +2721,29 @@ void GamePlayScene::Update() {
                 // ─── 巨大な「1本の雷」の3フェーズタイムライン (先行微光➔本落雷➔残光明滅) ───
                 float strikeElapsed = bossActionTimer_ - 5.3f; // 激突からの経過時間
 
+                // ターゲットレール情報の準備
+                float targetProgress = fighterWorldZ_ + 65.0f;
+                Vector3 targetRailPos = GetRailPosition(targetProgress);
+                Vector3 targetRailDir = GetRailDirection(targetProgress);
+                Vector3 targetRailRight = Normalize(Vector3{ targetRailDir.z, 0.0f, -targetRailDir.x });
+                Vector3 targetRailUp = Cross(targetRailDir, targetRailRight);
+                float targetRelY = bossYOffset_ + 14.0f;
+
+                // ボス手元の電撃開始レール情報の準備
+                float bossProgress = fighterWorldZ_ + bossZOffset_;
+                Vector3 bossRailPos = GetRailPosition(bossProgress);
+                Vector3 bossRailDir = GetRailDirection(bossProgress);
+                Vector3 bossRailRight = Normalize(Vector3{ bossRailDir.z, 0.0f, -bossRailDir.x });
+                Vector3 bossRailUp = Cross(bossRailDir, bossRailRight);
+
                 if (strikeElapsed <= 0.05f) {
                     // ① 先行微光 (Leader) [0.00s 〜 0.05s / 約3フレーム]
-                    // 細く暗めの紫色の線をターゲットに向けて数本走らせる
                     float targetX = 0.0f;
                     if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                     else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                    Vector3 impactPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
-                    Vector3 lightningStart = { currentBossPos.x, currentBossPos.y - 4.0f, currentBossPos.z - 15.0f };
+
+                    Vector3 impactPos = Add(targetRailPos, Add(Scale(targetRailRight, targetX), Scale(targetRailUp, targetRelY)));
+                    Vector3 lightningStart = Add(bossRailPos, Add(Scale(bossRailUp, bossYOffset_ + 16.0f), Scale(bossRailDir, -15.0f)));
                     
                     // 暗めの紫色 (-0.18fスケールで細い枝として生成)
                     Vector3 leaderColor = { 0.35f, 0.02f, 0.5f };
@@ -2428,12 +2760,12 @@ void GamePlayScene::Update() {
 
                 } else if (strikeElapsed <= 0.10f) {
                     // ② 本落雷 (Return Stroke) [0.05s 〜 0.10s / 約3フレーム]
-                    // 地面に激突した瞬間。主幹が極太(純白コア入り)になり爆発！
                     float targetX = 0.0f;
                     if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                     else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                    Vector3 impactPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
-                    Vector3 lightningStart = { currentBossPos.x, currentBossPos.y - 4.0f, currentBossPos.z - 15.0f };
+
+                    Vector3 impactPos = Add(targetRailPos, Add(Scale(targetRailRight, targetX), Scale(targetRailUp, targetRelY)));
+                    Vector3 lightningStart = Add(bossRailPos, Add(Scale(bossRailUp, bossYOffset_ + 16.0f), Scale(bossRailDir, -15.0f)));
 
                     if (!hasShaken) {
                         cameraShakeTimer_ = 0.78f;
@@ -2442,24 +2774,26 @@ void GamePlayScene::Update() {
                         cameraShakeTimeMax_ = 0.78f;
                         hasShaken = true;
 
-                        // 地面の破片を飛び散らせる (GPUParticle放出トリガーをセット、Y座標を地面の-20.0fにする)
+                        // 地面の破片を飛び散らせる
                         triggerDebrisEmit_ = true;
-                        debrisEmitPos_ = Vector3(impactPos.x, -20.0f, impactPos.z);
+                        debrisEmitPos_ = Add(targetRailPos, Scale(targetRailRight, targetX));
 
-                        // 極太の主幹雷撃(1.6fスケール)を走らせる（内部で純白コアとまとわりつく枝が自動生成される）
+                        // 極太の主幹雷撃(1.6fスケール)を走らせる
                         particleManager_->EmitLSystemLightning(lightningStart, impactPos, 4, 1.6f, lightningColor);
 
                         // 周囲の爆発エフェクトと大音響SE
                         particleManager_->EmitCylinder(impactPos, lightningColor);
                         particleManager_->EmitRing(impactPos, lightningColor);
-                        // 灰色の石のようなスパークを放出する
                         particleManager_->EmitCustomSparks(impactPos, 25.0f, 15, { 0.5f, 0.5f, 0.5f }, 1.0f);
                         audio_->PlayWave(jumpSE_, false, 1.7f);
 
                         // ダメージ判定
+                        // レール横方向（右方向ベクトル）の内積などからプレイヤーの左右エリアを判定
+                        // 簡略化のため、プレイヤーの相対X (fighterModel_->transform.translate.x) を使用する
+                        float playerRelX = fighterModel_ ? fighterModel_->transform.translate.x : 0.0f;
                         int playerArea = 1;
-                        if (fighterWorldPos.x < -15.0f) playerArea = 0;
-                        else if (fighterWorldPos.x > 15.0f) playerArea = 2;
+                        if (playerRelX < -15.0f) playerArea = 0;
+                        else if (playerRelX > 15.0f) playerArea = 2;
                         if (playerArea == bossAttackTargetArea_) {
                             playerHP_ -= 25.0f;
                             if (playerHP_ < 0.0f) playerHP_ = 0.0f;
@@ -2478,11 +2812,10 @@ void GamePlayScene::Update() {
 
                 } else {
                     // ③ 残光・明滅 (Flicker) [0.10s 〜 1.5s]
-                    // 形状を維持したまま、全体の輝度を激しくバチバチ明滅させながら減衰
                     float currentIntensity = 1.0f - (strikeElapsed - 0.10f) / 1.4f; // 1.0 ➔ 0.0
                     currentIntensity = (std::max)(0.0f, currentIntensity);
 
-                    // 高速なバチバチ明滅（サイン波による強度の上下）
+                    // 高速なバチバチ明滅
                     float flicker = (std::sin(strikeElapsed * 48.0f) * 0.5f + 0.5f); // 0.0 〜 1.0
                     float flashIntensity = currentIntensity * (0.3f + 0.7f * flicker);
 
@@ -2502,7 +2835,7 @@ void GamePlayScene::Update() {
                             float targetX = 0.0f;
                             if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                             else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                            Vector3 impactPos = { targetX, bossYOffset_ - 6.0f, fighterWorldZ_ + 65.0f };
+                            Vector3 impactPos = Add(targetRailPos, Add(Scale(targetRailRight, targetX), Scale(targetRailUp, targetRelY)));
                             particleManager_->EmitLightning(impactPos, 8.0f, 1, lightningColor);
                         }
                     }
@@ -2712,7 +3045,7 @@ void GamePlayScene::Update() {
 
         // 胴体のワールド行列計算
         // ボスはプレイヤーの前方 bossZOffset_ の位置に進み、高さは接地高さ bossYOffset_
-        Vector3 bossPos = { 0.0f, bossYOffset_ + bodyBounce + bossYAttackOffset + dropOffset, fighterWorldZ_ + bossZOffset_ };
+        Vector3 bossPos = GetBossPosition(bodyBounce, dropOffset, bossYAttackOffset);
         Vector3 bossBodyScale = { bossBodyScale_, bossBodyScale_, bossBodyScale_ }; // 胴体専用スケール
         // Y軸回転に加えて、Z軸のロール回転を合成
         Vector3 bossRotate = { 0.0f, bossBodyRotY_ * (float)M_PI / 180.0f, bodyRoll };
@@ -2740,15 +3073,40 @@ void GamePlayScene::Update() {
             }
         }
 
-        Matrix4x4 bossWorld = MakeAffineMatrix(bossBodyScale, bossRotate, bossPos);
+        // ボス位置におけるレール方向から姿勢行列を構築
+        float bossProgress = fighterWorldZ_ + bossZOffset_;
+        Vector3 bossRailDir = GetRailDirection(bossProgress);
+        Vector3 bossRailRight = CalculateRailRight(bossRailDir);
+        Vector3 bossRailUp = CalculateRailUp(bossRailDir, bossRailRight);
+
+        Matrix4x4 R_rail = MakeIdentity4x4();
+        R_rail.m[0][0] = bossRailRight.x; R_rail.m[0][1] = bossRailRight.y; R_rail.m[0][2] = bossRailRight.z;
+        R_rail.m[1][0] = bossRailUp.x;    R_rail.m[1][1] = bossRailUp.y;    R_rail.m[1][2] = bossRailUp.z;
+        R_rail.m[2][0] = bossRailDir.x;   R_rail.m[2][1] = bossRailDir.y;   R_rail.m[2][2] = bossRailDir.z;
+
+        // ボスのローカル回転 (X:ピッチ/のけぞり -> Y:ヨー/微振動/180度対面 -> Z:ロール/歩行揺れ)
+        Matrix4x4 rotateX = MakeRotateXMatrix(bossRotate.x);
+        Matrix4x4 rotateY = MakeRotateYMatrix(bossRotate.y); // bossBodyRotY_に既に180度分が含まれているため、重複加算を削除
+        Matrix4x4 rotateZ = MakeRotateZMatrix(bossRotate.z);
+        Matrix4x4 R_local = Multiply(Multiply(rotateZ, rotateX), rotateY);
+
+        // 最終姿勢行列の算出とワールド行列の組み立て
+        Matrix4x4 R_final = Multiply(R_local, R_rail);
+
+        Matrix4x4 bossWorld = Multiply(Multiply(MakeScaleMatrix(bossBodyScale), R_final), MakeTranslateMatrix(bossPos));
         bossBodyTransformData_->World = bossWorld;
 
         // 胴体の「スケールなし」の行列（足の大きさを胴体から完全に独立させるために使用、胴体の揺れも同期）
-        Matrix4x4 bossWorldNoScale = MakeAffineMatrix(Vector3{ 1.0f, 1.0f, 1.0f }, bossRotate, bossPos);
+        Matrix4x4 bossWorldNoScale = Multiply(R_final, MakeTranslateMatrix(bossPos));
 
         // 4組の左右対称な足ペアパラメータを配列化してアクセス
         Vector3 legPairPos[4] = { bossLegPairPos0_, bossLegPairPos1_, bossLegPairPos2_, bossLegPairPos3_ };
         float legPairRotY[4] = { bossLegPairRotY0_, bossLegPairRotY1_, bossLegPairRotY2_, bossLegPairRotY3_ };
+
+        // プレイヤーの現在のレール位置と軸方向を取得（足の攻撃ターゲット計算用）
+        Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
+        Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
+        Vector3 playerRailRight = CalculateRailRight(playerRailDir);
 
         for (int i = 0; i < 8; ++i) {
             if (!bossLegTransformData_[i]) continue;
@@ -2787,14 +3145,16 @@ void GamePlayScene::Update() {
                     float targetX = 0.0f;
                     if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                     else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                    Vector3 targetWorldPos = { targetX, fighterWorldPos.y, fighterWorldPos.z };
+                    // レール空間での正しいターゲットのワールド座標を計算
+                    Vector3 targetWorldPos = Add(playerRailPos, Scale(playerRailRight, targetX));
+                    targetWorldPos.y = fighterWorldPos.y; // 高さは戦闘機の高さを追従
 
-                    float angleY = -bossBodyRotY_ * (float)M_PI / 180.0f;
                     Vector3 diff = Subtract(targetWorldPos, bossPos);
+                    // R_final の回転成分（直交行列）の転置を使って、ワールド差分 diff をボスのローカル空間に変換する
                     Vector3 playerLocal = {
-                        diff.x * std::cos(angleY) - diff.z * std::sin(angleY),
-                        diff.y,
-                        diff.x * std::sin(angleY) + diff.z * std::cos(angleY)
+                        diff.x * R_final.m[0][0] + diff.y * R_final.m[0][1] + diff.z * R_final.m[0][2],
+                        diff.x * R_final.m[1][0] + diff.y * R_final.m[1][1] + diff.z * R_final.m[1][2],
+                        diff.x * R_final.m[2][0] + diff.y * R_final.m[2][1] + diff.z * R_final.m[2][2]
                     };
                     
                     Vector3 jointLocal = finalOffset;
@@ -2876,14 +3236,16 @@ void GamePlayScene::Update() {
                     float targetX = 0.0f;
                     if (bossAttackTargetArea_ == 0) targetX = -30.0f;
                     else if (bossAttackTargetArea_ == 2) targetX = 30.0f;
-                    Vector3 targetWorldPos = { targetX, fighterWorldPos.y, fighterWorldPos.z };
+                    // レール空間での正しいターゲットのワールド座標を計算
+                    Vector3 targetWorldPos = Add(playerRailPos, Scale(playerRailRight, targetX));
+                    targetWorldPos.y = fighterWorldPos.y; // 高さは戦闘機の高さを追従
 
-                    float angleY = -bossBodyRotY_ * (float)M_PI / 180.0f;
                     Vector3 diff = Subtract(targetWorldPos, bossPos);
+                    // R_final の回転成分（直交行列）の転置を使って、ワールド差分 diff をボスのローカル空間に変換する
                     Vector3 playerLocal = {
-                        diff.x * std::cos(angleY) - diff.z * std::sin(angleY),
-                        diff.y,
-                        diff.x * std::sin(angleY) + diff.z * std::cos(angleY)
+                        diff.x * R_final.m[0][0] + diff.y * R_final.m[0][1] + diff.z * R_final.m[0][2],
+                        diff.x * R_final.m[1][0] + diff.y * R_final.m[1][1] + diff.z * R_final.m[1][2],
+                        diff.x * R_final.m[2][0] + diff.y * R_final.m[2][1] + diff.z * R_final.m[2][2]
                     };
                     
                     Vector3 jointLocal = finalOffset;
@@ -2894,7 +3256,7 @@ void GamePlayScene::Update() {
                     if (len > 0.01f) {
                         Vector3 dirNorm = { dirLocal.x / len, dirLocal.y / len, dirLocal.z / len };
                         
-                        float targetRotY = baseRotY * (float)M_PI / 180.0f - std::atan2(dirNorm.x, dirNorm.z);
+                        float targetRotY = baseRotY * (float)M_PI / 180.0f - std::atan2(dirNorm.x, dirNorm.z); // 右足はミラー反転関節のためマイナスが正しい
                         float upPitch = 1.4f; // 天高く振りかぶる角度
                         // プレイヤーの方向を向く叩きつけピッチを動的計算
                         float horizDist = std::sqrt(dirLocal.x * dirLocal.x + dirLocal.z * dirLocal.z);
@@ -3066,11 +3428,12 @@ void GamePlayScene::Update() {
         // 自機の現在位置を取得
         Vector3 fighterWorldPos = { 0.0f, 0.0f, 0.0f };
         if (fighterModel_) {
-            fighterWorldPos = {
-                camTransForEnemy.translate.x + fighterModel_->transform.translate.x,
-                camTransForEnemy.translate.y - 3.0f + fighterModel_->transform.translate.y,
-                fighterWorldZ_
-            };
+            Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
+            Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
+            Vector3 playerRailRight = CalculateRailRight(playerRailDir);
+            Vector3 playerRailUp = CalculateRailUp(playerRailDir, playerRailRight);
+            float playerOffsetUp = fighterModel_->transform.translate.y + 17.0f;
+            fighterWorldPos = Add(playerRailPos, Add(Scale(playerRailRight, fighterModel_->transform.translate.x), Scale(playerRailUp, playerOffsetUp)));
         }
 
         // グループ中心Zに基づく画面外判定と強制リポップ処理は、一括全滅リポップ制御に移行したため削除しました
@@ -3088,22 +3451,31 @@ void GamePlayScene::Update() {
                 enemy.stateTimer += kDeltaTime;
 
                 if (enemy.state == Enemy::State::kSideWait) {
-                    // 1. 横側で待機: プレイヤーが一定距離内 (Z軸で150m) に近づくまでその場で待機（プレイヤーとの距離短縮対応）
-                    float distZ = enemy.position.z - fighterWorldZ_;
-                    if (distZ > 0.0f && distZ < 150.0f) {
+                    // 出現判定: レール累積距離でプレイヤーより前方300m以内に入ったら出現開始
+                    float distAlongRail = enemy.railProgress - fighterWorldZ_;
+                    if (distAlongRail > 0.0f && distAlongRail < 300.0f) {
                         enemy.state = Enemy::State::kAppear;
                         enemy.stateTimer = 0.0f;
-                        // 出現時の実際の相対Z距離を基準にキープZを設定 (最大120m)
-                        enemy.relativeZ = (std::min)(120.0f, distZ);
+                        // 出現時のレール相対距離を記録 (最大120m)
+                        enemy.relativeZ = (std::min)(120.0f, distAlongRail);
                         // 出現開始時の位置を記憶
                         enemy.appearStartPos = enemy.position;
                     }
                 }
                 else if (enemy.state == Enemy::State::kAppear) {
-                    // 2. 中央へ移動: 待機位置からフォーメーション目標位置 (wanderAnchor) に向けてイージング＋カーブで合流（Star Fox風）
-                    enemy.wanderAnchor.z = fighterWorldZ_ + enemy.relativeZ;
+                    // 2. 中央へ移動: 待機位置からフォーメーション目標位置(wanderAnchor)に向けてイージング＋カーブで合流
+                    // wanderAnchorのレール累積距離を更新（プレイヤーとの相対累積距離を保持）
+                    enemy.wanderAnchorRailProgress = fighterWorldZ_ + enemy.relativeZ;
+                    // レール空間からワールド座標を再計算
+                    {
+                        Vector3 aRailPos   = GetRailPosition(enemy.wanderAnchorRailProgress);
+                        Vector3 aRailDir   = GetRailDirection(enemy.wanderAnchorRailProgress);
+                        Vector3 aRailRight = CalculateRailRight(aRailDir);
+                        Vector3 aRailUp    = CalculateRailUp(aRailDir, aRailRight);
+                        enemy.wanderAnchor = Add(aRailPos, Add(Scale(aRailRight, enemy.wanderAnchorRelX), Scale(aRailUp, enemy.wanderAnchorRelY)));
+                    }
 
-                    float kAppearDuration = 1.2f; // 1.2秒かけて合流
+                    float kAppearDuration = 1.2f;
                     float t = std::clamp(enemy.stateTimer / kAppearDuration, 0.0f, 1.0f);
                     
                     // EaseOutQuad による滑らかな合流
@@ -3145,7 +3517,15 @@ void GamePlayScene::Update() {
                     // 相対Z距離を徐々に減らす (プレイヤーへ向けてゆっくり近づいてくる＝下がっていくように見せる)
                     // 秒速 15m で距離が縮まる (3秒で 45m 接近)
                     enemy.relativeZ -= 15.0f * kDeltaTime;
-                    enemy.wanderAnchor.z = fighterWorldZ_ + enemy.relativeZ;
+                    enemy.wanderAnchorRailProgress = fighterWorldZ_ + enemy.relativeZ;
+                    // レール空間からwanderAnchorワールド座標を再計算
+                    {
+                        Vector3 wRailPos   = GetRailPosition(enemy.wanderAnchorRailProgress);
+                        Vector3 wRailDir   = GetRailDirection(enemy.wanderAnchorRailProgress);
+                        Vector3 wRailRight = CalculateRailRight(wRailDir);
+                        Vector3 wRailUp    = CalculateRailUp(wRailDir, wRailRight);
+                        enemy.wanderAnchor = Add(wRailPos, Add(Scale(wRailRight, enemy.wanderAnchorRelX), Scale(wRailUp, enemy.wanderAnchorRelY)));
+                    }
                     
                     float radiusX = 6.0f;
                     float radiusY = 4.0f;
@@ -3158,8 +3538,9 @@ void GamePlayScene::Update() {
                         enemy.state = Enemy::State::kDive;
                         enemy.stateTimer = 0.0f;
                         // 自機位置に向けて特攻方向を計算 (Z追従を解除してその瞬間の位置へ突進)
-                        Vector3 playerTarget = { fighterWorldPos.x, fighterWorldPos.y, fighterWorldZ_ };
+                        Vector3 playerTarget = fighterWorldPos;
                         Vector3 toPlayer = Subtract(playerTarget, enemy.position);
+
                         enemy.diveDirection = Normalize(toPlayer);
                         enemy.speed = 155.0f + boostForwardSpeed_; // プレイヤーの速度に合わせて特攻速度を上げる (ブースト対応)
                     }
@@ -3173,9 +3554,14 @@ void GamePlayScene::Update() {
                     enemy.rotate.x += kDeltaTime * 6.0f;
                     enemy.rotate.y += kDeltaTime * 4.0f;
                     
-                    // プレイヤーを通り過ぎて後方20mに行ったら、非生存化してリポップ対象に
-                    if (enemy.position.z < fighterWorldZ_ - 20.0f) {
-                        enemy.isAlive = false;
+                    // プレイヤーを通り過ぎてレール後方20m超えたら非生存化してリポップ対象に
+                    {
+                        Vector3 localRailDir = GetRailDirection(fighterWorldZ_);
+                        Vector3 toFighterRail = Subtract(enemy.position, fighterWorldPos);
+                        float behindDot = toFighterRail.x * (-localRailDir.x) + toFighterRail.y * (-localRailDir.y) + toFighterRail.z * (-localRailDir.z);
+                        if (behindDot > 20.0f) {
+                            enemy.isAlive = false;
+                        }
                     }
                 }
             }
@@ -3201,7 +3587,46 @@ void GamePlayScene::Update() {
 
         for (int i = 0; i < kMaxEnemies; ++i) {
             if (enemies_[i].isAlive) {
-                Matrix4x4 worldMatrix = MakeAffineMatrix(enemies_[i].scale, enemies_[i].rotate, enemies_[i].position);
+                // 敵の進行方向の決定 (特攻中は特攻方向、それ以外はレール進行方向の逆＝プレイヤーと対面する方向)
+                Vector3 eDir = {0.0f, 0.0f, -1.0f};
+                if (enemies_[i].state == Enemy::State::kDive) {
+                    eDir = enemies_[i].diveDirection;
+                } else {
+                    eDir = Scale(GetRailDirection(enemies_[i].wanderAnchorRailProgress), -1.0f);
+                }
+                
+                float eDirLen = std::sqrt(eDir.x * eDir.x + eDir.y * eDir.y + eDir.z * eDir.z);
+                if (eDirLen > 0.001f) {
+                    eDir = Scale(eDir, 1.0f / eDirLen);
+                } else {
+                    eDir = {0.0f, 0.0f, -1.0f};
+                }
+
+                // モデルの初期姿勢が後ろ向きのため、正面(Zマイナス)をeDirに向かせるための基準姿勢を構築
+                Vector3 d = eDir;
+                Vector3 r = CalculateRailRight(d);
+                Vector3 u = CalculateRailUp(d, r);
+
+                Matrix4x4 R_enemy_base = MakeIdentity4x4();
+                R_enemy_base.m[0][0] = r.x; R_enemy_base.m[0][1] = r.y; R_enemy_base.m[0][2] = r.z;
+                R_enemy_base.m[1][0] = u.x; R_enemy_base.m[1][1] = u.y; R_enemy_base.m[1][2] = u.z;
+                R_enemy_base.m[2][0] = d.x; R_enemy_base.m[2][1] = d.y; R_enemy_base.m[2][2] = d.z;
+
+                // 180度反転して前を向かせる回転
+                Matrix4x4 rotateY = MakeRotateYMatrix(static_cast<float>(M_PI));
+
+                // 敵のローカル回転 (合流ローリングや特攻時スピンなど)
+                Matrix4x4 rotateX_e = MakeRotateXMatrix(enemies_[i].rotate.x);
+                Matrix4x4 rotateY_e = MakeRotateYMatrix(enemies_[i].rotate.y);
+                Matrix4x4 rotateZ_e = MakeRotateZMatrix(enemies_[i].rotate.z);
+                Matrix4x4 R_local = Multiply(Multiply(Multiply(rotateZ_e, rotateX_e), rotateY_e), rotateY);
+
+                // ワールド行列の組み立て
+                Matrix4x4 R_final = Multiply(R_local, R_enemy_base);
+                Matrix4x4 scaleMatrix = MakeScaleMatrix(enemies_[i].scale);
+                Matrix4x4 translateMatrix = MakeTranslateMatrix(enemies_[i].position);
+                Matrix4x4 worldMatrix = Multiply(Multiply(scaleMatrix, R_final), translateMatrix);
+
                 enemyTransformData_[i]->World = worldMatrix;
                 enemyTransformData_[i]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
             } else {
@@ -3325,8 +3750,8 @@ void GamePlayScene::Update() {
         bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
         float cameraZ = isBossIntro ? (fighterWorldZ_ - 65.0f) : camera_->GetTransform().translate.z;
 
-        // ビルの画面外再配置（ボス戦中も進行感を出すため常に処理）
-        {
+        // ビルの画面外再配置（自動直進コースのときのみオブジェクトプールによる再配置を行う）
+        if (waypoints_.empty()) {
             for (int i = 0; i < kMaxBuildings; ++i) {
                 // カメラの後方(間隔分)を超えたら、遥か前方（最前方のビルペアの先）に再配置
                 if (buildings_[i].position.z < cameraZ - kBuildingInterval) {
@@ -3349,10 +3774,16 @@ void GamePlayScene::Update() {
         // ── ビルの物理シミュレーションとボス衝突判定 ──
         {
             Vector3 bossPos = { 0.0f, 0.0f, 0.0f };
+            Vector3 bRailRight = { 1.0f, 0.0f, 0.0f };
+            Vector3 bRailDir = { 0.0f, 0.0f, 1.0f };
             bool isBossActive = (currentPhase_ == GamePhase::kBossFight && !isBossDefeatedSequence_);
             if (isBossActive) {
                 float bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
-                bossPos = { 0.0f, bossYOffset_ + bodyBounce, fighterWorldZ_ + bossZOffset_ };
+                bossPos = GetBossPosition(bodyBounce, 0.0f, 0.0f); // 正しいレール空間のワールド座標を取得
+
+                float bossProgress = fighterWorldZ_ + bossZOffset_;
+                bRailDir = GetRailDirection(bossProgress);
+                bRailRight = CalculateRailRight(bRailDir);
             }
 
             for (int i = 0; i < kMaxBuildings; ++i) {
@@ -3373,13 +3804,15 @@ void GamePlayScene::Update() {
                     buildings_[i].rotate.y += buildings_[i].rotationSpeed.y * kDeltaTime;
                     buildings_[i].rotate.z += buildings_[i].rotationSpeed.z * kDeltaTime;
                 } else {
-                    // ボスとの衝突判定
+                    // ボスとの衝突判定（レールローカル空間での3D判定を行い、道路脇のビル誤爆を防ぐ）
                     if (isBossActive) {
-                        float diffZ = buildings_[i].position.z - bossPos.z;
-                        float diffX = buildings_[i].position.x - bossPos.x;
+                        Vector3 diff = Subtract(buildings_[i].position, bossPos);
+                        diff.y = 0.0f; // 高低差を無視して判定を行う
+                        float localX = diff.x * bRailRight.x + diff.y * bRailRight.y + diff.z * bRailRight.z; // 左右方向（道路幅方向）
+                        float localZ = diff.x * bRailDir.x   + diff.y * bRailDir.y   + diff.z * bRailDir.z;   // 前後方向（進行方向）
 
-                        // ボスのZ位置がビルのZ位置と交差し、かつ横幅の範囲にある場合
-                        if (std::abs(diffZ) < 30.0f && std::abs(diffX) < 55.0f) {
+                        // 進行方向（前後）に30m、道路幅（左右）に55mの範囲にあるビルを体当たり破壊（左右の外側二列目 X=±85m を誤爆から保護）
+                        if (std::abs(localZ) < 30.0f && std::abs(localX) < 55.0f) {
                             buildings_[i].isDestroyed = true;
                             buildings_[i].destroyTimer = 0.0f;
 
@@ -3411,23 +3844,24 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 床の画面外再配置（ボス戦中も進行感を維持するため、常に再配置する）
-        // 各列（中央・右・左）ごとにZ方向のみスクロールさせ、X座標は変えない
-        for (int lane = 0; lane < kNumRoadLanes; ++lane) {
-            // この列の中でZが最大のタイルを探す
-            float laneMaxZ = -9999.0f;
-            for (int col = 0; col < kNumFloorColumns; ++col) {
-                int idx = lane * kNumFloorColumns + col;
-                if (floorPositions_[idx].z > laneMaxZ) {
-                    laneMaxZ = floorPositions_[idx].z;
+        // 床の画面外再配置（Blenderのカスタムルートがない場合のみ実行する）
+        if (waypoints_.empty()) {
+            for (int lane = 0; lane < kNumRoadLanes; ++lane) {
+                // この列の中でZが最大のタイルを探す
+                float laneMaxZ = -9999.0f;
+                for (int col = 0; col < kNumFloorColumns; ++col) {
+                    int idx = lane * kNumFloorColumns + col;
+                    if (floorPositions_[idx].z > laneMaxZ) {
+                        laneMaxZ = floorPositions_[idx].z;
+                    }
                 }
-            }
-            // カメラ後方に出たタイルを前方へ再配置（X座標はそのまま保持）
-            for (int col = 0; col < kNumFloorColumns; ++col) {
-                int idx = lane * kNumFloorColumns + col;
-                if (floorPositions_[idx].z < cameraZ - kFloorSizeZ) {
-                    floorPositions_[idx].z = laneMaxZ + kFloorSizeZ;
-                    laneMaxZ = floorPositions_[idx].z; // 複数タイルが同フレームで再配置される場合に備えて更新
+                // カメラ後方に出たタイルを前方へ再配置（X座標はそのまま保持）
+                for (int col = 0; col < kNumFloorColumns; ++col) {
+                    int idx = lane * kNumFloorColumns + col;
+                    if (floorPositions_[idx].z < cameraZ - kFloorSizeZ) {
+                        floorPositions_[idx].z = laneMaxZ + kFloorSizeZ;
+                        laneMaxZ = floorPositions_[idx].z; // 複数タイルが同フレームで再配置される場合に備えて更新
+                    }
                 }
             }
         }
@@ -3458,7 +3892,13 @@ void GamePlayScene::Update() {
             const Vector3 roadScale  = { kRoadDepthScale, kRoadWidthScale, 1.0f };
             const Vector3 roadRotate = { 1.57079632f, 1.57079632f, 0.0f };
             for (int i = 0; i < kNumFloors; ++i) {
-                Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, roadRotate, floorPositions_[i]);
+                Vector3 rot = roadRotate;
+                if (!waypoints_.empty()) {
+                    rot.x += floorRotations_[i].x;
+                    rot.y += floorRotations_[i].y;
+                    rot.z += floorRotations_[i].z;
+                }
+                Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, rot, floorPositions_[i]);
                 floorTransformData_[i]->World = worldMatrix;
                 floorTransformData_[i]->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
             }
@@ -3483,17 +3923,46 @@ void GamePlayScene::Update() {
     // 戦闘機モードの場合のジェット噴射エミッター位置の計算
     Vector3 leftJetPos = { 0.0f, 0.0f, 0.0f };
     Vector3 rightJetPos = { 0.0f, 0.0f, 0.0f };
+    Vector3 jetDirection = { 0.0f, 0.0f, 1.0f };
     fighterWorldPos = { 0.0f, 0.0f, 0.0f };
     if (sceneMode_ == SceneMode::kFighter) {
-        EulerTransform& camTrans = camera_->GetTransform();
-        fighterWorldPos = {
-            camTrans.translate.x + fighterModel_->transform.translate.x,
-            camTrans.translate.y - 3.0f + fighterModel_->transform.translate.y,
-            fighterWorldZ_   // ← 独立Z座標を使用
-        };
-        // 左右のジェットエンジンノズル（位置を少し上に調整し、機体中心からX方向に±0.8f、後方Z方向に-3.0f）
-        leftJetPos  = { fighterWorldPos.x - 0.3f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
-        rightJetPos = { fighterWorldPos.x + 0.8f, fighterWorldPos.y + 0.8f, fighterWorldPos.z - 3.0f };
+        Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
+        Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
+        jetDirection = playerRailDir;
+        Vector3 playerRailRight = CalculateRailRight(playerRailDir);
+        Vector3 playerRailUp = CalculateRailUp(playerRailDir, playerRailRight);
+        
+        float playerOffsetUp = fighterModel_->transform.translate.y + 17.0f;
+        fighterWorldPos = Add(playerRailPos, Add(Scale(playerRailRight, fighterModel_->transform.translate.x), Scale(playerRailUp, playerOffsetUp)));
+        
+        // 自機の現在のロール・ピッチ角度から R_local を再構築して機体姿勢に同期させる
+        float pitch = fighterModel_->transform.rotate.x;
+        float yaw_180 = static_cast<float>(M_PI);
+        float roll = fighterModel_->transform.rotate.z;
+
+        Matrix4x4 rotateY = MakeRotateYMatrix(yaw_180);
+        Matrix4x4 rotateX = MakeRotateXMatrix(pitch);
+        Matrix4x4 rotateZ = MakeRotateZMatrix(roll);
+        Matrix4x4 R_local = Multiply(Multiply(rotateZ, rotateX), rotateY);
+
+        Matrix4x4 R_rail = MakeIdentity4x4();
+        R_rail.m[0][0] = playerRailRight.x; R_rail.m[0][1] = playerRailRight.y; R_rail.m[0][2] = playerRailRight.z;
+        R_rail.m[1][0] = playerRailUp.x;    R_rail.m[1][1] = playerRailUp.y;    R_rail.m[1][2] = playerRailUp.z;
+        R_rail.m[2][0] = playerRailDir.x;   R_rail.m[2][1] = playerRailDir.y;   R_rail.m[2][2] = playerRailDir.z;
+
+        Matrix4x4 R_final = Multiply(R_local, R_rail);
+
+        // 機体のローカル回転に追従した Right, Up, Dir を抽出
+        Vector3 finalRight = { R_final.m[0][0], R_final.m[0][1], R_final.m[0][2] };
+        Vector3 finalUp    = { R_final.m[1][0], R_final.m[1][1], R_final.m[1][2] };
+        Vector3 finalDir   = { R_final.m[2][0], R_final.m[2][1], R_final.m[2][2] };
+
+        // 姿勢に追従した位置でジェット位置を計算
+        Vector3 localOffsetLeft = Add(Scale(finalRight, -1.0f), Add(Scale(finalUp, 0.8f), Scale(finalDir, 0.0f)));
+        Vector3 localOffsetRight = Add(Scale(finalRight, 0.3f), Add(Scale(finalUp, 0.8f), Scale(finalDir, 0.0f)));
+        
+        leftJetPos  = Add(fighterWorldPos, localOffsetLeft);
+        rightJetPos = Add(fighterWorldPos, localOffsetRight);
     }
 
     // ── パーティクル/エフェクトエンジンの更新 ──
@@ -3506,7 +3975,10 @@ void GamePlayScene::Update() {
         isBoosting_,
         (sceneMode_ == SceneMode::kFighter && !isBossDefeatedSequence_),
         currentEffect_,
-        emitterPos_
+        emitterPos_,
+        leftJetPos,
+        rightJetPos,
+        jetDirection
     );
 
     {
@@ -4243,48 +4715,56 @@ void GamePlayScene::ApplyGroupFormation(int groupIndex) {
     for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
         int enemyIdx = groupIndex * kEnemiesPerGroup + idx;
         Enemy& enemy = enemies_[enemyIdx];
-        Vector3 offset = { 0.0f, 0.0f, 0.0f };
+        
+        // フォーメーションに応じたレール左右(relX)・上下(relY)・先後(railOfs)オフセット
+        float relX = 0.0f, relY = 0.0f, railOfs = 0.0f;
         
         switch (group.formation) {
         case FormationType::kVShape:
-            // V字 (先頭1体、左右斜め後ろに2体ずつ)
-            if (idx == 0)      offset = { 0.0f, 0.0f, 0.0f };
-            else if (idx == 1) offset = { -10.0f, 0.0f, -15.0f };
-            else if (idx == 2) offset = { 10.0f, 0.0f, -15.0f };
-            else if (idx == 3) offset = { -20.0f, 0.0f, -30.0f };
-            else if (idx == 4) offset = { 20.0f, 0.0f, -30.0f };
+            if (idx == 0) { relX =   0.0f; relY = 0.0f; railOfs =   0.0f; }
+            else if (idx == 1) { relX = -10.0f; relY = 0.0f; railOfs = -15.0f; }
+            else if (idx == 2) { relX =  10.0f; relY = 0.0f; railOfs = -15.0f; }
+            else if (idx == 3) { relX = -20.0f; relY = 0.0f; railOfs = -30.0f; }
+            else if (idx == 4) { relX =  20.0f; relY = 0.0f; railOfs = -30.0f; }
             break;
-            
         case FormationType::kCircle: {
-            // 円形（丸）: 半径 14m の円周上に 5体を等間隔配置
             float angle = ((float)idx / kEnemiesPerGroup) * 2.0f * (float)M_PI;
-            offset.x = std::cos(angle) * 14.0f;
-            offset.y = std::sin(angle) * 14.0f;
-            offset.z = 0.0f;
+            relX = std::cos(angle) * 14.0f;
+            relY = std::sin(angle) * 14.0f;
+            railOfs = 0.0f;
             break;
         }
-            
         case FormationType::kLineX:
-            // 横一列: X軸上に等間隔並び
-            offset.x = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * 12.0f; // -24m ~ +24m
-            offset.y = 0.0f;
-            offset.z = 0.0f;
+            relX = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * 12.0f;
+            relY = 0.0f;
+            railOfs = 0.0f;
             break;
-            
         case FormationType::kSlant:
-            // 斜め一列
-            offset.x = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * 12.0f;
-            offset.y = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * 6.0f;
-            offset.z = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * -10.0f;
+            relX = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * 12.0f;
+            relY = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * 6.0f;
+            railOfs = ((float)idx - (kEnemiesPerGroup - 1) * 0.5f) * -10.0f;
             break;
         }
         
-        enemy.localOffset = offset;
+        enemy.localOffset = { relX, relY, railOfs };
         
-        // 本来並ぶべきフォーメーション上のワールド座標を記録
-        enemy.wanderAnchor.x = group.centerX + offset.x;
-        enemy.wanderAnchor.y = group.centerY + offset.y;
-        enemy.wanderAnchor.z = group.centerZ + offset.z;
+        // wanderAnchorをレール空間で記録
+        enemy.wanderAnchorRailProgress = group.centerRailProgress + railOfs;
+        enemy.wanderAnchorRelX = group.centerX + relX;
+        enemy.wanderAnchorRelY = group.centerY + relY;
+        if (enemy.wanderAnchorRelY < 5.0f) {
+            enemy.wanderAnchorRelY = 5.0f; // 地面に潜るのを防止
+        }
+        
+        // 初期ワールド座標をレールから計算
+        Vector3 railPos  = GetRailPosition(enemy.wanderAnchorRailProgress);
+        Vector3 railDir  = GetRailDirection(enemy.wanderAnchorRailProgress);
+        Vector3 railRight = CalculateRailRight(railDir);
+        Vector3 railUp   = CalculateRailUp(railDir, railRight);
+        enemy.wanderAnchor = Add(railPos, Add(Scale(railRight, enemy.wanderAnchorRelX), Scale(railUp, enemy.wanderAnchorRelY)));
+        
+        // railProgress をセット
+        enemy.railProgress = enemy.wanderAnchorRailProgress;
         
         // 初期状態は横側待機 (kSideWait)
         enemy.state = Enemy::State::kSideWait;
@@ -4292,33 +4772,32 @@ void GamePlayScene::ApplyGroupFormation(int groupIndex) {
         enemy.rotate = { 0.0f, 0.0f, 0.0f };
         enemy.relativeZ = 220.0f;
         
-        // 「ビルに隠れた状態から真ん中に現れる」を表現するため、初期X座標をビルの座標（X = -45m または +45m）に設定
-        // 小隊メンバーごとに左右のビルへ散らす
-        float spawnX = (idx % 2 == 0) ? -45.0f : 45.0f;
-        enemy.position.x = spawnX;
-        enemy.position.y = enemy.wanderAnchor.y;
-        enemy.position.z = enemy.wanderAnchor.z;
+        // 「ビルに隠れた状態から真ん中に現れる」を表現するため、初期位置をレール左右の极端(+/-45m)に設定
+        float spawnRelX = (idx % 2 == 0) ? -45.0f : 45.0f;
+        enemy.position = Add(railPos, Add(Scale(railRight, spawnRelX), Scale(railUp, enemy.wanderAnchorRelY)));
     }
 }
 
 void GamePlayScene::RespawnEnemyGroup(int groupIndex, float playerZ) {
     EnemyGroup& group = enemyGroups_[groupIndex];
     
-    // 新しいフォーメーション形状をランダム決定
+    // フォーメーション形状をランダム決定
     std::uniform_int_distribution<int> distForm(0, (int)FormationType::kCount - 1);
     group.formation = (FormationType)distForm(randomEngine_);
     
-    // 中心位置を決定 (グループごとにZ出現位置の範囲を50mずつずらして波状にする)
+    // レール左右方向の相対位置と高さをランダム決定
     std::uniform_real_distribution<float> distX(-10.0f, 10.0f);
     std::uniform_real_distribution<float> distY(5.0f, 20.0f);
     
-    float minZ = 160.0f + (float)groupIndex * 50.0f;
-    float maxZ = 220.0f + (float)groupIndex * 50.0f;
-    std::uniform_real_distribution<float> distZ(minZ, maxZ);
+    // レール累積距離に対する前方オフセット（グループごとに50mずらす）
+    float minProgress = 160.0f + (float)groupIndex * 50.0f;
+    float maxProgress = 220.0f + (float)groupIndex * 50.0f;
+    std::uniform_real_distribution<float> distProgress(minProgress, maxProgress);
     
     group.centerX = distX(randomEngine_);
     group.centerY = distY(randomEngine_);
-    group.centerZ = playerZ + distZ(randomEngine_);
+    group.centerRailProgress = playerZ + distProgress(randomEngine_);
+    group.centerZ = group.centerRailProgress; // 互換性のため残留
     
     // 小隊メンバー全員を生存状態（Alive）にして再配置
     for (int idx = 0; idx < kEnemiesPerGroup; ++idx) {
@@ -5233,5 +5712,94 @@ void GamePlayScene::ApplyPreset(int presetIndex) {
         flashColor_ = {0.35f, 0.0f, 0.55f, 1.0f};
         break;
     }
+}
+
+
+Vector3 GamePlayScene::GetRailPosition(float progress) {
+    if (waypoints_.empty()) {
+        return { kWorldShiftX, -20.0f, progress };
+    }
+    if (waypoints_.size() == 1) {
+        return waypoints_[0];
+    }
+    
+    auto it = std::lower_bound(waypointDistances_.begin(), waypointDistances_.end(), progress);
+    
+    if (it == waypointDistances_.begin()) {
+        Vector3 dir = Normalize(Subtract(waypoints_[1], waypoints_[0]));
+        float dist = progress - waypointDistances_[0];
+        return Add(waypoints_[0], Scale(dir, dist));
+    }
+    
+    if (it == waypointDistances_.end()) {
+        size_t size = waypoints_.size();
+        Vector3 dir = Normalize(Subtract(waypoints_[size - 1], waypoints_[size - 2]));
+        float dist = progress - waypointDistances_[size - 1];
+        return Add(waypoints_[size - 1], Scale(dir, dist));
+    }
+    
+    size_t index = std::distance(waypointDistances_.begin(), it);
+    const Vector3& p2 = waypoints_[index];
+    const Vector3& p1 = waypoints_[index - 1];
+    float d2 = waypointDistances_[index];
+    float d1 = waypointDistances_[index - 1];
+    
+    float denom = d2 - d1;
+    if (std::abs(denom) < 0.001f) {
+        return p1;
+    }
+    
+    float t = (progress - d1) / denom;
+    return Lerp(p1, p2, t);
+}
+
+Vector3 GamePlayScene::GetRailDirection(float progress) {
+    if (waypoints_.empty()) {
+        return { 0.0f, 0.0f, 1.0f };
+    }
+    if (waypoints_.size() == 1) {
+        return { 0.0f, 0.0f, 1.0f };
+    }
+    
+    auto it = std::lower_bound(waypointDistances_.begin(), waypointDistances_.end(), progress);
+    
+    if (it == waypointDistances_.begin()) {
+        return Normalize(Subtract(waypoints_[1], waypoints_[0]));
+    }
+    
+    if (it == waypointDistances_.end()) {
+        size_t size = waypoints_.size();
+        return Normalize(Subtract(waypoints_[size - 1], waypoints_[size - 2]));
+    }
+    
+    size_t index = std::distance(waypointDistances_.begin(), it);
+    const Vector3& p2 = waypoints_[index];
+    const Vector3& p1 = waypoints_[index - 1];
+    
+    return Normalize(Subtract(p2, p1));
+}
+
+Vector3 GamePlayScene::CalculateRailRight(const Vector3& dir) {
+    Vector3 up = { 0.0f, 1.0f, 0.0f };
+    if (std::abs(dir.y) > 0.999f) {
+        up = { 0.0f, 0.0f, -1.0f };
+    }
+    return Normalize(Cross(up, dir));
+}
+
+Vector3 GamePlayScene::CalculateRailUp(const Vector3& dir, const Vector3& right) {
+    return Cross(dir, right);
+}
+
+Vector3 GamePlayScene::GetBossPosition(float bodyBounce, float dropOffset, float yAttackOffset) {
+    float bossProgress = fighterWorldZ_ + bossZOffset_;
+    Vector3 railPos = GetRailPosition(bossProgress);
+    Vector3 railDir = GetRailDirection(bossProgress);
+    Vector3 railRight = Normalize(Vector3{ railDir.z, 0.0f, -railDir.x });
+    Vector3 railUp = Cross(railDir, railRight);
+    
+    float relativeY = (bossYOffset_ + 20.0f) + bodyBounce + dropOffset + yAttackOffset;
+    
+    return Add(railPos, Scale(railUp, relativeY));
 }
 
