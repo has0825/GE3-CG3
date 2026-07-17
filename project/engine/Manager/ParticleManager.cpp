@@ -17,6 +17,22 @@ static float Length(const Vector3& v) {
     return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
+static Vector3 Add(const Vector3& v1, const Vector3& v2) {
+    return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
+}
+
+static Vector3 Scale(const Vector3& v, float s) {
+    return { v.x * s, v.y * s, v.z * s };
+}
+
+static Vector3 Normalize(const Vector3& v) {
+    float len = Length(v);
+    if (len > 0.001f) {
+        return { v.x / len, v.y / len, v.z / len };
+    }
+    return { 0.0f, 0.0f, 0.0f };
+}
+
 void ParticleManager::Initialize(ID3D12Device* device) {
     device_ = device;
 
@@ -1316,7 +1332,7 @@ void ParticleManager::EmitChaosVoid(const Vector3& emitterPos, float speed, int 
     }
 }
 
-void ParticleManager::EmitWhiteCross(const Vector3& emitterPos) {
+void ParticleManager::EmitWhiteCross(const Vector3& emitterPos, const Vector3& right, const Vector3& up) {
     // 空きスロット（非アクティブ）を探し、無ければ最も寿命が尽きかけているアクティブスロットを強制上書きするヘルパー
     auto find_slot = [this]() -> uint32_t {
         // 1. 非アクティブスロットの検索
@@ -1358,10 +1374,10 @@ void ParticleManager::EmitWhiteCross(const Vector3& emitterPos) {
 
     // 2. 十字の方向（上、下、左、右）に高密度で綺麗な丸型パーティクル粒子を射出
     Vector3 crossDirs[4] = {
-        { 0.0f, 1.0f, 0.0f },  // 上
-        { 0.0f, -1.0f, 0.0f }, // 下
-        { -1.0f, 0.0f, 0.0f }, // 左
-        { 1.0f, 0.0f, 0.0f }   // 右
+        up,            // 上
+        Scale(up, -1.0f), // 下
+        Scale(right, -1.0f), // 左
+        right          // 右
     };
 
     // 各方向に90発ずつ（計360発）
@@ -1400,10 +1416,10 @@ void ParticleManager::EmitWhiteCross(const Vector3& emitterPos) {
 
     // 3. 斜め4方向にも少し少なめ・遅めに射出して、全体の綺麗な星型の炸裂感を整える
     Vector3 diagonalDirs[4] = {
-        { 0.707f, 0.707f, 0.0f },   // 右上
-        { 0.707f, -0.707f, 0.0f },  // 右下
-        { -0.707f, 0.707f, 0.0f },  // 左上
-        { -0.707f, -0.707f, 0.0f }  // 左下
+        Normalize(Add(Scale(right, 0.707f), Scale(up, 0.707f))),   // 右上
+        Normalize(Add(Scale(right, 0.707f), Scale(up, -0.707f))),  // 右下
+        Normalize(Add(Scale(right, -0.707f), Scale(up, 0.707f))),  // 左上
+        Normalize(Add(Scale(right, -0.707f), Scale(up, -0.707f)))  // 左下
     };
 
     // 各方向に45発ずつ（計180発）

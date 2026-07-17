@@ -1100,63 +1100,170 @@ void GamePlayScene::Update() {
             playerRotationPitch_ = std::lerp(playerRotationPitch_, 0.0f, 0.1f);
         }
         
-        // 自機とカメラのZ前進は継続（ボスの位置との整合性を保つため）
+        // 自機のZ前進は継続（ボスの位置との整合性を保つため）
         fighterWorldZ_ += boostForwardSpeed_ * kDeltaTime;
-        camTrans.translate.z = fighterWorldZ_ - 65.0f;
         
-        // スターフォックス風のカメラX/Y追従も中央に戻す
-        camTrans.translate.x = std::lerp(camTrans.translate.x, 0.0f, 0.08f);
-        camTrans.translate.y = std::lerp(camTrans.translate.y, 0.0f, 0.08f);
-        camTrans.rotate.x = std::lerp(camTrans.rotate.x, 0.0f, 0.08f);
-        camTrans.rotate.y = std::lerp(camTrans.rotate.y, 0.0f, 0.08f);
-        camTrans.rotate.z = std::lerp(camTrans.rotate.z, 0.0f, 0.08f);
+        // 自機のワールド位置
+        Vector3 fighterWorldPos = {
+            camTrans.translate.x + (fighterModel_ ? fighterModel_->transform.translate.x : 0.0f),
+            camTrans.translate.y - 3.0f + (fighterModel_ ? fighterModel_->transform.translate.y : 0.0f),
+            fighterWorldZ_
+        };
+        
+        // ボスのワールド位置
+        float bodyBounce = 0.0f;
+        if (bossLegSwingSpeed_ > 0.0f) {
+            bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+        }
+        Vector3 bossPos = GetBossPosition(bodyBounce);
+        
+        // ==========================================
+        // 【カメラワーク】背後65m、高さ26m、ボス注視アングル（常に維持）
+        // ==========================================
+        float camProgress = fighterWorldZ_ - 65.0f;
+        Vector3 camRailPos = GetRailPosition(camProgress);
+        Vector3 camRailDir = GetRailDirection(camProgress);
+        Vector3 camRailRight = CalculateRailRight(camRailDir);
+        Vector3 camRailUp = CalculateRailUp(camRailDir, camRailRight);
+        Vector3 targetCamPos = Add(camRailPos, Scale(camRailUp, 26.0f)); // 通常時 Yオフセット 26.0f
+        
+        // 開始フレーム（最初のフレーム）は即座にワープ、それ以外はスムーズに補間
+        bool isStartFrame = (bossDefeatTimer_ <= kDeltaTime);
+        camTrans.translate = isStartFrame ? targetCamPos : Lerp(camTrans.translate, targetCamPos, 0.08f);
+        
+        // カメラからボスへの方向ベクトルから回転角を計算して注視させる
+        Vector3 lookDir = Subtract(bossPos, camTrans.translate);
+        float lookDist = Length(lookDir);
+        if (lookDist > 0.001f) {
+            lookDir = Scale(lookDir, 1.0f / lookDist);
+        } else {
+            lookDir = camRailDir;
+        }
+        
+        float targetRotY = -std::atan2(lookDir.x, lookDir.z);
+        float targetRotX = std::atan2(-lookDir.y, std::sqrt(lookDir.x * lookDir.x + lookDir.z * lookDir.z));
+        
+        float rotLerpFactor = isStartFrame ? 1.0f : 0.08f;
+        
+        float diffY = targetRotY - camTrans.rotate.y;
+        while (diffY < -static_cast<float>(M_PI)) diffY += 2.0f * static_cast<float>(M_PI);
+        while (diffY > static_cast<float>(M_PI)) diffY -= 2.0f * static_cast<float>(M_PI);
+        camTrans.rotate.y += diffY * rotLerpFactor;
+
+        float diffX = targetRotX - camTrans.rotate.x;
+        while (diffX < -static_cast<float>(M_PI)) diffX += 2.0f * static_cast<float>(M_PI);
+        while (diffX > static_cast<float>(M_PI)) diffX -= 2.0f * static_cast<float>(M_PI);
+        camTrans.rotate.x += diffX * rotLerpFactor;
+        
+        camTrans.rotate.z = isStartFrame ? 0.0f : std::lerp(camTrans.rotate.z, 0.0f, rotLerpFactor);
+        
+        // ==========================================
+        // 【演出エフェクト】チャージ期 / 弾丸飛行期 / 爆発期
+        // ==========================================
+        if (bossDefeatTimer_ < 0.8f) {
+            // --- チャージエフェクトの発生 ---
+            Vector3 leftWing = Add(fighterWorldPos, Add(Scale(camRailRight, -3.5f), Scale(camRailUp, 0.8f)));
+            Vector3 rightWing = Add(fighterWorldPos, Add(Scale(camRailRight, 3.5f), Scale(camRailUp, 0.8f)));
+            Vector3 chargeColor = { 0.4f, 0.7f, 1.0f }; // 神聖な青白
+            
+            if (particleManager_) {
+                particleManager_->EmitLSystemLightning(leftWing, bossPos, 3, -0.6f, chargeColor);
+                particleManager_->EmitLSystemLightning(rightWing, bossPos, 3, -0.6f, chargeColor);
+                particleManager_->EmitHolyLight(fighterWorldPos, 8.0f, 3, chargeColor);
+            }
+            
+            // チャージによる空間の震え（画面シェイク）
+            cameraShakeTimer_ = 0.05f;
+            cameraShakeIntensity_ = 1.2f;
+            activeShakeIntensity_ = 1.2f;
+            cameraShakeTimeMax_ = 0.05f;
+        }
+        else if (isDefeatBulletActive_) {
+            // 巨大弾のトレイルエフェクト
+            if (particleManager_) {
+                Vector3 bulletTrailColor = { 0.8f, 0.9f, 1.0f };
+                particleManager_->EmitHolyLight(defeatBulletPos_, 4.0f, 4, bulletTrailColor);
+                
+                // 弾の周囲に激しくうねる電撃
+                float offsetVal = 6.0f;
+                Vector3 randomOffset = { 
+                    (float)(rand() % 100 - 50) / 100.0f * offsetVal, 
+                    (float)(rand() % 100 - 50) / 100.0f * offsetVal, 
+                    (float)(rand() % 100 - 50) / 100.0f * offsetVal 
+                };
+                particleManager_->EmitLSystemLightning(defeatBulletPos_, Add(defeatBulletPos_, randomOffset), 2, -0.4f, bulletTrailColor);
+            }
+        }
+        else if (hasHitBoss_) {
+            // --- 連鎖大爆発エフェクトの発生 ---
+            if (particleManager_) {
+                // 0.15秒おきに計5回、ボスの周囲に花火大爆発を連続発生
+                static float lastFireworkTime = -1.0f;
+                static int fireworkCount = 0;
+                
+                if (bossDefeatHitTimer_ - lastFireworkTime >= 0.15f && fireworkCount < 5) {
+                    lastFireworkTime = bossDefeatHitTimer_;
+                    fireworkCount++;
+                    
+                    std::uniform_real_distribution<float> offsetDist(-20.0f, 20.0f);
+                    Vector3 fPos = {
+                        bossPos.x + offsetDist(randomEngine_),
+                        bossPos.y + offsetDist(randomEngine_),
+                        bossPos.z + offsetDist(randomEngine_)
+                    };
+                    
+                    Vector3 fwColor = {
+                        (float)(rand() % 100) / 100.0f,
+                        (float)(rand() % 100) / 100.0f,
+                        (float)(rand() % 100) / 100.0f
+                    };
+                    if (Length(fwColor) < 0.5f) fwColor = { 1.0f, 0.5f, 0.2f };
+                    
+                    particleManager_->EmitFirework(fPos, fwColor);
+                    particleManager_->EmitMegaRing(fPos, fwColor);
+                    
+                    // 爆発の度に追加爆音SE
+                    if (audio_) {
+                        audio_->PlayWave(jumpSE_, false, 1.4f);
+                    }
+                }
+                
+                // 毎フレーム空間に降り注ぐスパークと光の粒子
+                particleManager_->EmitCustomSparks(bossPos, 35.0f, 4, { 1.0f, 0.8f, 0.3f }, 0.8f);
+                particleManager_->EmitHolyLight(bossPos, 15.0f, 3, { 1.0f, 1.0f, 1.0f });
+            }
+        }
 
         // 2. トドメの巨大弾の自動発射 (0.8秒時点)
         if (bossDefeatTimer_ >= 0.8f && !isDefeatBulletActive_ && !hasHitBoss_) {
             isDefeatBulletActive_ = true;
             
-            // 自機のワールド位置
-            Vector3 fighterWorldPos = {
-                camTrans.translate.x + (fighterModel_ ? fighterModel_->transform.translate.x : 0.0f),
-                camTrans.translate.y - 3.0f + (fighterModel_ ? fighterModel_->transform.translate.y : 0.0f),
-                fighterWorldZ_
-            };
-            
             defeatBulletPos_ = fighterWorldPos;
-            
-            // ボスのワールド位置
-            float bodyBounce = 0.0f;
-            if (bossLegSwingSpeed_ > 0.0f) {
-                bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
-            }
-            Vector3 bossPos = GetBossPosition(bodyBounce);
             
             // 弾の速度ベクトル (ボスへ向かう方向)
             Vector3 dir = Normalize(Subtract(bossPos, defeatBulletPos_));
             float bulletSpeed = 380.0f; // より高速に射撃
             defeatBulletVel_ = Scale(dir, bulletSpeed);
             
+            // トドメの弾サイズをさらに巨大化（3.5f）
+            defeatBulletSize_ = 3.5f;
+            
+            // 発射瞬間のマズル衝撃波リング＆シリンダー＆大爆発
+            if (particleManager_) {
+                particleManager_->EmitMegaRing(fighterWorldPos, { 0.4f, 0.8f, 1.0f });
+                particleManager_->EmitMegaCylinder(fighterWorldPos, { 0.4f, 0.8f, 1.0f });
+                particleManager_->EmitFlame(fighterWorldPos, 30.0f, 40, { 0.4f, 0.8f, 1.0f });
+            }
+            
             // 発射SE
             if (audio_) {
-                audio_->PlayWave(jumpSE_, false, 1.2f);
+                audio_->PlayWave(jumpSE_, false, 1.5f);
             }
         }
         
         // 3. トドメの巨大弾の更新とヒット判定
         if (isDefeatBulletActive_) {
             defeatBulletPos_ = Add(defeatBulletPos_, Scale(defeatBulletVel_, kDeltaTime));
-            
-            // トレイルパーティクル (白く輝くスパークを毎フレーム放出)
-            for (int i = 0; i < 2; ++i) {
-                particleManager_->EmitHolyLight(defeatBulletPos_, 2.0f, 1, {1.0f, 1.0f, 1.0f});
-            }
-            
-            // ボスのワールド位置
-            float bodyBounce = 0.0f;
-            if (bossLegSwingSpeed_ > 0.0f) {
-                bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
-            }
-            Vector3 bossPos = GetBossPosition(bodyBounce);
             
             // 衝突判定 (ボスの衝突半径または弾がボスを追い抜いたか)
             Vector3 diff = Subtract(defeatBulletPos_, bossPos);
@@ -1167,8 +1274,15 @@ void GamePlayScene::Update() {
                 isBossModelVisible_ = false; // ボスを消滅させる
                 bossDefeatHitTimer_ = 0.0f;  // ヒットした瞬間からタイマーを開始
                 
-                // 大きく白い十字Particleエフェクトを発生
-                particleManager_->EmitWhiteCross(bossPos);
+                // ★★★ スローモーション（ヒットストップ）の発動 ★★★
+                hitstopTimer_ = 0.65f; // 0.65秒間超スローモーション化
+                
+                // 大きく白い十字Particleエフェクトを発生 (ボスのレール空間を考慮)
+                float bossProgress = fighterWorldZ_ + bossZOffset_;
+                Vector3 bRailDir = GetRailDirection(bossProgress);
+                Vector3 bRailRight = CalculateRailRight(bRailDir);
+                Vector3 bRailUp = CalculateRailUp(bRailDir, bRailRight);
+                particleManager_->EmitWhiteCross(bossPos, bRailRight, bRailUp);
                 
                 // 白い超巨大多重衝撃波リングと巨大シリンダーエフェクトを追加してかっこよく演出
                 particleManager_->EmitMegaRing(bossPos, {1.0f, 1.0f, 1.0f});
@@ -1176,6 +1290,18 @@ void GamePlayScene::Update() {
                 
                 // 周囲に飛び散る純白の激しいスパークエフェクトを追加
                 particleManager_->EmitFlame(bossPos, 20.0f, 30, {1.0f, 1.0f, 1.0f});
+                
+                // ボスから地面・天に向けて四方八方に拡散する巨大稲妻を8本落とす
+                Vector3 lightningColor = { 1.0f, 1.0f, 1.0f };
+                for (int i = 0; i < 8; ++i) {
+                    float theta = (i / 8.0f) * 2.0f * static_cast<float>(M_PI);
+                    Vector3 strikeEnd = {
+                        bossPos.x + std::cos(theta) * 60.0f,
+                        bossPos.y - 40.0f, // 地面付近
+                        bossPos.z + std::sin(theta) * 60.0f
+                    };
+                    particleManager_->EmitLSystemLightning(bossPos, strikeEnd, 4, 1.2f, lightningColor);
+                }
                 
                 // 大爆発SE
                 if (audio_) {
@@ -1193,8 +1319,8 @@ void GamePlayScene::Update() {
                 
                 // 画面シェイクを2倍に強化して重厚な爆発振動を表現
                 cameraShakeTimer_ = 0.80f;
-                cameraShakeIntensity_ = 10.0f;
-                activeShakeIntensity_ = 10.0f;
+                cameraShakeIntensity_ = 12.0f;
+                activeShakeIntensity_ = 12.0f;
                 cameraShakeTimeMax_ = 0.80f;
             }
         }
@@ -1911,74 +2037,76 @@ void GamePlayScene::Update() {
             float playerOffsetUp = fighterModel_->transform.translate.y + 17.0f;
             Vector3 fighterWorldPos = Add(playerRailPos, Add(Scale(playerRailRight, fighterModel_->transform.translate.x), Scale(playerRailUp, playerOffsetUp)));
 
-            // スターフォックス風のカメラX/Y追従
-            float cameraLag = 0.08f;
-            float targetCamX = fighterModel_->transform.translate.x * 0.5f;
-            float targetCamY = fighterModel_->transform.translate.y * 0.5f;
-            camRelativeX_ = std::lerp(camRelativeX_, targetCamX, cameraLag);
-            camRelativeY_ = std::lerp(camRelativeY_, targetCamY, cameraLag);
+            if (!isBossDefeatedSequence_) {
+                // スターフォックス風のカメラX/Y追従
+                float cameraLag = 0.08f;
+                float targetCamX = fighterModel_->transform.translate.x * 0.5f;
+                float targetCamY = fighterModel_->transform.translate.y * 0.5f;
+                camRelativeX_ = std::lerp(camRelativeX_, targetCamX, cameraLag);
+                camRelativeY_ = std::lerp(camRelativeY_, targetCamY, cameraLag);
 
-            // カメラの目標位置を計算
-            // 基準高さは路面 -20.0f から通常 +6.0f (つまり相対 +26.0f)
-            float camOffsetUp = camRelativeY_ + 26.0f;
-            Vector3 targetCamPos = Add(camRailPos, Add(Scale(camRailRight, camRelativeX_), Scale(camRailUp, camOffsetUp)));
+                // カメラの目標位置を計算
+                // 基準高さは路面 -20.0f から通常 +6.0f (つまり相対 +26.0f)
+                float camOffsetUp = camRelativeY_ + 26.0f;
+                Vector3 targetCamPos = Add(camRailPos, Add(Scale(camRailRight, camRelativeX_), Scale(camRailUp, camOffsetUp)));
 
-            // カメラ位置のスムーズ追従 (Smooth Follow)
-            float posLerpFactor = 0.08f;
-            Vector3 camDiff = Subtract(targetCamPos, camTrans.translate);
-            float camDistSq = camDiff.x * camDiff.x + camDiff.y * camDiff.y + camDiff.z * camDiff.z;
-            if (camDistSq > 10000.0f) { // 100m以上離れている場合は即座にワープ
-                camTrans.translate = targetCamPos;
-            } else {
-                camTrans.translate = Lerp(camTrans.translate, targetCamPos, posLerpFactor);
+                // カメラ位置のスムーズ追従 (Smooth Follow)
+                float posLerpFactor = 0.08f;
+                Vector3 camDiff = Subtract(targetCamPos, camTrans.translate);
+                float camDistSq = camDiff.x * camDiff.x + camDiff.y * camDiff.y + camDiff.z * camDiff.z;
+                if (camDistSq > 10000.0f) { // 100m以上離れている場合は即座にワープ
+                    camTrans.translate = targetCamPos;
+                } else {
+                    camTrans.translate = Lerp(camTrans.translate, targetCamPos, posLerpFactor);
+                }
+
+                // ── カメラの注視ターゲット（LookAhead & LookAt）の計算 ──
+                // プレイヤーの少し先（20.0m 先）を注視点とする
+                float lookAheadDist = 20.0f;
+                Vector3 lookAheadTarget = Add(fighterWorldPos, Scale(playerRailDir, lookAheadDist));
+                // プレイヤーの少し上（5.0m 上）を狙う
+                Vector3 cameraTarget = Add(lookAheadTarget, Scale(playerRailUp, 5.0f));
+
+                // カメラの現在位置から注視ターゲットへの方向ベクトル
+                Vector3 lookDir = Subtract(cameraTarget, camTrans.translate);
+                float lookDist = std::sqrt(lookDir.x * lookDir.x + lookDir.y * lookDir.y + lookDir.z * lookDir.z);
+                if (lookDist > 0.001f) {
+                    lookDir = Scale(lookDir, 1.0f / lookDist);
+                } else {
+                    lookDir = camRailDir; // フォールバック
+                }
+
+                // 方向ベクトルからオイラー角を計算
+                float baseCamRotY = -std::atan2(lookDir.x, lookDir.z);
+                float baseCamRotX = std::atan2(-lookDir.y, std::sqrt(lookDir.x * lookDir.x + lookDir.z * lookDir.z));
+
+                float targetCamRotateY = fighterModel_->transform.translate.x * 0.003f;
+                float targetCamRotateX = -fighterModel_->transform.translate.y * 0.003f;
+
+                float targetRotY = baseCamRotY + targetCamRotateY;
+                float targetRotX = baseCamRotX + targetCamRotateX;
+
+                // カメラの回転角のスムーズ首振り（最短角度差による補間）
+                float rotLerpFactor = 0.15f;
+
+                float diffY = targetRotY - camTrans.rotate.y;
+                while (diffY < -static_cast<float>(M_PI)) diffY += 2.0f * static_cast<float>(M_PI);
+                while (diffY > static_cast<float>(M_PI)) diffY -= 2.0f * static_cast<float>(M_PI);
+                camTrans.rotate.y += diffY * rotLerpFactor;
+
+                float diffX = targetRotX - camTrans.rotate.x;
+                while (diffX < -static_cast<float>(M_PI)) diffX += 2.0f * static_cast<float>(M_PI);
+                while (diffX > static_cast<float>(M_PI)) diffX -= 2.0f * static_cast<float>(M_PI);
+                camTrans.rotate.x += diffX * rotLerpFactor;
+
+                // ロール回転は入力とバレルロールに追従
+                float targetRotZ = -inputDir.x * 0.03f;
+                if (isBarrelRolling_) {
+                    float rollT = barrelRollTimer_ / kBarrelRollDuration;
+                    targetRotZ += std::sin(rollT * static_cast<float>(M_PI)) * 0.15f;
+                }
+                camTrans.rotate.z = std::lerp(camTrans.rotate.z, targetRotZ, rotLerpFactor);
             }
-
-            // ── カメラの注視ターゲット（LookAhead & LookAt）の計算 ──
-            // プレイヤーの少し先（20.0m 先）を注視点とする
-            float lookAheadDist = 20.0f;
-            Vector3 lookAheadTarget = Add(fighterWorldPos, Scale(playerRailDir, lookAheadDist));
-            // プレイヤーの少し上（5.0m 上）を狙う
-            Vector3 cameraTarget = Add(lookAheadTarget, Scale(playerRailUp, 5.0f));
-
-            // カメラの現在位置から注視ターゲットへの方向ベクトル
-            Vector3 lookDir = Subtract(cameraTarget, camTrans.translate);
-            float lookDist = std::sqrt(lookDir.x * lookDir.x + lookDir.y * lookDir.y + lookDir.z * lookDir.z);
-            if (lookDist > 0.001f) {
-                lookDir = Scale(lookDir, 1.0f / lookDist);
-            } else {
-                lookDir = camRailDir; // フォールバック
-            }
-
-            // 方向ベクトルからオイラー角を計算
-            float baseCamRotY = -std::atan2(lookDir.x, lookDir.z);
-            float baseCamRotX = std::atan2(-lookDir.y, std::sqrt(lookDir.x * lookDir.x + lookDir.z * lookDir.z));
-
-            float targetCamRotateY = fighterModel_->transform.translate.x * 0.003f;
-            float targetCamRotateX = -fighterModel_->transform.translate.y * 0.003f;
-
-            float targetRotY = baseCamRotY + targetCamRotateY;
-            float targetRotX = baseCamRotX + targetCamRotateX;
-
-            // カメラの回転角のスムーズ首振り（最短角度差による補間）
-            float rotLerpFactor = 0.15f;
-
-            float diffY = targetRotY - camTrans.rotate.y;
-            while (diffY < -static_cast<float>(M_PI)) diffY += 2.0f * static_cast<float>(M_PI);
-            while (diffY > static_cast<float>(M_PI)) diffY -= 2.0f * static_cast<float>(M_PI);
-            camTrans.rotate.y += diffY * rotLerpFactor;
-
-            float diffX = targetRotX - camTrans.rotate.x;
-            while (diffX < -static_cast<float>(M_PI)) diffX += 2.0f * static_cast<float>(M_PI);
-            while (diffX > static_cast<float>(M_PI)) diffX -= 2.0f * static_cast<float>(M_PI);
-            camTrans.rotate.x += diffX * rotLerpFactor;
-
-            // ロール回転は入力とバレルロールに追従
-            float targetRotZ = -inputDir.x * 0.03f;
-            if (isBarrelRolling_) {
-                float rollT = barrelRollTimer_ / kBarrelRollDuration;
-                targetRotZ += std::sin(rollT * static_cast<float>(M_PI)) * 0.15f;
-            }
-            camTrans.rotate.z = std::lerp(camTrans.rotate.z, targetRotZ, rotLerpFactor);
 
             // ── 4. バレルロール開始（LSHIFTのブースト切り替え時に連動） ──
 
@@ -2046,7 +2174,7 @@ void GamePlayScene::Update() {
 
 
             // ── ボス登場演出中のカメラワーク上書き ──
-            if (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f) {
+            if (!isBossDefeatedSequence_ && currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f) {
                 float t = 5.0f - bossAppearanceTimer_; // 0.0f から 5.0f
                 
                 // ボスの落下オフセット（1.8秒で着地）

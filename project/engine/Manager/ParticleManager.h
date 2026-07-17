@@ -80,7 +80,7 @@ public:
     void EmitAeroWind(const Vector3& emitterPos, float speed, int count, const Vector3& color);
     void EmitHolyLight(const Vector3& emitterPos, float speed, int count, const Vector3& color);
     void EmitChaosVoid(const Vector3& emitterPos, float speed, int count, const Vector3& color);
-    void EmitWhiteCross(const Vector3& emitterPos);
+    void EmitWhiteCross(const Vector3& emitterPos, const Vector3& right = { 1.0f, 0.0f, 0.0f }, const Vector3& up = { 0.0f, 1.0f, 0.0f });
     void Clear();
     void EmitMegaRing(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
     void EmitMegaCylinder(const Vector3& emitterPos, const Vector3& color = { 1.0f, 1.0f, 1.0f });
