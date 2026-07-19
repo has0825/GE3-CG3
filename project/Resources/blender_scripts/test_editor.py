@@ -8,10 +8,7 @@ Blender レベルエディタ (双方向 & 地形・街並み自動生成)
 - Blender上でオブジェクトを自由に移動・追加・削除してレベルをデザイン
 - 「Export to Game」ボタンで変更内容をscene_layout.txtに書き出し
 - 新機能：「Generate Terrain & City」で起伏のある地形、道路、ビル、敵をプロシージャルに自動生成！
-  - 道路タイルを7列（±240m幅）に拡張して見た目のリアリティ向上
-  - 曲がり道での隙間を完全に埋めるダミー道路の改善（本軌道タイルと自然につながる）
-  - ビルが道路上や他のビルと重ならないよう重複チェック強化
-  - 地形に連動するノイズスケールとサンプリング解像度
+  - 地形に連動するノイズスケールとサンプリング解像度（サイズ変更時の尖り防止）
   - 窓が発光する夜景ビルマテリアルのプロシージャル自動適用
   - 道路中心部の平坦化（ゲームプレイエリアの路面確保）
   - 地形メッシュ（terrain.obj）の自動エクスポート
@@ -45,37 +42,6 @@ PLAYER_COLOR   = (0.2, 0.5, 1.0, 1.0)
 ENEMY_COLOR    = (1.0, 0.4, 0.2, 1.0)
 
 COLLECTION_NAME = "GE3_LevelEditor"
-
-# ── 道路タイル設定（ゲームと一致させること）──
-ROAD_WIDTH          = 80.0   # 1タイルの幅（ゲームユニット）
-NUM_ROAD_LANES      = 21     # タイル列数（直径約20タイル = 中央1+左右各10列 = 計21列）
-NUM_REAL_LANES      = 3      # リアル道路列数（中央+±1列 = lane 0,1,2）
-# lane 0：中央, 1:+80, 2:-80, 3:+160, 4:-160, ..., 19:+800, 20:-800
-# lane 0〜2 = リアル（WAYPOINT・ビル除外チェック対象）
-# lane 3〜20 = ダミー（視覚的装飾のみ。WAYPOINTから除外）
-LANE_OFFSETS = [
-    0.0,
-    +ROAD_WIDTH * 1.0,  -ROAD_WIDTH * 1.0,
-    +ROAD_WIDTH * 2.0,  -ROAD_WIDTH * 2.0,
-    +ROAD_WIDTH * 3.0,  -ROAD_WIDTH * 3.0,
-    +ROAD_WIDTH * 4.0,  -ROAD_WIDTH * 4.0,
-    +ROAD_WIDTH * 5.0,  -ROAD_WIDTH * 5.0,
-    +ROAD_WIDTH * 6.0,  -ROAD_WIDTH * 6.0,
-    +ROAD_WIDTH * 7.0,  -ROAD_WIDTH * 7.0,
-    +ROAD_WIDTH * 8.0,  -ROAD_WIDTH * 8.0,
-    +ROAD_WIDTH * 9.0,  -ROAD_WIDTH * 9.0,
-    +ROAD_WIDTH * 10.0, -ROAD_WIDTH * 10.0,
-]
-# プレイヤーが走る中央3列（0, ±80m）をビル禁止にする半径
-# 中央タイルから45m以内 = ±80m 列の内側（実質 ±80-45=35m まで）を保護
-ROAD_CLEAR_HALF_WIDTH = 45.0
-# ビル同士の最小間隔
-BUILDING_MIN_DIST = 30.0
-# タイル同士の重複判定半径
-TILE_OVERLAP_RADIUS = 90.0
-# すべての道路（ダミー含む）からビルを離すための最小距離（直進時のビル位置40mを考慮し35mに設定）
-BUILDING_ROAD_CLEAR_DIST = 35.0
-
 
 
 def get_or_create_collection():
@@ -196,6 +162,7 @@ def set_material_preview_mode():
                 if space.type == 'VIEW_3D':
                     space.shading.type = 'MATERIAL'
         
+
 
 def update_building_floors(self, context):
     """建物の階数が変更されたときにモディファイアーまたはスケールと位置を更新"""
@@ -452,50 +419,6 @@ def export_terrain(terrain_obj):
         except ReferenceError:
             pass
     print(f"[City Generator] Terrain exported to {export_path}")
-
-
-# ─────────────────────────────────────────────────────────────────────
-# ヘルパー：パス上の任意距離での位置・方向・右方向ベクトルを計算
-# ─────────────────────────────────────────────────────────────────────
-
-def get_path_info(path_points, z_val, step_distance):
-    """
-    path_points リストから指定距離 z_val での位置・方向・右ベクトルを返す。
-    戻り値: (pos[x,y,z], dir[x,y,z], right[x,y,z], rot_y, rot_x)
-    """
-    idx = int(z_val / step_distance)
-    idx = max(0, min(len(path_points) - 2, idx))
-
-    # 方向ベクトル
-    next_idx = min(idx + 1, len(path_points) - 1)
-    dir_vec = [path_points[next_idx][c] - path_points[idx][c] for c in range(3)]
-    length = math.sqrt(sum(c**2 for c in dir_vec))
-    if length > 0.001:
-        dir_vec = [c / length for c in dir_vec]
-    else:
-        dir_vec = [0.0, 0.0, 1.0]
-
-    # 右ベクトル（XZ平面上）
-    right_vec = [-dir_vec[2], 0.0, dir_vec[0]]
-    right_len = math.sqrt(right_vec[0]**2 + right_vec[2]**2)
-    if right_len > 0.001:
-        right_vec = [c / right_len for c in right_vec]
-    else:
-        right_vec = [1.0, 0.0, 0.0]
-
-    # 回転角
-    rot_y = math.atan2(dir_vec[0], dir_vec[2])
-    rot_x = math.atan2(-dir_vec[1], math.sqrt(dir_vec[0]**2 + dir_vec[2]**2))
-
-    # 位置（線形補間）
-    t = (z_val - idx * step_distance) / step_distance
-    t = max(0.0, min(1.0, t))
-    pos = [
-        path_points[idx][c] + t * (path_points[next_idx][c] - path_points[idx][c])
-        for c in range(3)
-    ]
-
-    return pos, dir_vec, right_vec, rot_y, rot_x
 
 
 class GE3_OT_ImportLayout(Operator):
@@ -763,7 +686,7 @@ class GE3_OT_TurnRouteFromSelected(Operator):
 
 
 class GE3_OT_AlignLanesToCenter(Operator):
-    """手動でずれた他の車線(1〜6)を、最寄りの中央車線(lane=0)に吸着・自動整列させる"""
+    """手動でずれた他の車線(1,2,3,4)を、最寄りの中央車線(lane=0)に吸着・自動整列させる"""
     bl_idname = "ge3.align_lanes_to_center"
     bl_label = "Align Lanes to Center Route"
     bl_options = {"REGISTER", "UNDO"}
@@ -778,7 +701,7 @@ class GE3_OT_AlignLanesToCenter(Operator):
                 lane = obj.get("ge3_lane", -1)
                 if lane == 0:
                     centers.append(obj)
-                elif lane in [1, 2, 3, 4, 5, 6]:
+                elif lane in [1, 2, 3, 4]:
                     others.append(obj)
 
         if not centers:
@@ -786,8 +709,7 @@ class GE3_OT_AlignLanesToCenter(Operator):
             return {"CANCELLED"}
 
         aligned_count = 0
-        # ゲームの ROAD_WIDTH=80 → Blenderスケール×0.1 = 8.0
-        road_width_b = ROAD_WIDTH * SCALE
+        road_width = 8.0 # ゲーム内 80.0 ➔ Blenderスケール 0.1 で 8.0m
 
         for other in others:
             best_center = None
@@ -807,17 +729,12 @@ class GE3_OT_AlignLanesToCenter(Operator):
                 right_vec = (math.cos(yaw), -math.sin(yaw))
 
                 lane = other.get("ge3_lane")
-                # 7列分のオフセット対応
-                lane_offset_map = {
-                    1: +1.0, 2: -1.0,
-                    3: +2.0, 4: -2.0,
-                    5: +3.0, 6: -3.0
-                }
-                offset_factor = lane_offset_map.get(lane, 0.0)
+                lane_offsets = {1: 1.0, 2: -1.0, 3: 2.0, 4: -2.0}
+                offset_factor = lane_offsets.get(lane, 0.0)
 
                 # 位置を同期
-                other.location.x = cx + right_vec[0] * (road_width_b * offset_factor)
-                other.location.y = cy + right_vec[1] * (road_width_b * offset_factor)
+                other.location.x = cx + right_vec[0] * (road_width * offset_factor)
+                other.location.y = cy + right_vec[1] * (road_width * offset_factor)
                 other.location.z = cz
 
                 # 回転を同期
@@ -832,83 +749,6 @@ class GE3_OT_AlignLanesToCenter(Operator):
                 aligned_count += 1
 
         self.report({"INFO"}, f"{aligned_count}枚の車線道路を中央ルートに整列同期しました。")
-        return {"FINISHED"}
-
-
-class GE3_OT_RemoveOverlappingBuildings(Operator):
-    """
-    ビルが道路上やビル同士で重なっている場合に、重なっている方を削除する
-    ─ 中央車線(lane=0)タイルから ROAD_CLEAR_HALF_WIDTH(=45m) 以内のビルのみ削除
-      ※ 外側タイルは対象外なので、外側ビルは消えない
-    ─ ビル同士の距離が BUILDING_MIN_DIST 以下なら後ろのものを削除
-    """
-    bl_idname = "ge3.remove_overlapping_buildings"
-    bl_label  = "Remove Overlapping Buildings"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        col = get_or_create_collection()
-
-        # ── 1. 中央車線(lane=0)のタイル位置のみを収集 ──
-        # lane=0 だけを対象にすることで、外側タイル近くのビルを誤って消さない
-        center_road_tiles = []
-        for obj in col.objects:
-            if obj.get("ge3_type") == "FLOOR" and obj.get("ge3_lane", -1) == 0:
-                gx = obj.location.x / SCALE
-                gz = obj.location.y / SCALE
-                center_road_tiles.append((gx, gz))
-
-        # lane=0 が一つも無い場合は全タイルを使う（フォールバック）
-        if not center_road_tiles:
-            for obj in col.objects:
-                if obj.get("ge3_type") == "FLOOR":
-                    gx = obj.location.x / SCALE
-                    gz = obj.location.y / SCALE
-                    center_road_tiles.append((gx, gz))
-
-        # ── 2. ビルを収集 ──
-        buildings = []
-        for obj in col.objects:
-            if obj.get("ge3_type") == "BUILDING":
-                gx = obj.location.x / SCALE
-                gz = obj.location.y / SCALE
-                buildings.append((obj, gx, gz))
-
-        to_delete = set()
-
-        # ── 3. 中央車線タイルとの重なりチェック ──
-        # ROAD_CLEAR_HALF_WIDTH(=45m) 以内のビルのみ削除対象
-        for obj, bx, bz in buildings:
-            if obj.name in to_delete:
-                continue
-            for rx, rz in center_road_tiles:
-                dist_sq = (bx - rx)**2 + (bz - rz)**2
-                if dist_sq < ROAD_CLEAR_HALF_WIDTH**2:
-                    to_delete.add(obj.name)
-                    break
-
-        # ── 4. ビル同士の重なりチェック ──
-        for i in range(len(buildings)):
-            obj_i, bx_i, bz_i = buildings[i]
-            if obj_i.name in to_delete:
-                continue
-            for j in range(i + 1, len(buildings)):
-                obj_j, bx_j, bz_j = buildings[j]
-                if obj_j.name in to_delete:
-                    continue
-                dist_sq = (bx_i - bx_j)**2 + (bz_i - bz_j)**2
-                if dist_sq < BUILDING_MIN_DIST**2:
-                    to_delete.add(obj_j.name)  # 後のものを削除
-
-        # ── 5. 削除実行 ──
-        deleted_count = 0
-        for name in to_delete:
-            obj = bpy.data.objects.get(name)
-            if obj:
-                bpy.data.objects.remove(obj, do_unlink=True)
-                deleted_count += 1
-
-        self.report({"INFO"}, f"{deleted_count} 個の重なりビルを削除しました。(中央車線±{ROAD_CLEAR_HALF_WIDTH:.0f}m保護)")
         return {"FINISHED"}
 
 
@@ -934,28 +774,18 @@ class GE3_OT_GenerateCity(Operator):
         curve_angle_deg = scene.ge3_curve_angle
         slope_height = scene.ge3_slope_height
         
-        # 配置定数（21列幅 = 直径約20タイル）
-        road_width       = ROAD_WIDTH            # 80.0
-        num_lanes        = NUM_ROAD_LANES         # 21
-        road_flat_width  = 880.0  # 21列道路全体 (X = -800 〜 800) + 余裕をカバーする平坦化幅
-        max_height       = 25.0  # 街に合わせて谷や山を大幅に浅く調整
+        # 配置定数（5列幅に拡張）
+        road_width = 80.0
+        road_flat_width = 220.0 # 5列道路全体 (X = -160 〜 160) をカバーする平坦化幅
+        max_height = 25.0       # 街に合わせて谷や山を大幅に浅く調整
         
         # テンプレートビルの読み込み
         import_building_template()
         
-        # シーン内の古いGE3関連オブジェクトを完全にクリーンアップ（残存による二重重なり防止）
+        # 既存のレベルエディタコレクション内オブジェクトを削除
         col = get_or_create_collection()
-        to_remove = []
-        for obj in list(bpy.data.objects):
-            if obj.name.startswith("GE3_") or obj.name in col.objects:
-                # テンプレートモデルは削除しない
-                if obj.name != "GE3_Building_Template":
-                    to_remove.append(obj)
-        for obj in to_remove:
-            try:
-                bpy.data.objects.remove(obj, do_unlink=True)
-            except Exception as e:
-                print(f"Failed to remove {obj.name}: {e}")
+        for obj in list(col.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
 
         # ──────────────────────────────────────────
         # 0. 軌道（ウェイポイント）のプロシージャル生成 & スプライン補間
@@ -1055,8 +885,8 @@ class GE3_OT_GenerateCity(Operator):
         vertices = []
         faces = []
         
-        dx_t = terrain_width / (subdivisions_x - 1)
-        dz_t = city_length / (subdivisions_y - 1)
+        dx = terrain_width / (subdivisions_x - 1)
+        dz = city_length / (subdivisions_y - 1)
         
         def get_terrain_height(gx, gz):
             val = (
@@ -1083,9 +913,9 @@ class GE3_OT_GenerateCity(Operator):
             return gy
 
         for j in range(subdivisions_y):
-            gz = j * dz_t
+            gz = j * dz
             for i in range(subdivisions_x):
-                gx = -terrain_width / 2.0 + i * dx_t
+                gx = -terrain_width / 2.0 + i * dx
                 gy = get_terrain_height(gx, gz)
                 vertices.append((gx * SCALE, gz * SCALE, gy * SCALE))
                 
@@ -1114,200 +944,110 @@ class GE3_OT_GenerateCity(Operator):
         terrain_obj["ge3_type"] = "TERRAIN"
         
         # ──────────────────────────────────────────
-        # 2. 道路 (FLOOR) の生成 (軌道に沿って7列配置)
+        # 2. 道路 (FLOOR) の生成 (軌道に沿って配置)
         # ──────────────────────────────────────────
-        floor_size_z = 100.0  # タイル1枚のZ方向長さ（ゲームユニット）
-        num_floors_per_lane = math.ceil(city_length / floor_size_z)
+        floor_size_z = 100.0
+        num_floors = math.ceil(city_length / floor_size_z)
         
         floor_count = 0
-        # タイルの (gx, gz) リスト（重複チェック用）
-        all_tile_positions = []       # 全タイル位置
-        center_tile_positions = []    # 中央3列のみ（ビル除外チェック用）
-
-        for i in range(num_floors_per_lane):
+        lane_offsets = [0.0, +road_width, -road_width, +road_width * 2.0, -road_width * 2.0]
+        
+        real_floor_positions = []
+        for i in range(num_floors):
             z_val = i * floor_size_z
-            pos, dir_vec, right_vec, rot_y, rot_x = get_path_info(path_points, z_val, step_distance)
-
-            for lane_idx in range(num_lanes):
-                offset = LANE_OFFSETS[lane_idx]
-                gx = pos[0] + offset * right_vec[0]
-                gy = pos[1] + offset * right_vec[1]
-                gz = pos[2] + offset * right_vec[2]
-
+            idx = int(z_val / step_distance)
+            idx = max(0, min(len(path_points) - 1, idx))
+            p = path_points[idx]
+            
+            next_idx = min(idx + int(floor_size_z / step_distance), len(path_points) - 1)
+            if next_idx == idx:
+                next_idx = len(path_points) - 1
+                prev_idx = max(0, idx - 1)
+                dir_vec = [path_points[next_idx][c] - path_points[prev_idx][c] for c in range(3)]
+            else:
+                dir_vec = [path_points[next_idx][c] - path_points[idx][c] for c in range(3)]
+                
+            length = math.sqrt(sum(c**2 for c in dir_vec))
+            if length > 0.001:
+                dir_vec = [c / length for c in dir_vec]
+            else:
+                dir_vec = [0.0, 0.0, 1.0]
+                
+            right_vec = [-dir_vec[2], 0.0, dir_vec[0]]
+            right_len = math.sqrt(right_vec[0]**2 + right_vec[2]**2)
+            if right_len > 0.001:
+                right_vec = [c / right_len for c in right_vec]
+            else:
+                right_vec = [-1.0, 0.0, 0.0]
+                
+            rot_y = math.atan2(dir_vec[0], dir_vec[2])
+            rot_x = math.atan2(-dir_vec[1], math.sqrt(dir_vec[0]**2 + dir_vec[2]**2))
+            
+            for lane in range(5):
+                offset = lane_offsets[lane]
+                gx = p[0] + offset * right_vec[0]
+                gy = p[1] + offset * right_vec[1]
+                gz = p[2] + offset * right_vec[2]
+                
                 name = f"GE3_Floor_{floor_count:03d}"
                 floor_obj = create_floor_obj(name, gx, gy, gz, rot_x, rot_y, 0.0)
-                # lane 0,1,2 (中央・±80m) = リアルタイル，lane 3以降 = ダミー（WAYPOINT生成から除外）
-                if lane_idx < NUM_REAL_LANES:
-                    floor_obj["ge3_lane"] = lane_idx  # 0,1,2 = WAYPOINTSort対象
-                else:
-                    floor_obj["ge3_lane"] = -1  # ダミー（視覚的のみ）
+                floor_obj["ge3_lane"] = lane
                 floor_count += 1
-                all_tile_positions.append((gx, gz))
-                # lane 0,1,2 = 中央・±80m の3列のみをビル除外対象にする
-                if lane_idx < NUM_REAL_LANES:
-                    center_tile_positions.append((gx, gz))
-
-        # ──────────────────────────────────────────
-        # 2.5 曲がり角でのダミー道路の生成
-        #     ★ 本軌道タイルとシームレスにつながるよう、
-        #        既存タイル位置と重複するものをスキップ
-        #     ★ Zファイティング防止のため、高さをわずかに下げる(-0.05m)
-        # ──────────────────────────────────────────
-        dummy_floor_count = 0
-        dummy_floor_positions = []
-        max_dummy_floors = 12  # ダミー道路を12枚分（1200ゲームユニット）まっすぐ伸ばす
-
-        # 曲がり角ごとに処理
-        for sec_idx in range(num_sections):
-            behavior = behaviors[sec_idx]
-            if "R" in behavior or "L" in behavior:
-                # このセクション of 開始進捗
-                progress_start = sec_idx * section_length
-                idx_start = int(progress_start / step_distance)
-                idx_start = max(0, min(len(path_points) - 1, idx_start))
-                p_start = path_points[idx_start]
+                real_floor_positions.append((gx, gz))
                 
-                # 直前の直進方向を算出 (idx_start == 0 の場合はデフォルトで Z方向)
-                idx_prev = max(0, idx_start - 2)
-                if idx_start > 0:
-                    dir_straight = [path_points[idx_start][c] - path_points[idx_prev][c] for c in range(3)]
-                else:
-                    dir_straight = [0.0, 0.0, 1.0]
-                
-                length = math.sqrt(sum(c**2 for c in dir_straight))
-                if length > 0.001:
-                    dir_straight = [c / length for c in dir_straight]
-                else:
-                    dir_straight = [0.0, 0.0, 1.0]
-                
-                right_vec = [-dir_straight[2], 0.0, dir_straight[0]]
-                right_len = math.sqrt(right_vec[0]**2 + right_vec[2]**2)
-                if right_len > 0.001:
-                    right_vec = [c / right_len for c in right_vec]
-                else:
-                    right_vec = [1.0, 0.0, 0.0]
-                
-                rot_y = math.atan2(dir_straight[0], dir_straight[2])
-                rot_x = math.atan2(-dir_straight[1], math.sqrt(dir_straight[0]**2 + dir_straight[2]**2))
-                
-                # ── ダミー道路の配置 ──
-                for d in range(1, max_dummy_floors + 1):
-                    d_dist = d * floor_size_z
-                    p_dummy = [p_start[c] + d_dist * dir_straight[c] for c in range(3)]
-                    
-                    for lane_idx in range(-10, 11):
-                        offset = lane_idx * road_width
-                        gx = p_dummy[0] + offset * right_vec[0]
-                        gy = p_dummy[1] + offset * right_vec[1]
-                        gz = p_dummy[2] + offset * right_vec[2]
-                        
-                        # ★ 本物の道路タイルとの重複チェック
-                        overlap = False
-                        for tx, tz in all_tile_positions:
-                            if (gx - tx)**2 + (gz - tz)**2 < TILE_OVERLAP_RADIUS**2:
-                                overlap = True
-                                break
-                        if overlap:
-                            continue
-                            
-                        # 他のダミー道路との重複チェック
-                        for dx_pos, dz_pos in dummy_floor_positions:
-                            if (gx - dx_pos)**2 + (gz - dz_pos)**2 < TILE_OVERLAP_RADIUS**2:
-                                overlap = True
-                                break
-                        if overlap:
-                            continue
-                        
-                        name = f"GE3_Floor_Dummy_{dummy_floor_count:03d}"
-                        # Zファイティング防止のため、高さを0.05m下げる
-                        floor_obj = create_floor_obj(name, gx, gy - 0.05, gz, rot_x, rot_y, 0.0)
-                        floor_obj["ge3_lane"] = -1  # WAYPOINTから除外
-                        dummy_floor_count += 1
-                        dummy_floor_positions.append((gx, gz))
-
         # ──────────────────────────────────────────
         # 3. ビル (BUILDING) の自動生成 (軌道に沿って配置)
-        #    ★ 道路タイル範囲内にはビルを置かない
-        #    ★ ビル同士の重なりを排除
         # ──────────────────────────────────────────
         building_count = 0
         enemy_count = 0
         random.seed(42)
         
-        # ビルの配置列（21列道路に対応した広範囲配置）
-        building_cols = [
-             -40.0,   40.0,
-            -120.0,  120.0,
-            -200.0,  200.0,
-            -280.0,  280.0,
-            -360.0,  360.0,
-            -440.0,  440.0,
-            -520.0,  520.0,
-            -600.0,  600.0,
-            -680.0,  680.0,
-            -760.0,  760.0,
-            -840.0,  840.0,
-            -920.0,  920.0,
-        ]
-        MAX_BUILDINGS = 3000
+        building_cols = [-45.0, 45.0, -85.0, 85.0, -125.0, 125.0, -205.0, 205.0, -285.0, 285.0]
         building_interval = 80.0
-        num_buildings_z = int(city_length / building_interval)
+        num_buildings_y = int(city_length / building_interval)
         
-        # 配置済みビル位置リスト（重複チェック用）
-        placed_building_positions = []
-
-        for i in range(num_buildings_z):
+        real_building_positions = []
+        for i in range(num_buildings_y):
             gz_val = 50.0 + i * building_interval
             if gz_val > city_length - 100.0:
                 continue
                 
-            pos, dir_vec, right_vec, rot_y, rot_x = get_path_info(path_points, gz_val, step_distance)
+            idx = int(gz_val / step_distance)
+            idx = max(0, min(len(path_points) - 1, idx))
+            p = path_points[idx]
+            
+            next_idx = min(idx + 1, len(path_points) - 1)
+            dir_vec = [path_points[next_idx][c] - path_points[idx][c] for c in range(3)]
+            length = math.sqrt(sum(c**2 for c in dir_vec))
+            if length > 0.001:
+                dir_vec = [c / length for c in dir_vec]
+            else:
+                dir_vec = [0.0, 0.0, 1.0]
+                
+            right_vec = [-dir_vec[2], 0.0, dir_vec[0]]
+            right_len = math.sqrt(right_vec[0]**2 + right_vec[2]**2)
+            if right_len > 0.001:
+                right_vec = [c / right_len for c in right_vec]
+            else:
+                right_vec = [-1.0, 0.0, 0.0]
+                
+            rot_y = math.atan2(dir_vec[0], dir_vec[2])
             
             for col_x in building_cols:
-                if building_count >= MAX_BUILDINGS:
+                if building_count >= 400:
                     break
                     
                 if random.random() > building_density:
                     continue
                     
-                gx = pos[0] + col_x * right_vec[0]
-                gz = pos[2] + col_x * right_vec[2]
-
-                # ── 道路タイルとの重なりチェック（本物＋ダミー道路の全タイル対象）──
-                too_close_to_road = False
-                # 中央3列の保護（45m）
-                for tx, tz in center_tile_positions:
-                    if (gx - tx)**2 + (gz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
-                        too_close_to_road = True
-                        break
-                # その他のすべての車線およびダミー道路からの保護（35m）
-                if not too_close_to_road:
-                    for tx, tz in all_tile_positions:
-                        if (gx - tx)**2 + (gz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
-                            too_close_to_road = True
-                            break
-                if not too_close_to_road:
-                    for tx, tz in dummy_floor_positions:
-                        if (gx - tx)**2 + (gz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
-                            too_close_to_road = True
-                            break
-                if too_close_to_road:
-                    continue
-
-                # ── ビル同士の重なりチェック ──
-                too_close_to_building = False
-                for bx, bz in placed_building_positions:
-                    if (gx - bx)**2 + (gz - bz)**2 < BUILDING_MIN_DIST**2:
-                        too_close_to_building = True
-                        break
-                if too_close_to_building:
-                    continue
-                    
+                gx = p[0] + col_x * right_vec[0]
+                gz = p[2] + col_x * right_vec[2]
+                
                 base_gy = get_terrain_height(gx, gz)
                 
-                # 地形起伏に応じた階数設定（外側ほど高め）
-                terrain_factor = (base_gy - pos[1]) / max(max_height, 1.0)
-                if abs(col_x) > 200.0:
+                # 地形起伏に応じた階数設定
+                terrain_factor = (base_gy - p[1]) / max_height
+                if abs(col_x) > 120.0:
                     floors = int(6 + terrain_factor * 10 + random.randint(0, 5))
                 else:
                     floors = int(1 + terrain_factor * 5 + random.randint(0, 3))
@@ -1322,7 +1062,7 @@ class GE3_OT_GenerateCity(Operator):
                 sy = 10.0 * floors
                 
                 building_count += 1
-                placed_building_positions.append((gx, gz))
+                real_building_positions.append((gx, gz))
                 
                 # 敵の配置
                 if random.random() < enemy_spawn_rate and enemy_count < 30:
@@ -1333,19 +1073,19 @@ class GE3_OT_GenerateCity(Operator):
                     e_name = f"GE3_Enemy_{enemy_count:02d}"
                     create_enemy_obj(e_name, enemy_gx, enemy_gy, enemy_gz)
                     enemy_count += 1
-
+                    
         # ──────────────────────────────────────────
-        # 3.5 曲がり角でのダミービルの生成
-        #     ★ 道路タイル範囲内にはビルを置かない
-        #     ★ ビル同士の重なりを排除
+        # 3.5 曲がり角でのダミー道路とビルの生成 (直進方向の背景補完)
         # ──────────────────────────────────────────
+        dummy_floor_count = 0
+        dummy_floor_positions = []
         dummy_building_positions = []
-
-        # 曲がり角ごとに処理
+        max_dummy_floors = 60  # ダミー道路を60枚分（6000ゲームユニット）まっすぐ伸ばす
+        
         for sec_idx in range(num_sections):
             behavior = behaviors[sec_idx]
             if "R" in behavior or "L" in behavior:
-                # このセクション of 開始進捗
+                # このセクションの開始進捗
                 progress_start = sec_idx * section_length
                 idx_start = int(progress_start / step_distance)
                 idx_start = max(0, min(len(path_points) - 1, idx_start))
@@ -1369,67 +1109,102 @@ class GE3_OT_GenerateCity(Operator):
                 if right_len > 0.001:
                     right_vec = [c / right_len for c in right_vec]
                 else:
-                    right_vec = [1.0, 0.0, 0.0]
+                    right_vec = [-1.0, 0.0, 0.0]
                 
                 rot_y = math.atan2(dir_straight[0], dir_straight[2])
+                rot_x = math.atan2(-dir_straight[1], math.sqrt(dir_straight[0]**2 + dir_straight[2]**2))
                 
-                # ── ダミービルの配置 ──
+                # 1. ダミー道路の配置 (左右15列、長さ60枚分を伸ばす)
+                for d in range(1, max_dummy_floors + 1):
+                    d_dist = d * floor_size_z
+                    p_dummy = [p_start[c] + d_dist * dir_straight[c] for c in range(3)]
+                    
+                    # -15 から +15 までの 31列
+                    for lane_idx in range(-15, 16):
+                        offset = lane_idx * road_width
+                        gx = p_dummy[0] + offset * right_vec[0]
+                        gy = p_dummy[1] + offset * right_vec[1]
+                        gz = p_dummy[2] + offset * right_vec[2]
+                        
+                        # 重複チェック (本物の道路との重複 - 円形判定 60.0)
+                        overlap = False
+                        for rx, rz in real_floor_positions:
+                            if (gx - rx)**2 + (gz - rz)**2 < 60.0**2:
+                                overlap = True
+                                break
+                        if overlap:
+                            continue
+                            
+                        # 重複チェック (他のダミー道路との重複 - 円形判定 60.0)
+                        for dx, dz in dummy_floor_positions:
+                            if (gx - dx)**2 + (gz - dz)**2 < 60.0**2:
+                                overlap = True
+                                break
+                        if overlap:
+                            continue
+                        
+                        name = f"GE3_Floor_Dummy_{dummy_floor_count:03d}"
+                        floor_obj = create_floor_obj(name, gx, gy, gz, rot_x, rot_y, 0.0)
+                        floor_obj["ge3_lane"] = -1 # WAYPOINT自動生成から除外
+                        dummy_floor_count += 1
+                        dummy_floor_positions.append((gx, gz))
+                
+                # 2. ダミービルの配置 (重複排除付きで配置)
                 max_b_dist = max_dummy_floors * floor_size_z
                 b_steps = int(max_b_dist / building_interval)
                 
-                # ダミービルのX列は道路より外側のみ（軌道と重ならない列）
-                dummy_building_cols_signed = [
-                    -125.0, 125.0,
-                    -165.0, 165.0,
-                    -205.0, 205.0,
-                    -285.0, 285.0,
-                    -365.0, 365.0,
-                ]
-                
+                # 各床の隙間 (lane_idx + 0.5) * road_width にビルを配置
+                # lane_idx は -16 から 15 まで (計32列)
                 for b_step in range(b_steps):
                     d_dist = 40.0 + b_step * building_interval
                     p_b_dummy = [p_start[c] + d_dist * dir_straight[c] for c in range(3)]
                     
-                    for col_x in dummy_building_cols_signed:
+                    for lane_idx in range(-16, 16):
                         if random.random() > building_density:
                             continue
                             
+                        col_x = (lane_idx + 0.5) * road_width
                         gx = p_b_dummy[0] + col_x * right_vec[0]
                         gz = p_b_dummy[2] + col_x * right_vec[2]
                         
-                        # 道路タイルとの重なりチェック（本物＋ダミー道路）
+                        # 重複チェック (本物のビルとの重複 - 円形判定 15.0)
                         overlap = False
-                        for tx, tz in all_tile_positions:
-                            if (gx - tx)**2 + (gz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
-                                overlap = True
-                                break
-                        if overlap:
-                            continue
-                        for dx_pos, dz_pos in dummy_floor_positions:
-                            if (gx - dx_pos)**2 + (gz - dz_pos)**2 < ROAD_CLEAR_HALF_WIDTH**2:
-                                overlap = True
-                                break
-                        if overlap:
-                            continue
-
-                        # ビル同士の重なりチェック（本物＋ダミービル）
-                        for bx, bz in placed_building_positions:
-                            if (gx - bx)**2 + (gz - bz)**2 < BUILDING_MIN_DIST**2:
-                                overlap = True
-                                break
-                        if overlap:
-                            continue
-                        for dx_pos, dz_pos in dummy_building_positions:
-                            if (gx - dx_pos)**2 + (gz - dz_pos)**2 < BUILDING_MIN_DIST**2:
+                        for rx, rz in real_building_positions:
+                            if (gx - rx)**2 + (gz - rz)**2 < 15.0**2:
                                 overlap = True
                                 break
                         if overlap:
                             continue
                             
+                        # 重複チェック (本物の道路との重複 - 円形判定 45.0)
+                        for rx, rz in real_floor_positions:
+                            if (gx - rx)**2 + (gz - rz)**2 < 45.0**2:
+                                overlap = True
+                                break
+                        if overlap:
+                            continue
+                            
+                        # 重複チェック (他のダミービルとの重複 - 円形判定 15.0)
+                        for dx, dz in dummy_building_positions:
+                            if (gx - dx)**2 + (gz - dz)**2 < 15.0**2:
+                                overlap = True
+                                break
+                        if overlap:
+                            continue
+                            
+                        # 重複チェック (ダミーの道路との重複 - 円形判定 45.0)
+                        for dx, dz in dummy_floor_positions:
+                            if (gx - dx)**2 + (gz - dz)**2 < 45.0**2:
+                                overlap = True
+                                break
+                        if overlap:
+                            continue
+                        
                         base_gy = get_terrain_height(gx, gz)
                         
                         # 高さ (階数) の算出
-                        terrain_factor = (base_gy - p_b_dummy[1]) / max(max_height, 1.0)
+                        terrain_factor = (base_gy - p_b_dummy[1]) / max_height
+                        # 道路から離れるほど高いビルにする
                         dist_factor = abs(col_x) / road_width
                         if dist_factor > 3.0:
                             floors = int(6 + terrain_factor * 10 + random.randint(0, 5))
@@ -1456,9 +1231,8 @@ class GE3_OT_GenerateCity(Operator):
         export_terrain(terrain_obj)
         
         msg = (f"Generated: {building_count} buildings (including dummy), "
-               f"{floor_count} floors ({num_lanes} lanes), {dummy_floor_count} dummy floors, "
+               f"{floor_count} floors, {dummy_floor_count} dummy floors, "
                f"{enemy_count} enemies. Terrain exported.")
-        self.report({"INFO"}, msg)
         set_material_preview_mode()
         return {"FINISHED"}
 
@@ -1508,15 +1282,6 @@ class GE3_PT_LevelEditorPanel(Panel):
         
         # 車線整列
         box_manual.operator("ge3.align_lanes_to_center", text="Align Lanes to Center", icon="SNAP_GRID")
-
-        # ★ ビル重なり除去ボタン
-        box_manual.separator()
-        box_manual.label(text="--- Cleanup ---")
-        box_manual.operator(
-            "ge3.remove_overlapping_buildings",
-            text="Remove Overlapping Buildings",
-            icon="X"
-        )
         
         # 選択以降を方向転換
         box_manual.separator()
@@ -1545,7 +1310,6 @@ class GE3_PT_LevelEditorPanel(Panel):
 
         layout.separator()
         layout.label(text="File: scene_layout.txt / terrain.obj", icon="FILE_TEXT")
-        layout.label(text=f"Road lanes: {NUM_ROAD_LANES} (±{ROAD_WIDTH * (NUM_ROAD_LANES // 2):.0f}m)", icon="DRIVER_DISTANCE")
 
 
 classes = [
@@ -1554,7 +1318,6 @@ classes = [
     GE3_OT_GenerateCity, 
     GE3_OT_TurnRouteFromSelected,
     GE3_OT_AlignLanesToCenter,
-    GE3_OT_RemoveOverlappingBuildings,
     GE3_PT_LevelEditorPanel
 ]
 
@@ -1698,3 +1461,8 @@ def unregister():
 if __name__ == "__main__":
     register()
     print("[Level Editor] Ready! Open N-Panel and use 'GE3 Sync' tab.")
+
+import bpy
+bpy.context.scene.ge3_section_behaviors = 'S,S,S,R,S,L,S,S'
+bpy.ops.ge3.generate_city()
+bpy.ops.ge3.export_layout()

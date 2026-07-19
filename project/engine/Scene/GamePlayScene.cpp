@@ -439,8 +439,14 @@ void GamePlayScene::Initialize() {
     floorModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/plane.obj", device));
     TextureManager::GetInstance()->LoadTexture("douro.jpg");
 
-    // X方向オフセット: lane=0→中央(0), lane=1→右(+offset), lane=2→左(-offset)
-    const float laneOffsets[kNumRoadLanes] = { 0.0f, +kRoadColumnXOffset, -kRoadColumnXOffset };
+    // X方向オフセットの計算 (lane=0→中央(0), lane=1→右(+offset), lane=2→左(-offset), ...)
+    float laneOffsets[kNumRoadLanes];
+    laneOffsets[0] = 0.0f;
+    for (int i = 1; i <= 10; ++i) {
+        laneOffsets[i * 2 - 1] = +kRoadColumnXOffset * (float)i;
+        laneOffsets[i * 2]     = -kRoadColumnXOffset * (float)i;
+    }
+
     for (int lane = 0; lane < kNumRoadLanes; ++lane) {
         for (int col = 0; col < kNumFloorColumns; ++col) {
             int idx = lane * kNumFloorColumns + col;
@@ -450,6 +456,8 @@ void GamePlayScene::Initialize() {
             floorTransformData_[idx]->World = MakeIdentity4x4();
 
             floorPositions_[idx] = { laneOffsets[lane], kFloorY, (float)col * kFloorSizeZ };
+            floorLanes_[idx] = lane;
+            floorProgresses_[idx] = (float)col * kFloorSizeZ;
         }
     }
 
@@ -761,6 +769,8 @@ void GamePlayScene::Initialize() {
         for (int i = 0; i < kNumFloors; ++i) {
             floorPositions_[i] = { 0.0f, -10000.0f, 0.0f };
             floorRotations_[i] = { 0.0f, 0.0f, 0.0f };
+            floorLanes_[i] = -1;
+            floorProgresses_[i] = 999999.0f;
         }
 
         waypoints_.clear();
@@ -872,6 +882,22 @@ void GamePlayScene::Initialize() {
                 if (floorCount < kNumFloors) {
                     floorPositions_[floorCount] = { gx + kWorldShiftX, gy, gz };
                     floorRotations_[floorCount] = { rx, ry, rz };
+
+                    int laneIdx = -1;
+                    if (floorCount < 672) {
+                        laneIdx = floorCount % 21;
+                    }
+
+                    // laneIdx が 0, 1, 2（中央3列）のみをメイン道路（動的再配置対象）として扱う
+                    if (laneIdx >= 0 && laneIdx < 3) {
+                        floorLanes_[floorCount] = laneIdx;
+                        // Blender側は Z方向に 100.0f おきに配置されているため、インデックスから進捗を割り振る
+                        floorProgresses_[floorCount] = (float)(floorCount / 21) * 100.0f;
+                    } else {
+                        floorLanes_[floorCount] = -1;
+                        floorProgresses_[floorCount] = 999999.0f; // 動的再配置の対象外（固定背景）にする
+                    }
+
                     floorCount++;
                 }
             } else if (type == "WAYPOINT") {
@@ -3972,7 +3998,7 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 床の画面外再配置（Blenderのカスタムルートがない場合のみ実行する）
+        // 床の画面外再配置
         if (waypoints_.empty()) {
             for (int lane = 0; lane < kNumRoadLanes; ++lane) {
                 // この列の中でZが最大のタイルを探す
@@ -3989,6 +4015,44 @@ void GamePlayScene::Update() {
                     if (floorPositions_[idx].z < cameraZ - kFloorSizeZ) {
                         floorPositions_[idx].z = laneMaxZ + kFloorSizeZ;
                         laneMaxZ = floorPositions_[idx].z; // 複数タイルが同フレームで再配置される場合に備えて更新
+                    }
+                }
+            }
+        } else {
+            // ウェイポイントがある場合：進行進捗 (fighterWorldZ_) に応じてメイン道路（lane 0,1,2）を動的配置
+            float laneMaxProgress[3] = { -9999.0f, -9999.0f, -9999.0f };
+            for (int i = 0; i < kNumFloors; ++i) {
+                int lane = floorLanes_[i];
+                if (lane >= 0 && lane < 3) {
+                    if (floorProgresses_[i] > laneMaxProgress[lane]) {
+                        laneMaxProgress[lane] = floorProgresses_[i];
+                    }
+                }
+            }
+
+            // 自機より後方 300m を超えたメイン道路タイルを前方の最先端へ循環再配置
+            for (int i = 0; i < kNumFloors; ++i) {
+                int lane = floorLanes_[i];
+                if (lane >= 0 && lane < 3) {
+                    if (floorProgresses_[i] < fighterWorldZ_ - 300.0f) {
+                        float newProgress = laneMaxProgress[lane] + 100.0f;
+                        laneMaxProgress[lane] = newProgress;
+                        floorProgresses_[i] = newProgress;
+
+                        Vector3 railPos = GetRailPosition(newProgress);
+                        Vector3 railDir = GetRailDirection(newProgress);
+                        Vector3 railRight = CalculateRailRight(railDir);
+
+                        float offset = 0.0f;
+                        if (lane == 1) offset = +kRoadColumnXOffset;
+                        else if (lane == 2) offset = -kRoadColumnXOffset;
+
+                        floorPositions_[i] = Add(railPos, Scale(railRight, offset));
+                        floorPositions_[i].y = railPos.y; // レール高さに追随
+
+                        float rotY = std::atan2(railDir.x, railDir.z);
+                        float rotX = std::atan2(-railDir.y, std::sqrt(railDir.x * railDir.x + railDir.z * railDir.z));
+                        floorRotations_[i] = { rotX, rotY, 0.0f };
                     }
                 }
             }

@@ -366,10 +366,12 @@ private:
     std::unique_ptr<Model> floorModel_;
     // 1列分のZ方向タイル数（中央・左・右の列バッファを確保）
     static const int kNumFloorColumns = 150;              // Z方向のタイル数に拡張
-    static const int kNumRoadLanes    = 5;               // 計5列の広い道路に拡張
+    static const int kNumRoadLanes    = 21;               // 計21列の広い道路に拡張 (中央1+左右各10)
     static const int kNumFloors       = kNumFloorColumns * kNumRoadLanes; // 合計バッファ数
     Vector3 floorPositions_[kNumFloors];
     Vector3 floorRotations_[kNumFloors];
+    int floorLanes_[kNumFloors];                         // 各タイルのレーンインデックス (0~20, -1=ダミー)
+    float floorProgresses_[kNumFloors];                   // レール上の進捗 (累積距離)
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
     TransformationMatrix* floorTransformData_[kNumFloors] = { nullptr };
 
