@@ -67,14 +67,14 @@ LANE_OFFSETS = [
     +ROAD_WIDTH * 10.0, -ROAD_WIDTH * 10.0,
 ]
 # プレイヤーが走る中央3列（0, ±80m）をビル禁止にする半径
-# 中央タイルから45m以内 = ±80m 列の内側（実質 ±80-45=35m まで）を保護
-ROAD_CLEAR_HALF_WIDTH = 45.0
+# 中央タイルから55m以内 = アスファルト上へのビル侵入を100%防止
+ROAD_CLEAR_HALF_WIDTH = 55.0
 # ビル同士の最小間隔
 BUILDING_MIN_DIST = 30.0
 # タイル同士の重複判定半径
 TILE_OVERLAP_RADIUS = 90.0
-# すべての道路（ダミー含む）からビルを離すための最小距離（直進時のビル位置40mを考慮し35mに設定）
-BUILDING_ROAD_CLEAR_DIST = 35.0
+# すべての道路（ダミー含む）からビルを離すための最小距離（直進時のビル位置40mを考慮し38mに設定）
+BUILDING_ROAD_CLEAR_DIST = 38.0
 
 
 
@@ -912,6 +912,64 @@ class GE3_OT_RemoveOverlappingBuildings(Operator):
         return {"FINISHED"}
 
 
+class GE3_OT_RemoveOverlappingFloors(Operator):
+    """
+    道路タイル（FLOOR）同士が重なっている場合に、重なっているダミー道路または重複したタイルを削除する
+    - タイル同士の距離が 60m 未満のものを検出
+    - 本物道路（ge3_lane != -1）とダミー道路（ge3_lane == -1）が重複している場合、ダミー側を優先的に削除
+    """
+    bl_idname = "ge3.remove_overlapping_floors"
+    bl_label  = "Remove Overlapping Floors"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        col = get_or_create_collection()
+        floors = []
+        for obj in col.objects:
+            if obj.get("ge3_type") == "FLOOR":
+                gx = obj.location.x / SCALE
+                gz = obj.location.y / SCALE
+                lane = obj.get("ge3_lane", -1)
+                floors.append((obj, gx, gz, lane))
+
+        to_delete = set()
+        limit_dist_sq = 60.0**2
+
+        for i in range(len(floors)):
+            obj_i, gx_i, gz_i, lane_i = floors[i]
+            if obj_i.name in to_delete:
+                continue
+            for j in range(i + 1, len(floors)):
+                obj_j, gx_j, gz_j, lane_j = floors[j]
+                if obj_j.name in to_delete:
+                    continue
+
+                dist_sq = (gx_i - gx_j)**2 + (gz_i - gz_j)**2
+                if dist_sq < limit_dist_sq:
+                    if lane_i == -1 and lane_j != -1:
+                        to_delete.add(obj_i.name)
+                        break
+                    elif lane_j == -1 and lane_i != -1:
+                        to_delete.add(obj_j.name)
+                    else:
+                        to_delete.add(obj_j.name)
+
+        deleted_count = 0
+        for name in to_delete:
+            obj = bpy.data.objects.get(name)
+            if obj:
+                try:
+                    for c in list(obj.users_collection):
+                        c.objects.unlink(obj)
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    deleted_count += 1
+                except Exception:
+                    pass
+
+        self.report({"INFO"}, f"{deleted_count} 枚の重複道路タイルを削除しました。")
+        return {"FINISHED"}
+
+
 class GE3_OT_GenerateCity(Operator):
     """起伏のある地形と街並み（ビル・敵・道路・自機）をプロシージャル自動生成する"""
     bl_idname  = "ge3.generate_city"
@@ -947,12 +1005,20 @@ class GE3_OT_GenerateCity(Operator):
         col = get_or_create_collection()
         to_remove = []
         for obj in list(bpy.data.objects):
-            if obj.name.startswith("GE3_") or obj.name in col.objects:
+            # 名前プレフィックス、コレクション所属、またはカスタムプロパティ "ge3_type" を持っているかをチェック
+            is_ge3 = (
+                obj.name.startswith("GE3_") or 
+                obj.name in col.objects or 
+                obj.get("ge3_type") is not None
+            )
+            if is_ge3:
                 # テンプレートモデルは削除しない
                 if obj.name != "GE3_Building_Template":
                     to_remove.append(obj)
         for obj in to_remove:
             try:
+                for c in list(obj.users_collection):
+                    c.objects.unlink(obj)
                 bpy.data.objects.remove(obj, do_unlink=True)
             except Exception as e:
                 print(f"Failed to remove {obj.name}: {e}")
@@ -1133,6 +1199,16 @@ class GE3_OT_GenerateCity(Operator):
                 gx = pos[0] + offset * right_vec[0]
                 gy = pos[1] + offset * right_vec[1]
                 gz = pos[2] + offset * right_vec[2]
+
+                # ★ 本物道路タイル同士の重複配置チェックを追加
+                # 異なるステップ等で、すでに配置された他の道路と極端に重なる（60m未満）場合は生成スキップ
+                overlap = False
+                for tx, tz in all_tile_positions:
+                    if (gx - tx)**2 + (gz - tz)**2 < 60.0**2:
+                        overlap = True
+                        break
+                if overlap:
+                    continue
 
                 name = f"GE3_Floor_{floor_count:03d}"
                 floor_obj = create_floor_obj(name, gx, gy, gz, rot_x, rot_y, 0.0)
@@ -1446,6 +1522,120 @@ class GE3_OT_GenerateCity(Operator):
                         dummy_building_positions.append((gx, gz))
                         
         # ──────────────────────────────────────────
+        # 3.8 重複する道路タイルの自動クリーンアップ
+        #     ★ 本物道路同士やダミー道路同士の交差による重なりを最終クリーンアップ
+        # ──────────────────────────────────────────
+        floors_for_clean = []
+        for obj in col.objects:
+            if obj.get("ge3_type") == "FLOOR":
+                gx = obj.location.x / SCALE
+                gz = obj.location.y / SCALE
+                lane = obj.get("ge3_lane", -1)
+                floors_for_clean.append((obj, gx, gz, lane))
+
+        to_delete_floors = set()
+        limit_dist_sq = 60.0**2
+
+        for i in range(len(floors_for_clean)):
+            obj_i, gx_i, gz_i, lane_i = floors_for_clean[i]
+            if obj_i.name in to_delete_floors:
+                continue
+            for j in range(i + 1, len(floors_for_clean)):
+                obj_j, gx_j, gz_j, lane_j = floors_for_clean[j]
+                if obj_j.name in to_delete_floors:
+                    continue
+
+                dist_sq = (gx_i - gx_j)**2 + (gz_i - gz_j)**2
+                if dist_sq < limit_dist_sq:
+                    if lane_i == -1 and lane_j != -1:
+                        to_delete_floors.add(obj_i.name)
+                        break
+                    elif lane_j == -1 and lane_i != -1:
+                        to_delete_floors.add(obj_j.name)
+                    else:
+                        to_delete_floors.add(obj_j.name)
+
+        for name in to_delete_floors:
+            obj = bpy.data.objects.get(name)
+            if obj:
+                try:
+                    for c in list(obj.users_collection):
+                        c.objects.unlink(obj)
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    floor_count -= 1
+                except Exception:
+                    pass
+                    
+        # ──────────────────────────────────────────
+        # 3.9 重なり合うビルの最終クリーンアップ (全道路 & ビル同士)
+        #     ★ 配置チェックをすり抜けたものや、ダミービル同士の重なりをここで一掃
+        # ──────────────────────────────────────────
+        all_buildings = []
+        for obj in col.objects:
+            if obj.get("ge3_type") == "BUILDING":
+                all_buildings.append(obj)
+                
+        to_delete_buildings = set()
+        
+        # 1. 道路（本物+ダミー）との重なりチェック
+        for b_obj in all_buildings:
+            bx = b_obj.location.x / SCALE
+            bz = b_obj.location.y / SCALE
+            
+            # プレイヤー走行レーン（lane 0, 1, 2）との衝突判定 (55m保護)
+            too_close = False
+            for tx, tz in center_tile_positions:
+                if (bx - tx)**2 + (bz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
+                    too_close = True
+                    break
+            if too_close:
+                to_delete_buildings.add(b_obj.name)
+                continue
+                
+            # その他すべての道路およびダミー道路との衝突判定 (38m保護)
+            for tx, tz in all_tile_positions:
+                if (bx - tx)**2 + (bz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
+                    too_close = True
+                    break
+            if too_close:
+                to_delete_buildings.add(b_obj.name)
+                continue
+                
+            for tx, tz in dummy_floor_positions:
+                if (bx - tx)**2 + (bz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
+                    too_close = True
+                    break
+            if too_close:
+                to_delete_buildings.add(b_obj.name)
+                continue
+
+        # 2. ビル同士の重なりチェック (BUILDING_MIN_DIST = 30m)
+        for i in range(len(all_buildings)):
+            b1 = all_buildings[i]
+            if b1.name in to_delete_buildings:
+                continue
+            b1_x = b1.location.x / SCALE
+            b1_z = b1.location.y / SCALE
+            for j in range(i + 1, len(all_buildings)):
+                b2 = all_buildings[j]
+                if b2.name in to_delete_buildings:
+                    continue
+                b2_x = b2.location.x / SCALE
+                b2_z = b2.location.y / SCALE
+                if (b1_x - b2_x)**2 + (b1_z - b2_z)**2 < BUILDING_MIN_DIST**2:
+                    to_delete_buildings.add(b2.name)
+
+        # 削除実行
+        for b_name in to_delete_buildings:
+            obj = bpy.data.objects.get(b_name)
+            if obj:
+                try:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    building_count -= 1
+                except Exception:
+                    pass
+                    
+        # ──────────────────────────────────────────
         # 4. プレイヤー (PLAYER) の初期位置配置
         # ──────────────────────────────────────────
         create_player_obj("GE3_Player_Start", 0.0, -3.0, 0.0)
@@ -1517,6 +1707,11 @@ class GE3_PT_LevelEditorPanel(Panel):
             text="Remove Overlapping Buildings",
             icon="X"
         )
+        box_manual.operator(
+            "ge3.remove_overlapping_floors",
+            text="Remove Overlapping Floors",
+            icon="X"
+        )
         
         # 選択以降を方向転換
         box_manual.separator()
@@ -1555,6 +1750,7 @@ classes = [
     GE3_OT_TurnRouteFromSelected,
     GE3_OT_AlignLanesToCenter,
     GE3_OT_RemoveOverlappingBuildings,
+    GE3_OT_RemoveOverlappingFloors,
     GE3_PT_LevelEditorPanel
 ]
 
