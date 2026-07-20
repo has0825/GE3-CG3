@@ -603,93 +603,107 @@ class GE3_OT_ExportLayout(Operator):
         lines = []
         terrain_obj = None
         
-        # 走行ルート（WAYPOINT）の抽出用
-        all_floors = []
+        # オブジェクト分類収集
+        building_objs = []
+        real_floor_objs = []
+        dummy_floor_objs = []
+        player_objs = []
+        enemy_objs = []
 
         for obj in col.objects:
             ge3_type = obj.get("ge3_type", None)
-            if ge3_type is None:
-                continue
-
-            # Blender座標 → ゲーム座標逆変換
-            gx = obj.location.x / SCALE
-            gz = obj.location.y / SCALE
-            gy = obj.location.z / SCALE
-
             if ge3_type == "BUILDING":
-                floors = obj.ge3_floors if hasattr(obj, "ge3_floors") else obj.get("ge3_floors", 1)
-                sx = obj.get("ge3_sx", 10.0)
-                sz = obj.get("ge3_sz", 10.0)
-                ry = obj.get("ge3_ry", obj.rotation_euler[2])
-                
-                if obj.modifiers.get("GE3_Floors"):
-                    base_gy = gy
-                else:
-                    base_gy = gy - 10.0 * floors * 0.5
-                
-                for f in range(floors):
-                    layer_gy = base_gy + f * 10.0 + 5.0
-                    lines.append(f"BUILDING,{gx:.2f},{layer_gy:.2f},{gz:.2f},"
-                                 f"{sx:.2f},10.00,{sz:.2f},0.0,{ry:.4f},0.0")
-
+                building_objs.append(obj)
             elif ge3_type == "FLOOR":
-                rx = obj.get("ge3_rx", obj.rotation_euler[0])
-                ry = obj.get("ge3_ry", obj.rotation_euler[2])
-                rz = obj.get("ge3_rz", obj.rotation_euler[1])
-                lines.append(f"FLOOR,{gx:.2f},{gy:.2f},{gz:.2f},"
-                             f"300.0,1.0,200.0,0.0,0.0,0.0,{rx:.4f},{ry:.4f},{rz:.4f}")
-                
-                # 辞書アクセスを優先して lane プロパティを取得
-                lane = -1
-                if "ge3_lane" in obj:
-                    lane = obj["ge3_lane"]
+                lane = obj.get("ge3_lane", -1)
+                if lane != -1:
+                    real_floor_objs.append(obj)
                 else:
-                    lane = obj.get("ge3_lane", -1)
-                
-                all_floors.append((gz, gx, gy, lane))
-
+                    dummy_floor_objs.append(obj)
             elif ge3_type == "PLAYER":
-                lines.append(f"PLAYER,{gx:.2f},{gy:.2f},{gz:.2f},"
-                             f"10.0,10.0,10.0,0.0,0.0,0.0")
-
+                player_objs.append(obj)
             elif ge3_type == "ENEMY":
-                lines.append(f"ENEMY,{gx:.2f},{gy:.2f},{gz:.2f},"
-                             f"3.8,3.8,3.8,0.0,0.0,0.0")
-            
+                enemy_objs.append(obj)
             elif ge3_type == "TERRAIN":
                 terrain_obj = obj
 
+        # 本物道路は名前順（GE3_Floor_000, 001...）にソートしてゲーム側の (floorCount % 21) インデックス整合性を完全保証
+        real_floor_objs.sort(key=lambda x: x.name)
+        sorted_floor_objs = real_floor_objs + dummy_floor_objs
+
+        # ── BUILDING 出力 ──
+        for obj in building_objs:
+            gx = obj.location.x / SCALE
+            gz = obj.location.y / SCALE
+            gy = obj.location.z / SCALE
+            floors = obj.ge3_floors if hasattr(obj, "ge3_floors") else obj.get("ge3_floors", 1)
+            sx = obj.get("ge3_sx", 10.0)
+            sz = obj.get("ge3_sz", 10.0)
+            ry = obj.get("ge3_ry", obj.rotation_euler[2])
+            
+            if obj.modifiers.get("GE3_Floors"):
+                base_gy = gy
+            else:
+                base_gy = gy - 10.0 * floors * 0.5
+            
+            for f in range(floors):
+                layer_gy = base_gy + f * 10.0 + 5.0
+                lines.append(f"BUILDING,{gx:.2f},{layer_gy:.2f},{gz:.2f},"
+                             f"{sx:.2f},10.00,{sz:.2f},0.0,{ry:.4f},0.0")
+
+        # ── FLOOR 出力（ソート済み） ──
+        all_floors = []
+        for obj in sorted_floor_objs:
+            gx = obj.location.x / SCALE
+            gz = obj.location.y / SCALE
+            gy = obj.location.z / SCALE
+            rx = obj.get("ge3_rx", obj.rotation_euler[0])
+            ry = obj.get("ge3_ry", obj.rotation_euler[2])
+            rz = obj.get("ge3_rz", obj.rotation_euler[1])
+            lines.append(f"FLOOR,{gx:.2f},{gy:.2f},{gz:.2f},"
+                         f"300.0,1.0,200.0,0.0,0.0,0.0,{rx:.4f},{ry:.4f},{rz:.4f}")
+            
+            lane = obj.get("ge3_lane", -1)
+            all_floors.append((gz, gx, gy, lane))
+
+        # ── PLAYER 出力 ──
+        for obj in player_objs:
+            gx = obj.location.x / SCALE
+            gz = obj.location.y / SCALE
+            gy = obj.location.z / SCALE
+            lines.append(f"PLAYER,{gx:.2f},{gy:.2f},{gz:.2f},"
+                         f"10.0,10.0,10.0,0.0,0.0,0.0")
+
+        # ── ENEMY 出力 ──
+        for obj in enemy_objs:
+            gx = obj.location.x / SCALE
+            gz = obj.location.y / SCALE
+            gy = obj.location.z / SCALE
+            lines.append(f"ENEMY,{gx:.2f},{gy:.2f},{gz:.2f},"
+                         f"3.8,3.8,3.8,0.0,0.0,0.0")
+
         # ── 軌道（WAYPOINT）の抽出アルゴリズム (Nearest Neighborによる物理的接続順ソート) ──
-        # まずは lane == 0 (中央車線) のタイルを抽出する
         center_floors = [f for f in all_floors if f[3] == 0]
-        
-        # lane == 0 が見つからない場合は、全タイルを対象にする（手動配置などのフォールバック）
         if not center_floors:
             center_floors = all_floors
 
-        # プレイヤーの初期位置（または原点）を取得してソートのスタート地点とする
         player_pos = (0.0, 0.0, 0.0)
-        for obj in col.objects:
-            if obj.get("ge3_type") == "PLAYER":
-                player_pos = (obj.location.x / SCALE, obj.location.z / SCALE, obj.location.y / SCALE) # ゲーム座標 (gx, gy, gz)
-                break
+        for obj in player_objs:
+            player_pos = (obj.location.x / SCALE, obj.location.z / SCALE, obj.location.y / SCALE)
+            break
 
         road_floors = []
         if center_floors:
             remaining = list(center_floors)
-            # 最初の一点は、プレイヤーのZ位置に最も近く、かつX位置にも近いものを選ぶ
             remaining.sort(key=lambda x: (x[0] - player_pos[2])**2 + (x[1] - player_pos[0])**2)
             curr = remaining.pop(0)
             road_floors.append((curr[0], curr[1], curr[2]))
             
-            # 隣接するタイルを順に繋いでいく
             while remaining:
-                # curr に最も近い未訪問の点を探す（3次元距離の二乗）
                 remaining.sort(key=lambda x: (x[0] - curr[0])**2 + (x[1] - curr[1])**2 + (x[2] - curr[2])**2)
                 curr = remaining.pop(0)
                 road_floors.append((curr[0], curr[1], curr[2]))
 
-        # WAYPOINT を出力に追加
         for gz, gx, gy in road_floors:
             lines.append(f"WAYPOINT,{gx:.2f},{gy:.2f},{gz:.2f}")
 
@@ -946,12 +960,11 @@ class GE3_OT_RemoveOverlappingFloors(Operator):
 
                 dist_sq = (gx_i - gx_j)**2 + (gz_i - gz_j)**2
                 if dist_sq < limit_dist_sq:
-                    if lane_i == -1 and lane_j != -1:
+                    # 本物道路同士はゲームの循環スクロールインデックスを維持するため絶対に削除しない
+                    if lane_i == -1:
                         to_delete.add(obj_i.name)
                         break
-                    elif lane_j == -1 and lane_i != -1:
-                        to_delete.add(obj_j.name)
-                    else:
+                    elif lane_j == -1:
                         to_delete.add(obj_j.name)
 
         deleted_count = 0
@@ -1155,8 +1168,22 @@ class GE3_OT_GenerateCity(Operator):
                 gy = get_terrain_height(gx, gz)
                 vertices.append((gx * SCALE, gz * SCALE, gy * SCALE))
                 
+        # 道路タイルの真下をくり抜く幅（21レーン全幅 ±410m）
+        road_carve_width = 410.0
+
         for j in range(subdivisions_y - 1):
+            gz_mid = (j + 0.5) * dz_t
+            idx = int(gz_mid / step_distance)
+            idx = max(0, min(len(path_points) - 1, idx))
+            road_x = path_points[idx][0]
+
             for i in range(subdivisions_x - 1):
+                gx_mid = -terrain_width / 2.0 + (i + 0.5) * dx_t
+                
+                # 道路タイル直下のポリゴンはスキップして完全にくり抜く（重なりゼロ化）
+                if abs(gx_mid - road_x) < road_carve_width:
+                    continue
+
                 v0 = j * subdivisions_x + i
                 v1 = v0 + 1
                 v2 = (j + 1) * subdivisions_x + i + 1
@@ -1199,16 +1226,6 @@ class GE3_OT_GenerateCity(Operator):
                 gx = pos[0] + offset * right_vec[0]
                 gy = pos[1] + offset * right_vec[1]
                 gz = pos[2] + offset * right_vec[2]
-
-                # ★ 本物道路タイル同士の重複配置チェックを追加
-                # 異なるステップ等で、すでに配置された他の道路と極端に重なる（60m未満）場合は生成スキップ
-                overlap = False
-                for tx, tz in all_tile_positions:
-                    if (gx - tx)**2 + (gz - tz)**2 < 60.0**2:
-                        overlap = True
-                        break
-                if overlap:
-                    continue
 
                 name = f"GE3_Floor_{floor_count:03d}"
                 floor_obj = create_floor_obj(name, gx, gy, gz, rot_x, rot_y, 0.0)
@@ -1295,8 +1312,8 @@ class GE3_OT_GenerateCity(Operator):
                             continue
                         
                         name = f"GE3_Floor_Dummy_{dummy_floor_count:03d}"
-                        # Zファイティング防止のため、高さを0.05m下げる
-                        floor_obj = create_floor_obj(name, gx, gy - 0.05, gz, rot_x, rot_y, 0.0)
+                        # 中間層レイヤー (0.00m) として配置 (本物道路 +0.05m / 地形 -0.15m)
+                        floor_obj = create_floor_obj(name, gx, gy, gz, rot_x, rot_y, 0.0)
                         floor_obj["ge3_lane"] = -1  # WAYPOINTから除外
                         dummy_floor_count += 1
                         dummy_floor_positions.append((gx, gz))
@@ -1547,12 +1564,11 @@ class GE3_OT_GenerateCity(Operator):
 
                 dist_sq = (gx_i - gx_j)**2 + (gz_i - gz_j)**2
                 if dist_sq < limit_dist_sq:
-                    if lane_i == -1 and lane_j != -1:
+                    # 本物道路同士はゲームの循環スクロールインデックスを維持するため絶対に削除しない
+                    if lane_i == -1:
                         to_delete_floors.add(obj_i.name)
                         break
-                    elif lane_j == -1 and lane_i != -1:
-                        to_delete_floors.add(obj_j.name)
-                    else:
+                    elif lane_j == -1:
                         to_delete_floors.add(obj_j.name)
 
         for name in to_delete_floors:

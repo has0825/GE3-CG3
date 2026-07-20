@@ -435,30 +435,19 @@ void GamePlayScene::Initialize() {
     }
 
     // ── 床(Plane)の初期化とバッファ生成 ──
-    // 3列（中央・右・左）分のバッファを確保し、各列を kRoadColumnXOffset ずつX方向にオフセットして並べる
     floorModel_ = std::unique_ptr<Model>(Model::LoadGLTF("Resources/plane.obj", device));
     TextureManager::GetInstance()->LoadTexture("douro.jpg");
 
-    // X方向オフセットの計算 (lane=0→中央(0), lane=1→右(+offset), lane=2→左(-offset), ...)
-    float laneOffsets[kNumRoadLanes];
-    laneOffsets[0] = 0.0f;
-    for (int i = 1; i <= 10; ++i) {
-        laneOffsets[i * 2 - 1] = +kRoadColumnXOffset * (float)i;
-        laneOffsets[i * 2]     = -kRoadColumnXOffset * (float)i;
-    }
+    for (int i = 0; i < kNumFloors; ++i) {
+        floorTransformResources_[i] = CreateBufferResource(device, sizeof(TransformationMatrix));
+        floorTransformResources_[i]->Map(0, nullptr, reinterpret_cast<void**>(&floorTransformData_[i]));
+        floorTransformData_[i]->WVP   = MakeIdentity4x4();
+        floorTransformData_[i]->World = MakeIdentity4x4();
 
-    for (int lane = 0; lane < kNumRoadLanes; ++lane) {
-        for (int col = 0; col < kNumFloorColumns; ++col) {
-            int idx = lane * kNumFloorColumns + col;
-            floorTransformResources_[idx] = CreateBufferResource(device, sizeof(TransformationMatrix));
-            floorTransformResources_[idx]->Map(0, nullptr, reinterpret_cast<void**>(&floorTransformData_[idx]));
-            floorTransformData_[idx]->WVP   = MakeIdentity4x4();
-            floorTransformData_[idx]->World = MakeIdentity4x4();
-
-            floorPositions_[idx] = { laneOffsets[lane], kFloorY, (float)col * kFloorSizeZ };
-            floorLanes_[idx] = lane;
-            floorProgresses_[idx] = (float)col * kFloorSizeZ;
-        }
+        floorPositions_[i] = { 0.0f, -10000.0f, 0.0f };
+        floorRotations_[i] = { 0.0f, 0.0f, 0.0f };
+        floorLanes_[i] = -1;
+        floorProgresses_[i] = 999999.0f;
     }
 
     // ── 天球(SkyDome)の初期化とバッファ生成 ──
@@ -752,6 +741,7 @@ void GamePlayScene::Initialize() {
     */
 
     // ── scene_layout.txt のインポート処理 ──
+    int floorCount = 0;
     std::ifstream layoutInFile("Resources/scene_layout.txt");
     if (layoutInFile.is_open()) {
         // すべてのビルを一旦クリア (floors = 0 にして描画を無効化)
@@ -778,7 +768,6 @@ void GamePlayScene::Initialize() {
         std::string line;
         int buildingCount = 0;
         int enemyCount = 0;
-        int floorCount = 0;
 
         while (std::getline(layoutInFile, line)) {
             if (line.empty()) continue;
@@ -880,24 +869,8 @@ void GamePlayScene::Initialize() {
                 float rz = s_rz.empty() ? 0.0f : std::stof(s_rz);
 
                 if (floorCount < kNumFloors) {
-                    floorPositions_[floorCount] = { gx + kWorldShiftX, gy, gz };
+                    floorPositions_[floorCount] = { gx + kWorldShiftX, kFloorY, gz };
                     floorRotations_[floorCount] = { rx, ry, rz };
-
-                    int laneIdx = -1;
-                    if (floorCount < 672) {
-                        laneIdx = floorCount % 21;
-                    }
-
-                    // laneIdx が 0, 1, 2（中央3列）のみをメイン道路（動的再配置対象）として扱う
-                    if (laneIdx >= 0 && laneIdx < 3) {
-                        floorLanes_[floorCount] = laneIdx;
-                        // Blender側は Z方向に 100.0f おきに配置されているため、インデックスから進捗を割り振る
-                        floorProgresses_[floorCount] = (float)(floorCount / 21) * 100.0f;
-                    } else {
-                        floorLanes_[floorCount] = -1;
-                        floorProgresses_[floorCount] = 999999.0f; // 動的再配置の対象外（固定背景）にする
-                    }
-
                     floorCount++;
                 }
             } else if (type == "WAYPOINT") {
@@ -915,6 +888,7 @@ void GamePlayScene::Initialize() {
         }
         layoutInFile.close();
     }
+    numLoadedFloors_ = floorCount;
 
     if (waypoints_.empty()) {
         for (float z = 0.0f; z <= 10000.0f; z += 10.0f) {
@@ -3998,66 +3972,6 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 床の画面外再配置
-        if (waypoints_.empty()) {
-            for (int lane = 0; lane < kNumRoadLanes; ++lane) {
-                // この列の中でZが最大のタイルを探す
-                float laneMaxZ = -9999.0f;
-                for (int col = 0; col < kNumFloorColumns; ++col) {
-                    int idx = lane * kNumFloorColumns + col;
-                    if (floorPositions_[idx].z > laneMaxZ) {
-                        laneMaxZ = floorPositions_[idx].z;
-                    }
-                }
-                // カメラ後方に出たタイルを前方へ再配置（X座標はそのまま保持）
-                for (int col = 0; col < kNumFloorColumns; ++col) {
-                    int idx = lane * kNumFloorColumns + col;
-                    if (floorPositions_[idx].z < cameraZ - kFloorSizeZ) {
-                        floorPositions_[idx].z = laneMaxZ + kFloorSizeZ;
-                        laneMaxZ = floorPositions_[idx].z; // 複数タイルが同フレームで再配置される場合に備えて更新
-                    }
-                }
-            }
-        } else {
-            // ウェイポイントがある場合：進行進捗 (fighterWorldZ_) に応じてメイン道路（lane 0,1,2）を動的配置
-            float laneMaxProgress[3] = { -9999.0f, -9999.0f, -9999.0f };
-            for (int i = 0; i < kNumFloors; ++i) {
-                int lane = floorLanes_[i];
-                if (lane >= 0 && lane < 3) {
-                    if (floorProgresses_[i] > laneMaxProgress[lane]) {
-                        laneMaxProgress[lane] = floorProgresses_[i];
-                    }
-                }
-            }
-
-            // 自機より後方 300m を超えたメイン道路タイルを前方の最先端へ循環再配置
-            for (int i = 0; i < kNumFloors; ++i) {
-                int lane = floorLanes_[i];
-                if (lane >= 0 && lane < 3) {
-                    if (floorProgresses_[i] < fighterWorldZ_ - 300.0f) {
-                        float newProgress = laneMaxProgress[lane] + 100.0f;
-                        laneMaxProgress[lane] = newProgress;
-                        floorProgresses_[i] = newProgress;
-
-                        Vector3 railPos = GetRailPosition(newProgress);
-                        Vector3 railDir = GetRailDirection(newProgress);
-                        Vector3 railRight = CalculateRailRight(railDir);
-
-                        float offset = 0.0f;
-                        if (lane == 1) offset = +kRoadColumnXOffset;
-                        else if (lane == 2) offset = -kRoadColumnXOffset;
-
-                        floorPositions_[i] = Add(railPos, Scale(railRight, offset));
-                        floorPositions_[i].y = railPos.y; // レール高さに追随
-
-                        float rotY = std::atan2(railDir.x, railDir.z);
-                        float rotX = std::atan2(-railDir.y, std::sqrt(railDir.x * railDir.x + railDir.z * railDir.z));
-                        floorRotations_[i] = { rotX, rotY, 0.0f };
-                    }
-                }
-            }
-        }
-
         // 各ビルの各階数（フロア）ごとにワールド行列とWVP行列を計算
         {
             int cbIndex = 0;
@@ -4077,20 +3991,25 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 床(Plane)のワールド・WVP行列を計算（全列・全タイル分を更新）
+        // 床(Plane)のワールド・WVP行列を計算（scene_layout.txt から読み込んだ全タイル分）
         {
-            // 回転後: X → Z方向（奥行き）, Y → X方向（幅）
-            // kRoadDepthScale と kFloorSizeZ を一致させてZファイティングを防止
-            const Vector3 roadScale  = { kRoadDepthScale, kRoadWidthScale, 1.0f };
-            const Vector3 roadRotate = { 1.57079632f, 1.57079632f, 0.0f };
-            for (int i = 0; i < kNumFloors; ++i) {
-                Vector3 rot = roadRotate;
-                if (!waypoints_.empty()) {
-                    rot.x += floorRotations_[i].x;
-                    rot.y += floorRotations_[i].y;
-                    rot.z += floorRotations_[i].z;
-                }
-                Matrix4x4 worldMatrix = MakeAffineMatrix(roadScale, rot, floorPositions_[i]);
+            // ベース回転: plane.obj を水平な道路にする回転 (X=90度, Y=90度)
+            const Vector3 roadScale     = { kRoadDepthScale, kRoadWidthScale, 1.0f };
+            const Matrix4x4 scaleMatrix = Matrix4x4MakeScaleMatrix(roadScale);
+            const Matrix4x4 baseRotX    = MakeRotateXMatrix(1.57079632f);
+            const Matrix4x4 baseRotY    = MakeRotateYMatrix(1.57079632f);
+            const Matrix4x4 baseRotMat  = Multiply(baseRotX, baseRotY);
+
+            for (int i = 0; i < numLoadedFloors_; ++i) {
+                Matrix4x4 courseRotX   = MakeRotateXMatrix(floorRotations_[i].x);
+                Matrix4x4 courseRotY   = MakeRotateYMatrix(floorRotations_[i].y);
+                Matrix4x4 courseRotZ   = MakeRotateZMatrix(floorRotations_[i].z);
+                Matrix4x4 courseRotMat = Multiply(Multiply(courseRotX, courseRotY), courseRotZ);
+                Matrix4x4 rotMat       = Multiply(baseRotMat, courseRotMat);
+
+                Matrix4x4 translateMatrix = MakeTranslateMatrix(floorPositions_[i]);
+                Matrix4x4 worldMatrix = Multiply(Multiply(scaleMatrix, rotMat), translateMatrix);
+
                 floorTransformData_[i]->World = worldMatrix;
                 floorTransformData_[i]->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
             }
@@ -4457,7 +4376,7 @@ void GamePlayScene::Draw() {
             if (floorModel_) {
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-                for (int i = 0; i < kNumFloors; ++i) {
+                for (int i = 0; i < numLoadedFloors_; ++i) {
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                 }

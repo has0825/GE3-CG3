@@ -364,25 +364,23 @@ private:
 
     // 床(Plane)用
     std::unique_ptr<Model> floorModel_;
-    // 1列分のZ方向タイル数（中央・左・右の列バッファを確保）
-    static const int kNumFloorColumns = 150;              // Z方向のタイル数に拡張
-    static const int kNumRoadLanes    = 21;               // 計21列の広い道路に拡張 (中央1+左右各10)
-    static const int kNumFloors       = kNumFloorColumns * kNumRoadLanes; // 合計バッファ数
+    static const int kNumFloors = 4000; // scene_layout.txt から読み込む床タイルの最大保持バッファ数
+    int numLoadedFloors_ = 0;           // 実際に scene_layout.txt からインポートされた床タイルの個数
     Vector3 floorPositions_[kNumFloors];
     Vector3 floorRotations_[kNumFloors];
-    int floorLanes_[kNumFloors];                         // 各タイルのレーンインデックス (0~20, -1=ダミー)
-    float floorProgresses_[kNumFloors];                   // レール上の進捗 (累積距離)
+    int floorLanes_[kNumFloors];
+    float floorProgresses_[kNumFloors];
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
     TransformationMatrix* floorTransformData_[kNumFloors] = { nullptr };
 
     // 床・ビル用の追加定数
-    static constexpr float kFloorSizeZ = 200.0f;
+    static constexpr float kFloorSizeZ = 100.0f;
     static constexpr float kBuildingInterval = 80.0f;
     static constexpr float kFloorHeight = 10.0f;
     static constexpr float kFloorY = -20.0f;
     // roadScale の回転後の意味: X → Z方向（奥行き）, Y → X方向（幅）
-    // plane.objは弦 -1～+1 = 2ユニット幅なので、実際幅 = Yスケール × 2
-    static constexpr float kRoadDepthScale  = 100.0f; // Z方向の長さ（タイル間隔に合わせてZファイティングを防止）
+    // plane.objは -1～+1 = 2ユニット幅なので、実ワールド長 = Xスケール × 2
+    static constexpr float kRoadDepthScale  = 50.0f;  // Z方向のスケール（50.0f * 2 = 100.0m長。配置ピッチ100mと一致させてZファイティングを防止）
     static constexpr float kRoadWidthScale  = 40.0f;  // Yスケール（元の道路幅・テクスチャ割り付けなし）
     // plane.obj幅 = 2ユニットなので、実際ワールド幅 = kRoadWidthScale * 2 = 80m
     // 左右列のXオフセット: 中央からタイル1枚分（=80m）ずらして並べる
