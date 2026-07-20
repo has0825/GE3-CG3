@@ -67,14 +67,13 @@ LANE_OFFSETS = [
     +ROAD_WIDTH * 10.0, -ROAD_WIDTH * 10.0,
 ]
 # プレイヤーが走る中央3列（0, ±80m）をビル禁止にする半径
-# 中央タイルから55m以内 = アスファルト上へのビル侵入を100%防止
-ROAD_CLEAR_HALF_WIDTH = 55.0
+ROAD_CLEAR_HALF_WIDTH = 38.0
 # ビル同士の最小間隔
-BUILDING_MIN_DIST = 30.0
+BUILDING_MIN_DIST = 22.0
 # タイル同士の重複判定半径
 TILE_OVERLAP_RADIUS = 90.0
-# すべての道路（ダミー含む）からビルを離すための最小距離（直進時のビル位置40mを考慮し38mに設定）
-BUILDING_ROAD_CLEAR_DIST = 38.0
+# すべての道路（ダミー含む）からビルを離すための最小距離（直進時のビル位置45mを考慮し25mに設定）
+BUILDING_ROAD_CLEAR_DIST = 25.0
 
 
 
@@ -631,11 +630,29 @@ class GE3_OT_ExportLayout(Operator):
         real_floor_objs.sort(key=lambda x: x.name)
         sorted_floor_objs = real_floor_objs + dummy_floor_objs
 
-        # ── BUILDING 出力 ──
+        # ── BUILDING 出力 (中央タイルと重なるビルを自動除外) ──
+        center_tiles_pos = []
+        for fobj in real_floor_objs + dummy_floor_objs:
+            fgx = fobj.location.x / SCALE
+            fgz = fobj.location.y / SCALE
+            lane = fobj.get("ge3_lane", -1)
+            if lane == 0 or abs(fgx) <= 30.0:
+                center_tiles_pos.append((fgx, fgz))
+
         for obj in building_objs:
             gx = obj.location.x / SCALE
             gz = obj.location.y / SCALE
             gy = obj.location.z / SCALE
+
+            # 中央タイルと重なっているか判定 (ROAD_CLEAR_HALF_WIDTH以内なら除外)
+            is_center_overlap = False
+            for rx, rz in center_tiles_pos:
+                if (gx - rx)**2 + (gz - rz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
+                    is_center_overlap = True
+                    break
+            if is_center_overlap:
+                continue
+
             floors = obj.ge3_floors if hasattr(obj, "ge3_floors") else obj.get("ge3_floors", 1)
             sx = obj.get("ge3_sx", 10.0)
             sz = obj.get("ge3_sz", 10.0)
@@ -863,22 +880,25 @@ class GE3_OT_RemoveOverlappingBuildings(Operator):
     def execute(self, context):
         col = get_or_create_collection()
 
-        # ── 1. 中央車線(lane=0)のタイル位置のみを収集 ──
-        # lane=0 だけを対象にすることで、外側タイル近くのビルを誤って消さない
+        # ── 1. プレイヤーが通る「中央車線タイル」の正確な判定・収集 ──
         center_road_tiles = []
         for obj in col.objects:
-            if obj.get("ge3_type") == "FLOOR" and obj.get("ge3_lane", -1) == 0:
+            if obj.get("ge3_type") == "FLOOR":
                 gx = obj.location.x / SCALE
                 gz = obj.location.y / SCALE
-                center_road_tiles.append((gx, gz))
+                lane = obj.get("ge3_lane", -1)
+                # lane=0、または直進時の中央道路タイル (|gx| <= 30.0) を中央タイルとみなす
+                if lane == 0 or abs(gx) <= 30.0:
+                    center_road_tiles.append((gx, gz))
 
-        # lane=0 が一つも無い場合は全タイルを使う（フォールバック）
+        # 万が一中央タイルが特定できない場合の安全な自動抽出
         if not center_road_tiles:
             for obj in col.objects:
                 if obj.get("ge3_type") == "FLOOR":
                     gx = obj.location.x / SCALE
                     gz = obj.location.y / SCALE
-                    center_road_tiles.append((gx, gz))
+                    if abs(gx) <= 40.0:
+                        center_road_tiles.append((gx, gz))
 
         # ── 2. ビルを収集 ──
         buildings = []
@@ -1329,21 +1349,24 @@ class GE3_OT_GenerateCity(Operator):
         
         # ビルの配置列（21列道路に対応した広範囲配置）
         building_cols = [
-             -40.0,   40.0,
-            -120.0,  120.0,
-            -200.0,  200.0,
-            -280.0,  280.0,
-            -360.0,  360.0,
-            -440.0,  440.0,
-            -520.0,  520.0,
-            -600.0,  600.0,
-            -680.0,  680.0,
-            -760.0,  760.0,
-            -840.0,  840.0,
-            -920.0,  920.0,
+             -45.0,   45.0,
+             -85.0,   85.0,
+            -125.0,  125.0,
+            -165.0,  165.0,
+            -205.0,  205.0,
+            -245.0,  245.0,
+            -285.0,  285.0,
+            -325.0,  325.0,
+            -365.0,  365.0,
+            -405.0,  405.0,
+            -445.0,  445.0,
+            -485.0,  485.0,
+            -525.0,  525.0,
+            -565.0,  565.0,
+            -605.0,  605.0,
         ]
         MAX_BUILDINGS = 3000
-        building_interval = 80.0
+        building_interval = 45.0
         num_buildings_z = int(city_length / building_interval)
         
         # 配置済みビル位置リスト（重複チェック用）
@@ -1360,7 +1383,8 @@ class GE3_OT_GenerateCity(Operator):
                 if building_count >= MAX_BUILDINGS:
                     break
                     
-                if random.random() > building_density:
+                density_threshold = building_density if abs(col_x) > 130.0 else min(0.95, building_density + 0.3)
+                if random.random() > density_threshold:
                     continue
                     
                 gx = pos[0] + col_x * right_vec[0]
@@ -1368,12 +1392,12 @@ class GE3_OT_GenerateCity(Operator):
 
                 # ── 道路タイルとの重なりチェック（本物＋ダミー道路の全タイル対象）──
                 too_close_to_road = False
-                # 中央3列の保護（45m）
+                # 中央3列の保護（38m）
                 for tx, tz in center_tile_positions:
                     if (gx - tx)**2 + (gz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
                         too_close_to_road = True
                         break
-                # その他のすべての車線およびダミー道路からの保護（35m）
+                # その他のすべての車線およびダミー道路からの保護（25m）
                 if not too_close_to_road:
                     for tx, tz in all_tile_positions:
                         if (gx - tx)**2 + (gz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
@@ -1398,12 +1422,14 @@ class GE3_OT_GenerateCity(Operator):
                     
                 base_gy = get_terrain_height(gx, gz)
                 
-                # 地形起伏に応じた階数設定（外側ほど高め）
+                # 地形起伏に応じた階数設定（中央脇もバランス良く中層〜高層ビル化）
                 terrain_factor = (base_gy - pos[1]) / max(max_height, 1.0)
                 if abs(col_x) > 200.0:
                     floors = int(6 + terrain_factor * 10 + random.randint(0, 5))
+                elif abs(col_x) < 60.0:
+                    floors = int(3 + terrain_factor * 4 + random.randint(0, 3))
                 else:
-                    floors = int(1 + terrain_factor * 5 + random.randint(0, 3))
+                    floors = int(2 + terrain_factor * 5 + random.randint(0, 4))
                     
                 floors = max(1, min(max_floors, floors))
                 

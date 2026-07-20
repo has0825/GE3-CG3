@@ -373,6 +373,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> floorTransformResources_[kNumFloors];
     TransformationMatrix* floorTransformData_[kNumFloors] = { nullptr };
 
+    // 広域地面ベース (Ground Base Plane) 用
+    Microsoft::WRL::ComPtr<ID3D12Resource> groundBaseTransformResource_;
+    TransformationMatrix* groundBaseTransformData_ = nullptr;
+
     // 床・ビル用の追加定数
     static constexpr float kFloorSizeZ = 100.0f;
     static constexpr float kBuildingInterval = 80.0f;
@@ -380,7 +384,7 @@ private:
     static constexpr float kFloorY = -20.0f;
     // roadScale の回転後の意味: X → Z方向（奥行き）, Y → X方向（幅）
     // plane.objは -1～+1 = 2ユニット幅なので、実ワールド長 = Xスケール × 2
-    static constexpr float kRoadDepthScale  = 50.0f;  // Z方向のスケール（50.0f * 2 = 100.0m長。配置ピッチ100mと一致させてZファイティングを防止）
+    static constexpr float kRoadDepthScale  = 50.5f;  // Z方向のスケール（50.5f * 2 = 101.0m長。100mピッチに対し1m微小オーバーラップさせて目地隙間を消滅）
     static constexpr float kRoadWidthScale  = 40.0f;  // Yスケール（元の道路幅・テクスチャ割り付けなし）
     // plane.obj幅 = 2ユニットなので、実際ワールド幅 = kRoadWidthScale * 2 = 80m
     // 左右列のXオフセット: 中央からタイル1枚分（=80m）ずらして並べる

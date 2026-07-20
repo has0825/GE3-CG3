@@ -450,6 +450,12 @@ void GamePlayScene::Initialize() {
         floorProgresses_[i] = 999999.0f;
     }
 
+    // 広域地面ベース用定数バッファの生成とマッピング
+    groundBaseTransformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
+    groundBaseTransformResource_->Map(0, nullptr, reinterpret_cast<void**>(&groundBaseTransformData_));
+    groundBaseTransformData_->WVP   = MakeIdentity4x4();
+    groundBaseTransformData_->World = MakeIdentity4x4();
+
     // ── 天球(SkyDome)の初期化とバッファ生成 ──
     // 球の内側からテクスチャを見る形式のため、カリングが逆向きのモデルを使用
     TextureManager::GetInstance()->LoadTexture("haikei/Green.png");
@@ -905,6 +911,92 @@ void GamePlayScene::Initialize() {
             Vector3 diff = Subtract(waypoints_[i], waypoints_[i - 1]);
             float dist = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
             waypointDistances_[i] = waypointDistances_[i - 1] + dist;
+        }
+
+        // ── プレイヤー進行ルート（コース中央脇）へのビル増量・高密度配置 ──
+        if (!waypointDistances_.empty() && waypointDistances_.back() > 0.0f) {
+            float totalDist = waypointDistances_.back();
+            float buildingPitch = 60.0f; // 60m間隔で進行方向の左右にビルを自動補填
+
+            for (float s = 30.0f; s < totalDist; s += buildingPitch) {
+                Vector3 railPos = GetRailPosition(s);
+                Vector3 railDir = GetRailDirection(s);
+                Vector3 railRight = CalculateRailRight(railDir);
+
+                // コース中央脇の左右4レーン (±45m, ±85m)
+                const float sideOffsets[] = { -45.0f, +45.0f, -85.0f, +85.0f };
+                for (int k = 0; k < 4; ++k) {
+                    float offset = sideOffsets[k];
+                    Vector3 bPos = Add(railPos, Scale(railRight, offset));
+                    bPos.y = -20.0f; // 地面基準高さ
+
+                    // 既存のビルとの重なりチェック (25m以内なら配置スキップ)
+                    bool isOverlap = false;
+                    for (size_t bIdx = 0; bIdx < buildings_.size(); ++bIdx) {
+                        if (buildings_[bIdx].floors <= 0) continue;
+                        float dx = buildings_[bIdx].position.x - bPos.x;
+                        float dz = buildings_[bIdx].position.z - bPos.z;
+                        if (dx * dx + dz * dz < 25.0f * 25.0f) {
+                            isOverlap = true;
+                            break;
+                        }
+                    }
+
+                    if (!isOverlap && buildings_.size() < kMaxBuildings) {
+                        Building b;
+                        b.position = bPos;
+                        b.scale = { 10.0f, 10.0f, 10.0f };
+
+                        // 近列(±45m)は中層(3~8階)、外列(±85m)は高層(6~12階)
+                        if (std::abs(offset) < 60.0f) {
+                            b.floors = 3 + (randomEngine_() % 6);
+                        } else {
+                            b.floors = 6 + (randomEngine_() % 7);
+                        }
+
+                        float rotY = std::atan2(railDir.x, railDir.z);
+                        b.rotate = { 0.0f, rotY, 0.0f };
+
+                        b.originalX = bPos.x;
+                        b.originalY = -20.0f;
+                        b.originalFloors = b.floors;
+                        b.isDestroyed = false;
+                        b.velocity = { 0.0f, 0.0f, 0.0f };
+                        b.rotationSpeed = { 0.0f, 0.0f, 0.0f };
+                        b.destroyTimer = 0.0f;
+
+                        buildings_.push_back(b);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── プレイヤーが通る中央タイル/レールと重なっているビルを自動削除 ──
+    if (!waypoints_.empty() && !waypointDistances_.empty() && waypointDistances_.back() > 0.0f) {
+        float totalDist = waypointDistances_.back();
+        float checkStep = 10.0f; // 10m間隔で進行ライン上の判定を網羅
+        const float kCenterClearRadius = 38.0f; // 中央レール中心から38m以内（道路中央通行域）のビルは削除対象
+
+        for (size_t i = 0; i < buildings_.size(); ++i) {
+            if (buildings_[i].floors <= 0 || buildings_[i].isDestroyed) continue;
+
+            bool isOverlappingWithCenter = false;
+            for (float s = 0.0f; s <= totalDist; s += checkStep) {
+                Vector3 railPos = GetRailPosition(s);
+                float dx = buildings_[i].position.x - railPos.x;
+                float dz = buildings_[i].position.z - railPos.z;
+                if (dx * dx + dz * dz < kCenterClearRadius * kCenterClearRadius) {
+                    isOverlappingWithCenter = true;
+                    break;
+                }
+            }
+
+            if (isOverlappingWithCenter) {
+                // 中央タイルと重なっているビルを削除 (floors = 0)
+                buildings_[i].floors = 0;
+                buildings_[i].originalFloors = 0;
+            }
         }
     }
 
@@ -2045,13 +2137,14 @@ void GamePlayScene::Update() {
                 camRelativeX_ = std::lerp(camRelativeX_, targetCamX, cameraLag);
                 camRelativeY_ = std::lerp(camRelativeY_, targetCamY, cameraLag);
 
-                // カメラの目標位置を計算
+                // カメラの目標位置を計算（プレイヤーモデルの真後ろから追従）
                 // 基準高さは路面 -20.0f から通常 +6.0f (つまり相対 +26.0f)
                 float camOffsetUp = camRelativeY_ + 26.0f;
-                Vector3 targetCamPos = Add(camRailPos, Add(Scale(camRailRight, camRelativeX_), Scale(camRailUp, camOffsetUp)));
+                Vector3 camBackVector = Scale(playerRailDir, -currentDist);
+                Vector3 targetCamPos = Add(playerRailPos, Add(camBackVector, Add(Scale(playerRailRight, camRelativeX_), Scale(playerRailUp, camOffsetUp))));
 
                 // カメラ位置のスムーズ追従 (Smooth Follow)
-                float posLerpFactor = 0.08f;
+                float posLerpFactor = 0.12f;
                 Vector3 camDiff = Subtract(targetCamPos, camTrans.translate);
                 float camDistSq = camDiff.x * camDiff.x + camDiff.y * camDiff.y + camDiff.z * camDiff.z;
                 if (camDistSq > 10000.0f) { // 100m以上離れている場合は即座にワープ
@@ -4015,6 +4108,20 @@ void GamePlayScene::Update() {
             }
         }
 
+        // 広域地面ベース (Ground Base Plane) のワールド・WVP行列を計算 ($Y = -20.2\text{m}$ に配置してタイルの空白空間を完全隠蔽)
+        if (groundBaseTransformData_) {
+            const Vector3 groundScale   = { 10000.0f, 10000.0f, 1.0f };
+            const Matrix4x4 scaleMatrix = Matrix4x4MakeScaleMatrix(groundScale);
+            const Matrix4x4 baseRotX    = MakeRotateXMatrix(1.57079632f);
+            const Matrix4x4 baseRotY    = MakeRotateYMatrix(1.57079632f);
+            const Matrix4x4 rotMat      = Multiply(baseRotX, baseRotY);
+            const Matrix4x4 translateMatrix = MakeTranslateMatrix({ 0.0f, -20.2f, 5000.0f });
+
+            Matrix4x4 worldMatrix = Multiply(Multiply(scaleMatrix, rotMat), translateMatrix);
+            groundBaseTransformData_->World = worldMatrix;
+            groundBaseTransformData_->WVP   = Multiply(worldMatrix, viewProjectionMatrix);
+        }
+
         // 地形(Terrain)のワールド・WVP行列を計算
         if (hasTerrain_ && terrainTransformData_) {
             // Blenderスケール 0.1 で出力されているため、ゲーム上では等倍(1.0f)のスケールにするために10倍にする
@@ -4376,6 +4483,13 @@ void GamePlayScene::Draw() {
             if (floorModel_) {
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
+
+                // 広域地面ベース ($Y = -20.2\text{m}$) を先に描画し、タイルのない隙間や背景漏れを隠蔽
+                if (groundBaseTransformResource_) {
+                    commandList->SetGraphicsRootConstantBufferView(1, groundBaseTransformResource_->GetGPUVirtualAddress());
+                    floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
+                }
+
                 for (int i = 0; i < numLoadedFloors_; ++i) {
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
@@ -5826,6 +5940,28 @@ void GamePlayScene::ApplyPreset(int presetIndex) {
 }
 
 
+static Vector3 CatmullRom(const Vector3& p0, const Vector3& p1, const Vector3& p2, const Vector3& p3, float t) {
+    float t2 = t * t;
+    float t3 = t2 * t;
+
+    Vector3 a = Scale(p1, 2.0f);
+    Vector3 b = Subtract(p2, p0);
+    Vector3 c = Subtract(Add(Scale(p0, 2.0f), Scale(p2, 4.0f)), Add(Scale(p1, 5.0f), p3));
+    Vector3 d = Add(Subtract(Scale(p1, 3.0f), p0), Subtract(p3, Scale(p2, 3.0f)));
+
+    return Scale(Add(Add(a, Scale(b, t)), Add(Scale(c, t2), Scale(d, t3))), 0.5f);
+}
+
+static Vector3 CatmullRomDerivative(const Vector3& p0, const Vector3& p1, const Vector3& p2, const Vector3& p3, float t) {
+    float t2 = t * t;
+
+    Vector3 b = Subtract(p2, p0);
+    Vector3 c = Subtract(Add(Scale(p0, 2.0f), Scale(p2, 4.0f)), Add(Scale(p1, 5.0f), p3));
+    Vector3 d = Add(Subtract(Scale(p1, 3.0f), p0), Subtract(p3, Scale(p2, 3.0f)));
+
+    return Scale(Add(b, Add(Scale(c, 2.0f * t), Scale(d, 3.0f * t2))), 0.5f);
+}
+
 Vector3 GamePlayScene::GetRailPosition(float progress) {
     if (waypoints_.empty()) {
         return { kWorldShiftX, -20.0f, progress };
@@ -5861,7 +5997,12 @@ Vector3 GamePlayScene::GetRailPosition(float progress) {
     }
     
     float t = (progress - d1) / denom;
-    return Lerp(p1, p2, t);
+
+    // Catmull-Rom スプライン補間
+    const Vector3& p0 = (index > 1) ? waypoints_[index - 2] : Add(p1, Subtract(p1, p2));
+    const Vector3& p3 = (index < waypoints_.size() - 1) ? waypoints_[index + 1] : Add(p2, Subtract(p2, p1));
+
+    return CatmullRom(p0, p1, p2, p3, t);
 }
 
 Vector3 GamePlayScene::GetRailDirection(float progress) {
@@ -5886,6 +6027,24 @@ Vector3 GamePlayScene::GetRailDirection(float progress) {
     size_t index = std::distance(waypointDistances_.begin(), it);
     const Vector3& p2 = waypoints_[index];
     const Vector3& p1 = waypoints_[index - 1];
+    float d2 = waypointDistances_[index];
+    float d1 = waypointDistances_[index - 1];
+
+    float denom = d2 - d1;
+    if (std::abs(denom) < 0.001f) {
+        return Normalize(Subtract(p2, p1));
+    }
+
+    float t = (progress - d1) / denom;
+
+    const Vector3& p0 = (index > 1) ? waypoints_[index - 2] : Add(p1, Subtract(p1, p2));
+    const Vector3& p3 = (index < waypoints_.size() - 1) ? waypoints_[index + 1] : Add(p2, Subtract(p2, p1));
+
+    Vector3 derivative = CatmullRomDerivative(p0, p1, p2, p3, t);
+    float len = Length(derivative);
+    if (len > 0.0001f) {
+        return Scale(derivative, 1.0f / len);
+    }
     
     return Normalize(Subtract(p2, p1));
 }
