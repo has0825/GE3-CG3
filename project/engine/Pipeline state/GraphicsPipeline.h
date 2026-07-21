@@ -66,6 +66,10 @@ public:
     ID3D12PipelineState* GetRandomPipelineState() const { return randomPipelineState_.Get(); }
     ID3D12RootSignature* GetFullscreenRootSignature() const { return copyImageRootSignature_.Get(); }
     ID3D12RootSignature* GetDissolveRootSignature() const { return dissolveRootSignature_.Get(); }
+    ID3D12PipelineState* GetGaussianFilterPipelineState() const { return gaussianFilterPipelineState_.Get(); }
+    ID3D12PipelineState* GetInvertPipelineState() const { return invertPipelineState_.Get(); }
+    ID3D12PipelineState* GetPixelatePipelineState() const { return pixelatePipelineState_.Get(); }
+    ID3D12PipelineState* GetChromaticAberrationPipelineState() const { return chromaticAberrationPipelineState_.Get(); }
     ID3D12PipelineState* GetDepthOutlinePipelineState() const { return depthOutlinePipelineState_.Get(); }
     ID3D12RootSignature* GetDepthOutlineRootSignature() const { return depthOutlineRootSignature_.Get(); }
 
@@ -120,6 +124,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> randomPipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> gaussianFilterPipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> invertPipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> pixelatePipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> chromaticAberrationPipelineState_;
 	    Microsoft::WRL::ComPtr<ID3D12RootSignature> dissolveRootSignature_;
     // Sprite pipeline members
     Microsoft::WRL::ComPtr<ID3D12RootSignature> spriteRootSignature_;

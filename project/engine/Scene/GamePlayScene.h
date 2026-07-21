@@ -204,10 +204,16 @@ private:
         kSepia,
         kVignette,
         kBoxFilter,
+        kGaussianFilter,
         kOutline,
+        kDepthOutline,
         kRadialBlur,
         kDissolve,
         kRandom,
+        kInvert,
+        kPixelate,
+        kChromaticAberration,
+        kCount, // 項目数
     };
     PostProcessType activePostProcess_ = kNone;
 
@@ -223,6 +229,25 @@ private:
     };
     Microsoft::WRL::ComPtr<ID3D12Resource> boxFilterParamResource_;
     BoxFilterParameter* boxFilterParamData_ = nullptr;
+
+    struct GaussianFilterParameter {
+        int32_t kernelSize;
+        float sigma;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> gaussianParamResource_;
+    GaussianFilterParameter* gaussianParamData_ = nullptr;
+
+    struct PixelateParameter {
+        Vector2 numPixels;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> pixelateParamResource_;
+    PixelateParameter* pixelateParamData_ = nullptr;
+
+    struct ChromaticAberrationParameter {
+        float intensity;
+    };
+    Microsoft::WRL::ComPtr<ID3D12Resource> chromaticParamResource_;
+    ChromaticAberrationParameter* chromaticParamData_ = nullptr;
 
     struct RadialBlurParameter {
         Vector2 center;

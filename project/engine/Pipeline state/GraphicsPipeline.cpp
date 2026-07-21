@@ -990,6 +990,34 @@ void GraphicsPipeline::Initialize(ID3D12Device* device) {
 	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&randomPipelineState_));
 	assert(SUCCEEDED(hr));
 
+	// GaussianFilter
+	Microsoft::WRL::ComPtr<IDxcBlob> gaussianFilterPSBlob = CompileShader(L"GaussianFilter.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(gaussianFilterPSBlob != nullptr);
+	copyPsoDesc.PS = { gaussianFilterPSBlob->GetBufferPointer(), gaussianFilterPSBlob->GetBufferSize() };
+	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&gaussianFilterPipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// Invert (ネガポジ反転)
+	Microsoft::WRL::ComPtr<IDxcBlob> invertPSBlob = CompileShader(L"Invert.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(invertPSBlob != nullptr);
+	copyPsoDesc.PS = { invertPSBlob->GetBufferPointer(), invertPSBlob->GetBufferSize() };
+	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&invertPipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// Pixelate (モザイク/ピクセル化)
+	Microsoft::WRL::ComPtr<IDxcBlob> pixelatePSBlob = CompileShader(L"Pixelate.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(pixelatePSBlob != nullptr);
+	copyPsoDesc.PS = { pixelatePSBlob->GetBufferPointer(), pixelatePSBlob->GetBufferSize() };
+	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&pixelatePipelineState_));
+	assert(SUCCEEDED(hr));
+
+	// ChromaticAberration (色収差/色ズレ)
+	Microsoft::WRL::ComPtr<IDxcBlob> chromaticPSBlob = CompileShader(L"ChromaticAberration.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
+	assert(chromaticPSBlob != nullptr);
+	copyPsoDesc.PS = { chromaticPSBlob->GetBufferPointer(), chromaticPSBlob->GetBufferSize() };
+	hr = device->CreateGraphicsPipelineState(&copyPsoDesc, IID_PPV_ARGS(&chromaticAberrationPipelineState_));
+	assert(SUCCEEDED(hr));
+
 	// --- 深度ベースアウトライン（Depth-based Outline）用のルートシグネチャ作成 ---
 	D3D12_ROOT_PARAMETER depthOutlineParams[2] = {};
 	

@@ -163,6 +163,19 @@ void GamePlayScene::Initialize() {
     boxFilterParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&boxFilterParamData_));
     boxFilterParamData_->kernelSize = 2; // 5x5 default
 
+    gaussianParamResource_ = CreateBufferResource(device, sizeof(GaussianFilterParameter));
+    gaussianParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&gaussianParamData_));
+    gaussianParamData_->kernelSize = 3;
+    gaussianParamData_->sigma = 2.0f;
+
+    pixelateParamResource_ = CreateBufferResource(device, sizeof(PixelateParameter));
+    pixelateParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&pixelateParamData_));
+    pixelateParamData_->numPixels = { 320.0f, 180.0f };
+
+    chromaticParamResource_ = CreateBufferResource(device, sizeof(ChromaticAberrationParameter));
+    chromaticParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&chromaticParamData_));
+    chromaticParamData_->intensity = 0.03f;
+
     radialBlurParamResource_ = CreateBufferResource(device, sizeof(RadialBlurParameter));
     radialBlurParamResource_->Map(0, nullptr, reinterpret_cast<void**>(&radialBlurParamData_));
     radialBlurParamData_->center = { 0.5f, 0.5f };
@@ -2043,6 +2056,18 @@ void GamePlayScene::Update() {
             // カメラの回転を正面にリセット（切り替え直後に迷子になるのを防止）
             camTrans.rotate = { 0.0f, 0.0f, 0.0f };
         }
+    }
+
+    // 十字キー横移動 (DIK_LEFT / DIK_RIGHT) でポストエフェクトをリアルタイム切り替え
+    if (input_->IsKeyTriggered(DIK_LEFT)) {
+        int current = static_cast<int>(activePostProcess_);
+        current = (current - 1 + static_cast<int>(kCount)) % static_cast<int>(kCount);
+        activePostProcess_ = static_cast<PostProcessType>(current);
+    }
+    if (input_->IsKeyTriggered(DIK_RIGHT)) {
+        int current = static_cast<int>(activePostProcess_);
+        current = (current + 1) % static_cast<int>(kCount);
+        activePostProcess_ = static_cast<PostProcessType>(current);
     }
 
     // TABキーでモード切替
@@ -4489,7 +4514,8 @@ void GamePlayScene::Update() {
 
 #ifdef USE_IMGUI
     ImGui::Begin("PostProcess");
-    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "Outline", "RadialBlur", "Dissolve", "Random" };
+    ImGui::Text("Switch with Left/Right Arrow keys (DIK_LEFT / DIK_RIGHT)");
+    const char* items[] = { "None", "Grayscale", "Sepia", "Vignette", "BoxFilter", "GaussianFilter", "Outline (Luminance)", "DepthOutline", "RadialBlur", "Dissolve", "Random", "Invert", "Pixelate", "ChromaticAberration" };
     int currentItem = static_cast<int>(activePostProcess_);
     if (ImGui::Combo("Effect", &currentItem, items, IM_ARRAYSIZE(items))) {
         activePostProcess_ = static_cast<PostProcessType>(currentItem);
@@ -4511,6 +4537,16 @@ void GamePlayScene::Update() {
     }
     if (activePostProcess_ == kBoxFilter) {
         ImGui::SliderInt("Kernel Size (k)", &boxFilterParamData_->kernelSize, 1, 10);
+    }
+    if (activePostProcess_ == kGaussianFilter) {
+        ImGui::SliderInt("Kernel Size (k)", &gaussianParamData_->kernelSize, 1, 10);
+        ImGui::SliderFloat("Sigma", &gaussianParamData_->sigma, 0.1f, 10.0f);
+    }
+    if (activePostProcess_ == kPixelate) {
+        ImGui::SliderFloat2("Mosaic Resolution", &pixelateParamData_->numPixels.x, 10.0f, 1280.0f);
+    }
+    if (activePostProcess_ == kChromaticAberration) {
+        ImGui::SliderFloat("Aberration Intensity", &chromaticParamData_->intensity, 0.0f, 0.2f);
     }
     if (activePostProcess_ == kRadialBlur) {
         ImGui::SliderFloat2("Center", &radialBlurParamData_->center.x, 0.0f, 1.0f);
@@ -4975,7 +5011,13 @@ void GamePlayScene::Draw() {
     case kBoxFilter:
         pso = graphicsPipeline_->GetBoxFilterPipelineState();
         break;
+    case kGaussianFilter:
+        pso = graphicsPipeline_->GetGaussianFilterPipelineState();
+        break;
     case kOutline:
+        pso = graphicsPipeline_->GetLuminanceOutlinePipelineState();
+        break;
+    case kDepthOutline:
         pso = graphicsPipeline_->GetDepthOutlinePipelineState();
         break;
     case kRadialBlur:
@@ -4987,6 +5029,15 @@ void GamePlayScene::Draw() {
     case kRandom:
         pso = graphicsPipeline_->GetRandomPipelineState();
         break;
+    case kInvert:
+        pso = graphicsPipeline_->GetInvertPipelineState();
+        break;
+    case kPixelate:
+        pso = graphicsPipeline_->GetPixelatePipelineState();
+        break;
+    case kChromaticAberration:
+        pso = graphicsPipeline_->GetChromaticAberrationPipelineState();
+        break;
     }
 
     // Fullscreenパイプラインで描画
@@ -4996,7 +5047,7 @@ void GamePlayScene::Draw() {
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, activeNoiseSrvIndex_);
         commandList->SetGraphicsRootConstantBufferView(2, dissolveParamResource_->GetGPUVirtualAddress());
-    } else if (activePostProcess_ == kOutline) {
+    } else if (activePostProcess_ == kDepthOutline) {
         // 深度バッファをPIXEL_SHADER_RESOURCE状態へ安全に遷移
         dxCommon_->TransitionDepthStencilState(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDepthOutlineRootSignature());
@@ -5009,6 +5060,12 @@ void GamePlayScene::Draw() {
             commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
         } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
             commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kGaussianFilter && gaussianParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, gaussianParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kPixelate && pixelateParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, pixelateParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kChromaticAberration && chromaticParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, chromaticParamResource_->GetGPUVirtualAddress());
         } else if (activePostProcess_ == kRadialBlur && radialBlurParamResource_) {
             commandList->SetGraphicsRootConstantBufferView(1, radialBlurParamResource_->GetGPUVirtualAddress());
         } else if (activePostProcess_ == kRandom && randomParamResource_) {
@@ -5776,7 +5833,13 @@ void GamePlayScene::DrawDemo() {
     case kBoxFilter:
         pso = graphicsPipeline_->GetBoxFilterPipelineState();
         break;
+    case kGaussianFilter:
+        pso = graphicsPipeline_->GetGaussianFilterPipelineState();
+        break;
     case kOutline:
+        pso = graphicsPipeline_->GetLuminanceOutlinePipelineState();
+        break;
+    case kDepthOutline:
         pso = graphicsPipeline_->GetDepthOutlinePipelineState();
         break;
     case kRadialBlur:
@@ -5788,6 +5851,15 @@ void GamePlayScene::DrawDemo() {
     case kRandom:
         pso = graphicsPipeline_->GetRandomPipelineState();
         break;
+    case kInvert:
+        pso = graphicsPipeline_->GetInvertPipelineState();
+        break;
+    case kPixelate:
+        pso = graphicsPipeline_->GetPixelatePipelineState();
+        break;
+    case kChromaticAberration:
+        pso = graphicsPipeline_->GetChromaticAberrationPipelineState();
+        break;
     }
 
     // Fullscreenパイプラインで描画
@@ -5797,7 +5869,7 @@ void GamePlayScene::DrawDemo() {
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(0, postProcess_->GetSrvIndex());
         SrvManager::GetInstance()->SetGraphicsRootDescriptorTable(1, activeNoiseSrvIndex_);
         commandList->SetGraphicsRootConstantBufferView(2, dissolveParamResource_->GetGPUVirtualAddress());
-    } else if (activePostProcess_ == kOutline) {
+    } else if (activePostProcess_ == kDepthOutline) {
         // 深度バッファをPIXEL_SHADER_RESOURCE状態へ安全に遷移
         dxCommon_->TransitionDepthStencilState(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         commandList->SetGraphicsRootSignature(graphicsPipeline_->GetDepthOutlineRootSignature());
@@ -5810,6 +5882,12 @@ void GamePlayScene::DrawDemo() {
             commandList->SetGraphicsRootConstantBufferView(1, vignetteParamResource_->GetGPUVirtualAddress());
         } else if (activePostProcess_ == kBoxFilter && boxFilterParamResource_) {
             commandList->SetGraphicsRootConstantBufferView(1, boxFilterParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kGaussianFilter && gaussianParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, gaussianParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kPixelate && pixelateParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, pixelateParamResource_->GetGPUVirtualAddress());
+        } else if (activePostProcess_ == kChromaticAberration && chromaticParamResource_) {
+            commandList->SetGraphicsRootConstantBufferView(1, chromaticParamResource_->GetGPUVirtualAddress());
         } else if (activePostProcess_ == kRadialBlur && radialBlurParamResource_) {
             commandList->SetGraphicsRootConstantBufferView(1, radialBlurParamResource_->GetGPUVirtualAddress());
         } else if (activePostProcess_ == kRandom && randomParamResource_) {
