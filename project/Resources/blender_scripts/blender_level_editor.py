@@ -1268,6 +1268,7 @@ class GE3_OT_GenerateCity(Operator):
         # ──────────────────────────────────────────
         dummy_floor_count = 0
         dummy_floor_positions = []
+        dummy_straight_segments = []  # (p_dummy, right_vec, rot_y) を記録してダミービル生成に使用
         max_dummy_floors = 12  # ダミー道路を12枚分（1200ゲームユニット）まっすぐ伸ばす
 
         # 曲がり角ごとに処理
@@ -1307,6 +1308,7 @@ class GE3_OT_GenerateCity(Operator):
                 for d in range(1, max_dummy_floors + 1):
                     d_dist = d * floor_size_z
                     p_dummy = [p_start[c] + d_dist * dir_straight[c] for c in range(3)]
+                    dummy_straight_segments.append((p_dummy, right_vec, rot_y))
                     
                     for lane_idx in range(-10, 11):
                         offset = lane_idx * road_width

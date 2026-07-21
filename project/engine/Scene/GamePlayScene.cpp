@@ -98,10 +98,10 @@ void GamePlayScene::Initialize() {
         // ファイルが無ければデフォルト値で作成しておく
         std::ofstream outfile("Resources/player_params.txt");
         if (outfile.is_open()) {
-            outfile << "LIMIT_X=20.0\n";
+            outfile << "LIMIT_X=36.0\n";
             outfile << "LIMIT_Y=12.0\n";
             outfile << "COLLISION_RADIUS=2.0\n";
-            outfile << "SPEED_X=25.0\n";
+            outfile << "SPEED_X=35.0\n";
             outfile << "SPEED_Y=20.0\n";
             outfile.close();
         }
@@ -916,9 +916,9 @@ void GamePlayScene::Initialize() {
         // ── プレイヤー進行ルート（コース中央脇）へのビル増量・高密度配置 ──
         if (!waypointDistances_.empty() && waypointDistances_.back() > 0.0f) {
             float totalDist = waypointDistances_.back();
-            float buildingPitch = 60.0f; // 60m間隔で進行方向の左右にビルを自動補填
+            float buildingPitch = 40.0f; // 40m間隔で進行方向の左右にビルを高密度補填
 
-            for (float s = 30.0f; s < totalDist; s += buildingPitch) {
+            for (float s = 20.0f; s < totalDist; s += buildingPitch) {
                 Vector3 railPos = GetRailPosition(s);
                 Vector3 railDir = GetRailDirection(s);
                 Vector3 railRight = CalculateRailRight(railDir);
@@ -930,13 +930,13 @@ void GamePlayScene::Initialize() {
                     Vector3 bPos = Add(railPos, Scale(railRight, offset));
                     bPos.y = -20.0f; // 地面基準高さ
 
-                    // 既存のビルとの重なりチェック (25m以内なら配置スキップ)
+                    // 既存のビルとの重なりチェック (20m以内なら配置スキップ)
                     bool isOverlap = false;
                     for (size_t bIdx = 0; bIdx < buildings_.size(); ++bIdx) {
                         if (buildings_[bIdx].floors <= 0) continue;
                         float dx = buildings_[bIdx].position.x - bPos.x;
                         float dz = buildings_[bIdx].position.z - bPos.z;
-                        if (dx * dx + dz * dz < 25.0f * 25.0f) {
+                        if (dx * dx + dz * dz < 20.0f * 20.0f) {
                             isOverlap = true;
                             break;
                         }
@@ -946,6 +946,7 @@ void GamePlayScene::Initialize() {
                         Building b;
                         b.position = bPos;
                         b.scale = { 10.0f, 10.0f, 10.0f };
+                        b.isNearCourseColumn = true; // 中央＆すぐ隣の列フラグ（詳細描画用）
 
                         // 近列(±45m)は中層(3~8階)、外列(±85m)は高層(6~12階)
                         if (std::abs(offset) < 60.0f) {
@@ -966,6 +967,71 @@ void GamePlayScene::Initialize() {
                         b.destroyTimer = 0.0f;
 
                         buildings_.push_back(b);
+                    }
+                }
+            }
+
+            // ── 曲がり角（カーブ手前の直線および直進延長）での高密度背景ビル補填 ──
+            float stepCheck = 40.0f; // 40mごとにチェック
+            for (float s = 40.0f; s < totalDist - 40.0f; s += stepCheck) {
+                float prevS = (s - 30.0f < 0.0f) ? 0.0f : (s - 30.0f);
+                float nextS = (s + 30.0f > totalDist) ? totalDist : (s + 30.0f);
+                Vector3 dirPrev = GetRailDirection(prevS);
+                Vector3 dirNext = GetRailDirection(nextS);
+
+                // 進行方向の変化量（カーブ判定）
+                float dotVal = dirPrev.x * dirNext.x + dirPrev.z * dirNext.z;
+                if (dotVal < 0.985f) { // カーブしているポイント
+                    Vector3 dirStraight = dirPrev;
+                    Vector3 rightStraight = CalculateRailRight(dirStraight);
+                    Vector3 pStart = GetRailPosition(s);
+
+                    // 直進方向（ダミー道路が伸びている方向）へ 15 ステップ（各 80m）高密度に伸ばす
+                    const float dummyCols[] = {
+                        -45.0f, 45.0f, -85.0f, 85.0f,
+                        -125.0f, 125.0f, -165.0f, 165.0f, -205.0f, 205.0f,
+                        -245.0f, 245.0f, -285.0f, 285.0f, -325.0f, 325.0f, -365.0f, 365.0f
+                    };
+                    for (int d = 1; d <= 15; ++d) {
+                        float dDist = d * 80.0f;
+                        Vector3 pDummy = Add(pStart, Scale(dirStraight, dDist));
+
+                        for (int k = 0; k < 18; ++k) {
+                            float offset = dummyCols[k];
+                            Vector3 bPos = Add(pDummy, Scale(rightStraight, offset));
+                            bPos.y = -20.0f;
+
+                            // 既存ビルとの重なりチェック (20m以内)
+                            bool isOverlap = false;
+                            for (size_t bIdx = 0; bIdx < buildings_.size(); ++bIdx) {
+                                if (buildings_[bIdx].floors <= 0) continue;
+                                float dx = buildings_[bIdx].position.x - bPos.x;
+                                float dz = buildings_[bIdx].position.z - bPos.z;
+                                if (dx * dx + dz * dz < 20.0f * 20.0f) {
+                                    isOverlap = true;
+                                    break;
+                                }
+                            }
+
+                            if (!isOverlap && buildings_.size() < kMaxBuildings) {
+                                Building b;
+                                b.position = bPos;
+                                b.scale = { 10.0f, 10.0f, 10.0f };
+                                b.floors = 3 + (randomEngine_() % 8);
+                                b.isNearCourseColumn = (std::abs(offset) < 90.0f); // 中央＆隣接列のみ詳細描画
+                                float rotY = std::atan2(dirStraight.x, dirStraight.z);
+                                b.rotate = { 0.0f, rotY, 0.0f };
+                                b.originalX = bPos.x;
+                                b.originalY = -20.0f;
+                                b.originalFloors = b.floors;
+                                b.isDestroyed = false;
+                                b.velocity = { 0.0f, 0.0f, 0.0f };
+                                b.rotationSpeed = { 0.0f, 0.0f, 0.0f };
+                                b.destroyTimer = 0.0f;
+
+                                buildings_.push_back(b);
+                            }
+                        }
                     }
                 }
             }
@@ -997,6 +1063,30 @@ void GamePlayScene::Initialize() {
                 buildings_[i].floors = 0;
                 buildings_[i].originalFloors = 0;
             }
+        }
+
+        // ── プレイヤーが通るルート（コース/レール）の近くにあるビルの自動判定 ──
+        float routeCheckStep = 10.0f; // 10m間隔でルート上の点を判定
+        const float kNearRouteDist = 130.0f; // ルート中心から130m以内（コース両脇および直近ビル列）
+        const float kNearRouteDistSq = kNearRouteDist * kNearRouteDist;
+
+        for (size_t i = 0; i < buildings_.size(); ++i) {
+            if (buildings_[i].floors <= 0) continue;
+
+            float minSqDist = 1e9f;
+            for (float s = 0.0f; s <= totalDist; s += routeCheckStep) {
+                Vector3 railPos = GetRailPosition(s);
+                float dx = buildings_[i].position.x - railPos.x;
+                float dz = buildings_[i].position.z - railPos.z;
+                float sqDist = dx * dx + dz * dz;
+                if (sqDist < minSqDist) {
+                    minSqDist = sqDist;
+                }
+            }
+
+            // ルートの近くにあるビル、または直進延長上のビルは isNearCourseColumn = true （高詳細描画対象）
+            // 元の isNearCourseColumn（曲がり角延長上の高密度補テンフラグ等）を保持しつつ判定
+            buildings_[i].isNearCourseColumn = buildings_[i].isNearCourseColumn || (minSqDist <= kNearRouteDistSq);
         }
     }
 
@@ -4065,18 +4155,65 @@ void GamePlayScene::Update() {
             }
         }
 
-        // 各ビルの各階数（フロア）ごとにワールド行列とWVP行列を計算
+        // 各ビルのワールド行列とWVP行列を計算（距離カリング & 1棟1ドロー統合最適化）
         {
             int cbIndex = 0;
-            for (int i = 0; i < kMaxBuildings; ++i) {
-                for (int f = 0; f < buildings_[i].floors; ++f) {
+            float camZ = camera_->GetTransform().translate.z;
+            float camX = camera_->GetTransform().translate.x;
+
+            for (size_t i = 0; i < buildings_.size(); ++i) {
+                buildings_[i].cbIndexStart = -1;
+                buildings_[i].cbCount = 0;
+
+                if (buildings_[i].floors <= 0) continue;
+
+                float dz = buildings_[i].position.z - camZ;
+                float dx = buildings_[i].position.x - camX;
+
+                // 距離カリング: カメラ後方または前方遠すぎるビルは計算・描画を完全スキップ
+                if (dz < -kBuildingCullBackDist || dz > kBuildingCullFarDist) {
+                    continue;
+                }
+
+                float distSq = dx * dx + dz * dz;
+
+                // プレイヤーが通るルート近傍および直進延長上のビル(isNearCourseColumn)は視界限界(kBuildingCullFarDist)まで常に詳細描画（荒くしない）
+                bool isDetailView = (buildings_[i].isNearCourseColumn && dz >= -kBuildingCullBackDist && dz <= kBuildingCullFarDist) ||
+                                    buildings_[i].isDestroyed ||
+                                    (distSq <= 120.0f * 120.0f);
+
+                if (isDetailView) {
+                    // 各階個別のマルチドロー（詳細描画）
+                    buildings_[i].cbIndexStart = cbIndex;
+                    int count = 0;
+
+                    for (int f = 0; f < buildings_[i].floors; ++f) {
+                        if (cbIndex >= kMaxBuildingCBs) break;
+
+                        Vector3 floorPos = buildings_[i].position;
+                        floorPos.y = buildings_[i].position.y + (float)f * kFloorHeight + kFloorHeight * 0.5f;
+
+                        Matrix4x4 worldMatrix = MakeAffineMatrix(buildings_[i].scale, buildings_[i].rotate, floorPos);
+                        buildingTransformData_[cbIndex]->World = worldMatrix;
+                        buildingTransformData_[cbIndex]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
+                        cbIndex++;
+                        count++;
+                    }
+                    buildings_[i].cbCount = count;
+                } else {
+                    // 遠距離または背景ダミービル: 1棟につき1ドローコールに統合（Yスケールを一括拡大して超軽量化）
                     if (cbIndex >= kMaxBuildingCBs) break;
 
-                    // 1フロアごとの積み上げY座標を計算（等倍スケール10に対して高さを積み上げる）
-                    Vector3 floorPos = buildings_[i].position;
-                    floorPos.y = buildings_[i].position.y + (float)f * kFloorHeight + kFloorHeight * 0.5f; // 接地調整を含んだ積み上げY座標
+                    buildings_[i].cbIndexStart = cbIndex;
+                    buildings_[i].cbCount = 1;
 
-                    Matrix4x4 worldMatrix = MakeAffineMatrix(buildings_[i].scale, buildings_[i].rotate, floorPos);
+                    Vector3 integratedScale = buildings_[i].scale;
+                    integratedScale.y = kFloorHeight * (float)buildings_[i].floors;
+
+                    Vector3 centerPos = buildings_[i].position;
+                    centerPos.y = buildings_[i].position.y + integratedScale.y * 0.5f;
+
+                    Matrix4x4 worldMatrix = MakeAffineMatrix(integratedScale, buildings_[i].rotate, centerPos);
                     buildingTransformData_[cbIndex]->World = worldMatrix;
                     buildingTransformData_[cbIndex]->WVP = Multiply(worldMatrix, viewProjectionMatrix);
                     cbIndex++;
@@ -4490,7 +4627,12 @@ void GamePlayScene::Draw() {
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                 }
 
+                float camZ = camera_->GetTransform().translate.z;
                 for (int i = 0; i < numLoadedFloors_; ++i) {
+                    float dz = floorPositions_[i].z - camZ;
+                    // 床タイルの距離カリング（画面外/遠方カリング）
+                    if (dz < -kFloorCullBackDist || dz > kFloorCullFarDist) continue;
+
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                 }
@@ -4522,17 +4664,19 @@ void GamePlayScene::Draw() {
                 commandList->SetGraphicsRootSignature(graphicsPipeline_->GetObject3dRootSignature());
             }
 
-            // ビル(Building)描画（ボス戦中も進行感を出すため描画）
+            // ビル(Building)描画（距離カリング & 1棟1ドローコール統合により超軽量化）
             if (buildingModel_) {
                 if (directionalLightResource_) commandList->SetGraphicsRootConstantBufferView(4, directionalLightResource_->GetGPUVirtualAddress());
                 if (cameraResource_) commandList->SetGraphicsRootConstantBufferView(5, cameraResource_->GetGPUVirtualAddress());
-                int cbIndex = 0;
-                for (int i = 0; i < kMaxBuildings; ++i) {
-                    for (int f = 0; f < buildings_[i].floors; ++f) {
-                        if (cbIndex >= kMaxBuildingCBs) break;
-                        commandList->SetGraphicsRootConstantBufferView(1, buildingTransformResources_[cbIndex]->GetGPUVirtualAddress());
+
+                for (size_t i = 0; i < buildings_.size(); ++i) {
+                    if (buildings_[i].cbIndexStart < 0 || buildings_[i].cbCount <= 0) continue;
+
+                    for (int c = 0; c < buildings_[i].cbCount; ++c) {
+                        int cbIdx = buildings_[i].cbIndexStart + c;
+                        if (cbIdx >= kMaxBuildingCBs) break;
+                        commandList->SetGraphicsRootConstantBufferView(1, buildingTransformResources_[cbIdx]->GetGPUVirtualAddress());
                         buildingModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("building/buillding_uv.png"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
-                        cbIndex++;
                     }
                 }
             }

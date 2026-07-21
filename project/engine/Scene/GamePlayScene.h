@@ -350,6 +350,9 @@ private:
         float originalX = 0.0f;            // 初期X位置の記憶
         float originalY = -20.0f;          // 初期Y位置(底面)の記憶
         int originalFloors = 0;            // 初期階数の記憶
+        int cbIndexStart = -1;             // 割り振られたCBバッファの開始インデックス
+        int cbCount = 0;                   // 使用するCBバッファ数 (近距離はfloors個、遠距離/ダミーは1個)
+        bool isNearCourseColumn = false;   // コース中央および隣接列(±45m, ±85m)のビルフラグ(詳細描画対象)
     };
     static const int kMaxBuildings = 3000;
     static const int kMaxBuildingCBs = 12000;
@@ -382,6 +385,14 @@ private:
     static constexpr float kBuildingInterval = 80.0f;
     static constexpr float kFloorHeight = 10.0f;
     static constexpr float kFloorY = -20.0f;
+
+    // 描画最適化・距離カリング用定数
+    static constexpr float kBuildingCullBackDist = 120.0f;   // カメラ後方カリング距離
+    static constexpr float kBuildingCullFarDist  = 1800.0f;  // カメラ前方カリング距離
+    static constexpr float kBuildingDetailDist   = 250.0f;   // 各階個別に詳細描画する近距離閾値（これより遠いビルは1棟1ドローコール化）
+    static constexpr float kFloorCullBackDist    = 120.0f;   // 床タイルカメラ後方カリング距離
+    static constexpr float kFloorCullFarDist     = 2200.0f;  // 床タイルカメラ前方カリング距離
+
     // roadScale の回転後の意味: X → Z方向（奥行き）, Y → X方向（幅）
     // plane.objは -1～+1 = 2ユニット幅なので、実ワールド長 = Xスケール × 2
     static constexpr float kRoadDepthScale  = 50.5f;  // Z方向のスケール（50.5f * 2 = 101.0m長。100mピッチに対し1m微小オーバーラップさせて目地隙間を消滅）
@@ -579,10 +590,10 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE spiderWebSrvHandleGPU_{};
 
     // プレイヤーパラメータ
-    float playerLimitX_ = 20.0f;
+    float playerLimitX_ = 36.0f;
     float playerLimitY_ = 12.0f;
     float playerCollisionRadius_ = 2.0f;
-    float playerSpeedX_ = 25.0f;
+    float playerSpeedX_ = 35.0f;
     float playerSpeedY_ = 20.0f;
 
     // ── ヒットエフェクト・デモ用メンバ変数 ──
