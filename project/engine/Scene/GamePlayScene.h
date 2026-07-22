@@ -290,6 +290,12 @@ private:
     static const int kNumGroups = 2;       // 総グループ数
     static const int kEnemiesPerGroup = 5; // 1グループあたりの敵数
 
+    struct BoxCollider {
+        bool hasCollider = false;
+        Vector3 center = { 0.0f, 0.0f, 0.0f }; // ローカル座標での中心オフセット
+        Vector3 size = { 2.0f, 2.0f, 2.0f };   // コライダーサイズ (Blender側でのサイズ)
+    };
+
     struct Enemy {
         Vector3 position = { 0.0f, 0.0f, 0.0f };
         Vector3 scale = { 1.0f, 1.0f, 1.0f };
@@ -298,6 +304,7 @@ private:
         float radius = 0.0f;
         float hp = 0.0f;
         float maxHP = 0.0f;
+        BoxCollider collider;
 
         // フォーメーション管理用メンバ
         int groupIndex = 0;      // 所属グループ (0~2)
@@ -344,6 +351,7 @@ private:
         Vector3 rotate = { 0.0f, 0.0f, 0.0f };
         int floors = 0; // 階数
         bool isDestroyed = false;          // 破壊中フラグ
+        BoxCollider collider;
         Vector3 velocity = { 0.0f, 0.0f, 0.0f };     // 吹き飛び速度
         Vector3 rotationSpeed = { 0.0f, 0.0f, 0.0f }; // 回転速度
         float destroyTimer = 0.0f;         // 破壊経過タイマー

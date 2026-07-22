@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <filesystem>
+#include <cmath>
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -34,6 +35,38 @@ namespace {
 
 // staticメンバの定義
 int GamePlayScene::blenderSyncCounter_ = 0;
+
+static bool IsCollidingOBBAndSphere(const Vector3& spherePos, float sphereRadius,
+                                     const Vector3& boxPos, const Vector3& boxScale, float boxRotY,
+                                     const Vector3& colCenter, const Vector3& colSize) {
+    // 1. 球の位置をボックスの位置・Y回転のローカル空間に変換する（スケールは適用しない）
+    Vector3 diff = { spherePos.x - boxPos.x, spherePos.y - boxPos.y, spherePos.z - boxPos.z };
+    
+    // Y軸回転 of 逆回転
+    float cosRot = std::cos(-boxRotY);
+    float sinRot = std::sin(-boxRotY);
+    Vector3 localSpherePos;
+    localSpherePos.x = diff.x * cosRot - diff.z * sinRot;
+    localSpherePos.y = diff.y;
+    localSpherePos.z = diff.x * sinRot + diff.z * cosRot;
+    
+    // 2. ボックスのスケールを適用したワールド空間でのコライダーAABBの中心と半サイズを計算
+    // Blender側では colSize が半幅(ハーフサイズ)として扱われている
+    Vector3 halfSize = { colSize.x * boxScale.x, colSize.y * boxScale.y, colSize.z * boxScale.z };
+    Vector3 center = { colCenter.x * boxScale.x, colCenter.y * boxScale.y, colCenter.z * boxScale.z };
+    
+    // 3. ローカル空間でのAABBと球の衝突判定
+    Vector3 closestPoint;
+    closestPoint.x = (std::max)(center.x - halfSize.x, (std::min)(localSpherePos.x, center.x + halfSize.x));
+    closestPoint.y = (std::max)(center.y - halfSize.y, (std::min)(localSpherePos.y, center.y + halfSize.y));
+    closestPoint.z = (std::max)(center.z - halfSize.z, (std::min)(localSpherePos.z, center.z + halfSize.z));
+    
+    float distSq = (localSpherePos.x - closestPoint.x) * (localSpherePos.x - closestPoint.x) +
+                   (localSpherePos.y - closestPoint.y) * (localSpherePos.y - closestPoint.y) +
+                   (localSpherePos.z - closestPoint.z) * (localSpherePos.z - closestPoint.z);
+                   
+    return distSq <= (sphereRadius * sphereRadius);
+}
 
 static Vector3 Add(const Vector3& v1, const Vector3& v2) {
     return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
@@ -802,6 +835,46 @@ void GamePlayScene::Initialize() {
                 float ry = s_ry.empty() ? 0.0f : std::stof(s_ry);
                 float rz = s_rz.empty() ? 0.0f : std::stof(s_rz);
 
+                // コライダー情報があれば読み取る
+                std::string s_col_type, s_cx, s_cy, s_cz, s_csx, s_csy, s_csz;
+                bool hasCollider = false;
+                Vector3 colCenter = { 0.0f, 0.0f, 0.0f };
+                Vector3 colSize = { 2.0f, 2.0f, 2.0f };
+                
+                // 無効フラグ
+                bool isDisabled = false;
+                std::string s_disabled;
+                
+                if (std::getline(ss, s_col_type, ',')) {
+                    if (s_col_type == "BOX" &&
+                        std::getline(ss, s_cx, ',') &&
+                        std::getline(ss, s_cy, ',') &&
+                        std::getline(ss, s_cz, ',') &&
+                        std::getline(ss, s_csx, ',') &&
+                        std::getline(ss, s_csy, ',') &&
+                        std::getline(ss, s_csz, ',')) {
+                        
+                        hasCollider = true;
+                        colCenter = { std::stof(s_cx), std::stof(s_cz), std::stof(s_cy) };
+                        colSize = { std::stof(s_csx), std::stof(s_csz), std::stof(s_csy) };
+                    } else if (s_col_type == "NONE") {
+                        std::string dummy;
+                        for (int d = 0; d < 6; ++d) {
+                            std::getline(ss, dummy, ',');
+                        }
+                    }
+                    
+                    if (std::getline(ss, s_disabled, ',')) {
+                        if (!s_disabled.empty() && std::stoi(s_disabled) == 1) {
+                            isDisabled = true;
+                        }
+                    }
+                }
+                
+                if (isDisabled) {
+                    continue;
+                }
+
                 // 既にずれている座標と比較するため、読み込んだ gx にも kWorldShiftX を加算
                 float shiftedGx = gx + kWorldShiftX;
                 int foundIdx = -1;
@@ -816,6 +889,11 @@ void GamePlayScene::Initialize() {
                 if (foundIdx != -1) {
                     buildings_[foundIdx].floors++;
                     buildings_[foundIdx].originalFloors = buildings_[foundIdx].floors;
+                    if (hasCollider) {
+                        buildings_[foundIdx].collider.hasCollider = true;
+                        buildings_[foundIdx].collider.center = colCenter;
+                        buildings_[foundIdx].collider.size = colSize;
+                    }
                 } else if (buildingCount < kMaxBuildings) {
                     Building b;
                     b.position = { shiftedGx, -20.0f, gz }; // 底面を基準高さ -20.0f
@@ -829,6 +907,9 @@ void GamePlayScene::Initialize() {
                     b.velocity = { 0.0f, 0.0f, 0.0f };
                     b.rotationSpeed = { 0.0f, 0.0f, 0.0f };
                     b.destroyTimer = 0.0f;
+                    b.collider.hasCollider = hasCollider;
+                    b.collider.center = colCenter;
+                    b.collider.size = colSize;
 
                     buildings_[buildingCount] = b;
                     buildingCount++;
@@ -843,11 +924,58 @@ void GamePlayScene::Initialize() {
                 float gy = std::stof(s_gy);
                 float gz = std::stof(s_gz);
 
+                // 敵のBoxコライダー用の読み込み (3.8,3.8,3.8,0.0,0.0,0.0 の6列をスキップ)
+                std::string dummy;
+                for (int d = 0; d < 6; ++d) {
+                    std::getline(ss, dummy, ',');
+                }
+                
+                std::string s_col_type, s_cx, s_cy, s_cz, s_csx, s_csy, s_csz;
+                bool hasCollider = false;
+                Vector3 colCenter = { 0.0f, 0.0f, 0.0f };
+                Vector3 colSize = { 2.0f, 2.0f, 2.0f };
+                
+                bool isDisabled = false;
+                std::string s_disabled;
+                
+                if (std::getline(ss, s_col_type, ',')) {
+                    if (s_col_type == "BOX" &&
+                        std::getline(ss, s_cx, ',') &&
+                        std::getline(ss, s_cy, ',') &&
+                        std::getline(ss, s_cz, ',') &&
+                        std::getline(ss, s_csx, ',') &&
+                        std::getline(ss, s_csy, ',') &&
+                        std::getline(ss, s_csz, ',')) {
+                        
+                        hasCollider = true;
+                        colCenter = { std::stof(s_cx), std::stof(s_cz), std::stof(s_cy) };
+                        colSize = { std::stof(s_csx), std::stof(s_csz), std::stof(s_csy) };
+                    } else if (s_col_type == "NONE") {
+                        std::string dummy_col;
+                        for (int d = 0; d < 6; ++d) {
+                            std::getline(ss, dummy_col, ',');
+                        }
+                    }
+                    
+                    if (std::getline(ss, s_disabled, ',')) {
+                        if (!s_disabled.empty() && std::stoi(s_disabled) == 1) {
+                            isDisabled = true;
+                        }
+                    }
+                }
+
+                if (isDisabled) {
+                    continue;
+                }
+
                 if (enemyCount < kMaxEnemies) {
                     enemies_[enemyCount].position = { gx + kWorldShiftX, gy, gz };
                     enemies_[enemyCount].isAlive = true;
                     enemies_[enemyCount].hp = 3.0f;
                     enemies_[enemyCount].radius = 3.8f;
+                    enemies_[enemyCount].collider.hasCollider = hasCollider;
+                    enemies_[enemyCount].collider.center = colCenter;
+                    enemies_[enemyCount].collider.size = colSize;
                     enemyCount++;
                 }
             } else if (type == "FLOOR") {
@@ -2790,25 +2918,48 @@ void GamePlayScene::Update() {
 
 
             } else {
+                // 自機とビルの衝突判定（Boxコライダー対応）
+                for (size_t i = 0; i < buildings_.size(); ++i) {
+                    auto& b = buildings_[i];
+                    if (b.floors <= 0 || b.isDestroyed) continue;
+                    if (!b.collider.hasCollider) continue;
+                    
+                    Vector3 boxScale = { b.scale.x, b.scale.y * b.floors, b.scale.z };
+                    if (IsCollidingOBBAndSphere(fighterWorldPos, playerCollisionRadius_, b.position, boxScale, b.rotate.y, b.collider.center, b.collider.size)) {
+                        playerHP_ -= 0.5f; // 毎フレームダメージを受ける
+                        if (playerHP_ < 0.0f) playerHP_ = 0.0f;
+                        
+                        static uint32_t bHitTimer = 0;
+                        if (++bHitTimer % 15 == 0) {
+                            particleManager_->EmitHit(fighterWorldPos);
+                            audio_->PlayWave(jumpSE_, false, 0.8f);
+                        }
+                    }
+                }
+
                 // 雑魚敵との衝突
                 for (auto& enemy : enemies_) {
                     if (!enemy.isAlive) continue;
 
-                    Vector3 diff = Subtract(fighterWorldPos, enemy.position);
-                    float dist = Length(diff);
-                    
                     bool hit = false;
-                    if (dist <= (enemy.radius + playerCollisionRadius_)) {
-                        hit = true;
-                    }
-                    // 特攻状態におけるすり抜け防止判定
-                    else if (enemy.state == Enemy::State::kDive) {
-                        float frameMovement = enemy.speed * kDeltaTime;
-                        float zDiff = enemy.position.z - fighterWorldPos.z;
-                        if (std::abs(zDiff) < (frameMovement * 0.75f + 3.0f)) {
-                            float distXY = std::sqrt(diff.x * diff.x + diff.y * diff.y);
-                            if (distXY <= (enemy.radius + playerCollisionRadius_)) {
-                                hit = true;
+                    if (enemy.collider.hasCollider) {
+                        hit = IsCollidingOBBAndSphere(fighterWorldPos, playerCollisionRadius_, enemy.position, enemy.scale, enemy.rotate.y, enemy.collider.center, enemy.collider.size);
+                    } else {
+                        Vector3 diff = Subtract(fighterWorldPos, enemy.position);
+                        float dist = Length(diff);
+                        
+                        if (dist <= (enemy.radius + playerCollisionRadius_)) {
+                            hit = true;
+                        }
+                        // 特攻状態におけるすり抜け防止判定
+                        else if (enemy.state == Enemy::State::kDive) {
+                            float frameMovement = enemy.speed * kDeltaTime;
+                            float zDiff = enemy.position.z - fighterWorldPos.z;
+                            if (std::abs(zDiff) < (frameMovement * 0.75f + 3.0f)) {
+                                float distXY = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+                                if (distXY <= (enemy.radius + playerCollisionRadius_)) {
+                                    hit = true;
+                                }
                             }
                         }
                     }
@@ -2870,10 +3021,19 @@ void GamePlayScene::Update() {
                 for (auto& enemy : enemies_) {
                     if (!enemy.isAlive) continue;
 
-                    Vector3 diff = Subtract(playerBullets_[i].position, enemy.position);
-                    float dist = Length(diff);
-                    // 弾の当たり判定半径を広げて（0.5f -> 2.5f）、すり抜けや近距離で当たらない現象を緩和
-                    if (dist <= (enemy.radius + 2.5f)) {
+                    bool hit = false;
+                    if (enemy.collider.hasCollider) {
+                        hit = IsCollidingOBBAndSphere(playerBullets_[i].position, 2.5f, enemy.position, enemy.scale, enemy.rotate.y, enemy.collider.center, enemy.collider.size);
+                    } else {
+                        Vector3 diff = Subtract(playerBullets_[i].position, enemy.position);
+                        float dist = Length(diff);
+                        // 弾の当たり判定半径を広げて（0.5f -> 2.5f）、すり抜けや近距離で当たらない現象を緩和
+                        if (dist <= (enemy.radius + 2.5f)) {
+                            hit = true;
+                        }
+                    }
+
+                    if (hit) {
                         // 弾を消去
                         playerBullets_[i].currentTime = playerBullets_[i].lifeTime;
 
