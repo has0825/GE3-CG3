@@ -23,14 +23,14 @@ void TitleScene::Initialize() {
     camera_->SetTranslate({ 0.0f, 0.0f, -40.0f });
 
     // テクスチャロード
-    TextureManager::GetInstance()->LoadTexture("Title/Title.png");
+    TextureManager::GetInstance()->LoadTexture("Title/white1x1.png");
     TextureManager::GetInstance()->LoadTexture("test.dds"); // 環境マップ用
     TextureManager::GetInstance()->LoadTexture("cobblestone_street_night_2k.dds"); // 背景用
 
     // モデル読み込み
     titleModel_ = Model::LoadGLTF("Resources/Title/Title.obj", device);
-    titleModel_->transform.scale = { 0.4f, 0.4f, 0.4f }; // サイズを小さく
-    titleModel_->transform.rotate = { 0.0f, 3.14159265f, 0.0f }; // 反転を直すために180度回転
+    titleModel_->transform.scale = { 1.2f, 1.2f, 1.2f }; // サイズを大きく
+    titleModel_->transform.rotate = { 0.0f, 0.0f, 0.0f }; // 反転を直すための回転を解除
     titleModel_->transform.translate = { 0.0f, 0.0f, 20.0f }; // 遠く、中央付近に配置
 
     // Skybox初期化
@@ -126,7 +126,7 @@ void TitleScene::Draw() {
         if (titleModel_) {
             titleModel_->DrawModel(
                 commandList,
-                TextureManager::GetInstance()->GetSrvHandleGPU("Title/Title.png"),
+                TextureManager::GetInstance()->GetSrvHandleGPU("Title/white1x1.png"),
                 TextureManager::GetInstance()->GetSrvHandleGPU("test.dds")
             );
         }

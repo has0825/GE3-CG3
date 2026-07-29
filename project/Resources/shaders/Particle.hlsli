@@ -3,7 +3,7 @@ struct VertexShaderOutput
     float4 position : SV_POSITION;
     float2 texcoord : TEXCOORD0;
     float3 normal : NORMAL0;
-	// ★追加: シェーダー間で色を渡すための変数
+	//  シェーダー間で色を渡すための変数
     float4 color : COLOR0;
 };
 
@@ -14,7 +14,7 @@ struct Material
     float4x4 uvTransform;
 };
 
-// ★修正: C++の ParticleForGPU 構造体と一致させます
+//  C++の ParticleForGPU 構造体と一致させます
 struct ParticleForGPU
 {
     float4x4 WVP;

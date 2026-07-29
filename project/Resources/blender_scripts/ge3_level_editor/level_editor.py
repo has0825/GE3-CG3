@@ -90,19 +90,19 @@ def get_or_create_collection():
 def add_to_collection(obj):
     col = get_or_create_collection()
     
-    # GE3_LevelEditor 以外の他の全コレクションから unlink する（重複登録防止）
-    for other_col in list(bpy.data.collections):
-        if other_col != col:
-            if obj.name in other_col.objects:
-                other_col.objects.unlink(obj)
-                
-    # 最上位シーンコレクションからも unlink する
-    if obj.name in bpy.context.scene.collection.objects:
-        bpy.context.scene.collection.objects.unlink(obj)
-        
-    # 専用コレクションにのみ link する
-    if obj.name not in col.objects:
+    # 専用コレクションに入っていなければリンクする
+    if col not in obj.users_collection:
         col.objects.link(obj)
+        
+    # それ以外のコレクション（マスターコレクション含む）から unlink する
+    for other_col in list(obj.users_collection):
+        if other_col != col:
+            other_col.objects.unlink(obj)
+            
+    # 最上位シーンコレクションからも unlink する
+    master_col = bpy.context.scene.collection
+    if master_col != col and master_col in obj.users_collection:
+        master_col.objects.unlink(obj)
 
 
 def make_material(name, color):
@@ -281,6 +281,26 @@ def import_building_template():
     return None
 
 
+def get_or_create_fallback_cube_mesh():
+    """ビル用フォールバック立方体の共通メッシュテンプレートを取得または作成"""
+    mesh_name = "GE3_Fallback_Cube_Mesh_Template"
+    mesh = bpy.data.meshes.get(mesh_name)
+    if not mesh:
+        mesh = bpy.data.meshes.new(mesh_name)
+        s = 0.5  # size=1
+        verts = [
+            (-s, -s, -s), (s, -s, -s), (s, s, -s), (-s, s, -s),
+            (-s, -s, s), (s, -s, s), (s, s, s), (-s, s, s)
+        ]
+        faces = [
+            (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+            (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)
+        ]
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+    return mesh
+
+
 def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0, rot_y=0.0, col_info=None, disabled=False):
     """ビルオブジェクトをBlenderに作成（テンプレート優先でZ軸方向に配列複製）"""
     template = bpy.data.objects.get("GE3_Building_Template")
@@ -315,9 +335,10 @@ def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0, r
         array_mod.count = floors
     else:
         # フォールバック：立方体メッシュを生成
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        obj = bpy.context.active_object
-        obj.name = name
+        mesh = get_or_create_fallback_cube_mesh()
+        obj = bpy.data.objects.new(name, mesh)
+        col = get_or_create_collection()
+        col.objects.link(obj)
         
         sy = 10.0 * floors
         # 位置を設定 (Cubeは中心が原点なので、高さの中心にZを配置)
@@ -330,13 +351,11 @@ def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0, r
         obj.scale.y = sz * SCALE
         obj.scale.z = sy * SCALE
     
-    # メッシュデータをコピーしてシングルユーザー（個別データ）にし、マテリアル競合を防ぐ
-    if obj.data:
-        obj.data = obj.data.copy()
-        
+    # 高速化のためメッシュデータコピー(copy())を廃止し共有する
     mat = make_image_material("Mat_Building", "building/buillding_uv.png")
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
+    if obj.data and mat not in obj.data.materials:
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
         
     obj["ge3_type"] = "BUILDING"
     obj["ge3_sx"]   = sx
@@ -360,23 +379,46 @@ def create_building_obj(name, gx, gz, floors, sx=10.0, sz=10.0, base_gy=-20.0, r
     return obj
 
 
+def get_or_create_floor_mesh():
+    """道路（FLOOR）用の共通平面メッシュテンプレートを取得または作成"""
+    mesh_name = "GE3_Floor_Mesh_Template"
+    mesh = bpy.data.meshes.get(mesh_name)
+    if not mesh:
+        mesh = bpy.data.meshes.new(mesh_name)
+        s = 80.0 * SCALE / 2.0  # size=80*SCALE の Plane
+        verts = [(-s, -s, 0.0), (s, -s, 0.0), (s, s, 0.0), (-s, s, 0.0)]
+        faces = [(0, 1, 2, 3)]
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        
+        # UVマッピング設定
+        uv_layer = mesh.uv_layers.new(name="UVMap")
+        uvs = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        for loop in mesh.loops:
+            uv_layer.data[loop.index].uv = uvs[loop.vertex_index]
+            
+        mat = make_image_material("Mat_Floor", "douro.jpg")
+        mesh.materials.append(mat)
+    return mesh
+
+
 def create_floor_obj(name, gx, gy, gz, rot_x=0.0, rot_y=0.0, rot_z=0.0):
     """床オブジェクトをBlenderに作成"""
-    bpy.ops.mesh.primitive_plane_add(size=80*SCALE)
-    obj = bpy.context.active_object
-    obj.name = name
+    mesh = get_or_create_floor_mesh()
+    obj = bpy.data.objects.new(name, mesh)
+    
     obj.location.x = gx * SCALE
     obj.location.y = gz * SCALE
     obj.location.z = gy * SCALE
     obj.rotation_euler = (rot_x, rot_z, rot_y)
-    mat = make_image_material("Mat_Floor", "douro.jpg")
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
+    
     obj["ge3_type"] = "FLOOR"
     obj["ge3_rx"] = rot_x
     obj["ge3_ry"] = rot_y
     obj["ge3_rz"] = rot_z
-    add_to_collection(obj)
+    
+    col = get_or_create_collection()
+    col.objects.link(obj)
     return obj
 
 
@@ -1073,6 +1115,32 @@ class GE3_OT_RemoveOverlappingFloors(Operator):
         return {"FINISHED"}
 
 
+class SpatialHash:
+    """距離ベースの重複チェックを高速化するための二次元空間ハッシュ"""
+    def __init__(self, cell_size):
+        self.cell_size = cell_size
+        self.grid = {}
+
+    def insert(self, x, z):
+        ix = int(x / self.cell_size)
+        iz = int(z / self.cell_size)
+        key = (ix, iz)
+        if key not in self.grid:
+            self.grid[key] = []
+        self.grid[key].append((x, z))
+
+    def get_nearby(self, x, z):
+        ix = int(x / self.cell_size)
+        iz = int(z / self.cell_size)
+        points = []
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                key = (ix + dx, iz + dz)
+                if key in self.grid:
+                    points.extend(self.grid[key])
+        return points
+
+
 class GE3_OT_GenerateCity(Operator):
     """起伏のある地形と街並み（ビル・敵・道路・自機）をプロシージャル自動生成する"""
     bl_idname  = "ge3.generate_city"
@@ -1106,12 +1174,13 @@ class GE3_OT_GenerateCity(Operator):
         
         # シーン内の古いGE3関連オブジェクトを完全にクリーンアップ（残存による二重重なり防止）
         col = get_or_create_collection()
+        col_objs = set(col.objects)
         to_remove = []
         for obj in list(bpy.data.objects):
             # 名前プレフィックス、コレクション所属、またはカスタムプロパティ "ge3_type" を持っているかをチェック
             is_ge3 = (
                 obj.name.startswith("GE3_") or 
-                obj.name in col.objects or 
+                obj in col_objs or 
                 obj.get("ge3_type") is not None
             )
             if is_ge3:
@@ -1341,6 +1410,13 @@ class GE3_OT_GenerateCity(Operator):
         dummy_straight_segments = []  # (p_dummy, right_vec, rot_y) を記録してダミービル生成に使用
         max_dummy_floors = 12  # ダミー道路を12枚分（1200ゲームユニット）まっすぐ伸ばす
 
+        # 空間ハッシュの作成 (重複チェック用、cell_size = 90.0)
+        tile_hash = SpatialHash(cell_size=90.0)
+        for tx, tz in all_tile_positions:
+            tile_hash.insert(tx, tz)
+
+        dummy_tile_hash = SpatialHash(cell_size=90.0)
+
         # 曲がり角ごとに処理
         for sec_idx in range(num_sections):
             behavior = behaviors[sec_idx]
@@ -1386,9 +1462,10 @@ class GE3_OT_GenerateCity(Operator):
                         gy = p_dummy[1] + offset * right_vec[1]
                         gz = p_dummy[2] + offset * right_vec[2]
                         
-                        # ★ 本物の道路タイルとの重複チェック
+                        # ★ 本物の道路タイルとの重複チェック (Spatial Hash)
                         overlap = False
-                        for tx, tz in all_tile_positions:
+                        nearby_tiles = tile_hash.get_nearby(gx, gz)
+                        for tx, tz in nearby_tiles:
                             if (gx - tx)**2 + (gz - tz)**2 < TILE_OVERLAP_RADIUS**2:
                                 overlap = True
                                 break
@@ -1396,7 +1473,8 @@ class GE3_OT_GenerateCity(Operator):
                             continue
                             
                         # 他のダミー道路との重複チェック
-                        for dx_pos, dz_pos in dummy_floor_positions:
+                        nearby_dummies = dummy_tile_hash.get_nearby(gx, gz)
+                        for dx_pos, dz_pos in nearby_dummies:
                             if (gx - dx_pos)**2 + (gz - dz_pos)**2 < TILE_OVERLAP_RADIUS**2:
                                 overlap = True
                                 break
@@ -1409,6 +1487,7 @@ class GE3_OT_GenerateCity(Operator):
                         floor_obj["ge3_lane"] = -1  # WAYPOINTから除外
                         dummy_floor_count += 1
                         dummy_floor_positions.append((gx, gz))
+                        dummy_tile_hash.insert(gx, gz)
 
         # ──────────────────────────────────────────
         # 3. ビル (BUILDING) の自動生成 (軌道に沿って配置)
@@ -1444,6 +1523,21 @@ class GE3_OT_GenerateCity(Operator):
         # 配置済みビル位置リスト（重複チェック用）
         placed_building_positions = []
 
+        # 空間ハッシュの作成 (ビル配置判定用、cell_size = 40.0)
+        center_tile_hash = SpatialHash(cell_size=40.0)
+        for tx, tz in center_tile_positions:
+            center_tile_hash.insert(tx, tz)
+
+        all_tile_hash = SpatialHash(cell_size=40.0)
+        for tx, tz in all_tile_positions:
+            all_tile_hash.insert(tx, tz)
+
+        dummy_floor_hash = SpatialHash(cell_size=40.0)
+        for tx, tz in dummy_floor_positions:
+            dummy_floor_hash.insert(tx, tz)
+
+        placed_building_hash = SpatialHash(cell_size=40.0)
+
         for i in range(num_buildings_z):
             gz_val = 50.0 + i * building_interval
             if gz_val > city_length - 100.0:
@@ -1462,21 +1556,24 @@ class GE3_OT_GenerateCity(Operator):
                 gx = pos[0] + col_x * right_vec[0]
                 gz = pos[2] + col_x * right_vec[2]
 
-                # ── 道路タイルとの重なりチェック（本物＋ダミー道路の全タイル対象）──
+                # ── 道路タイルとの重なりチェック（Spatial Hash） ──
                 too_close_to_road = False
                 # 中央3列の保護（38m）
-                for tx, tz in center_tile_positions:
+                nearby_centers = center_tile_hash.get_nearby(gx, gz)
+                for tx, tz in nearby_centers:
                     if (gx - tx)**2 + (gz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
                         too_close_to_road = True
                         break
                 # その他のすべての車線およびダミー道路からの保護（25m）
                 if not too_close_to_road:
-                    for tx, tz in all_tile_positions:
+                    nearby_all = all_tile_hash.get_nearby(gx, gz)
+                    for tx, tz in nearby_all:
                         if (gx - tx)**2 + (gz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
                             too_close_to_road = True
                             break
                 if not too_close_to_road:
-                    for tx, tz in dummy_floor_positions:
+                    nearby_dummies = dummy_floor_hash.get_nearby(gx, gz)
+                    for tx, tz in nearby_dummies:
                         if (gx - tx)**2 + (gz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
                             too_close_to_road = True
                             break
@@ -1485,7 +1582,8 @@ class GE3_OT_GenerateCity(Operator):
 
                 # ── ビル同士の重なりチェック ──
                 too_close_to_building = False
-                for bx, bz in placed_building_positions:
+                nearby_buildings = placed_building_hash.get_nearby(gx, gz)
+                for bx, bz in nearby_buildings:
                     if (gx - bx)**2 + (gz - bz)**2 < BUILDING_MIN_DIST**2:
                         too_close_to_building = True
                         break
@@ -1514,6 +1612,7 @@ class GE3_OT_GenerateCity(Operator):
                 
                 building_count += 1
                 placed_building_positions.append((gx, gz))
+                placed_building_hash.insert(gx, gz)
                 
                 # 敵の配置
                 if random.random() < enemy_spawn_rate and enemy_count < 30:
@@ -1531,6 +1630,7 @@ class GE3_OT_GenerateCity(Operator):
         #     ★ ビル同士の重なりを排除
         # ──────────────────────────────────────────
         dummy_building_positions = []
+        dummy_building_hash = SpatialHash(cell_size=40.0)
 
         # 曲がり角ごとに処理
         for sec_idx in range(num_sections):
@@ -1590,27 +1690,31 @@ class GE3_OT_GenerateCity(Operator):
                         
                         # 道路タイルとの重なりチェック（本物＋ダミー道路）
                         overlap = False
-                        for tx, tz in all_tile_positions:
+                        nearby_all = all_tile_hash.get_nearby(gx, gz)
+                        for tx, tz in nearby_all:
                             if (gx - tx)**2 + (gz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
                                 overlap = True
                                 break
                         if overlap:
                             continue
-                        for dx_pos, dz_pos in dummy_floor_positions:
-                            if (gx - dx_pos)**2 + (gz - dz_pos)**2 < ROAD_CLEAR_HALF_WIDTH**2:
+                        nearby_dummies = dummy_floor_hash.get_nearby(gx, gz)
+                        for tx, tz in nearby_dummies:
+                            if (gx - tx)**2 + (gz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
                                 overlap = True
                                 break
                         if overlap:
                             continue
 
                         # ビル同士の重なりチェック（本物＋ダミービル）
-                        for bx, bz in placed_building_positions:
+                        nearby_buildings = placed_building_hash.get_nearby(gx, gz)
+                        for bx, bz in nearby_buildings:
                             if (gx - bx)**2 + (gz - bz)**2 < BUILDING_MIN_DIST**2:
                                 overlap = True
                                 break
                         if overlap:
                             continue
-                        for dx_pos, dz_pos in dummy_building_positions:
+                        nearby_dummy_buildings = dummy_building_hash.get_nearby(gx, gz)
+                        for dx_pos, dz_pos in nearby_dummy_buildings:
                             if (gx - dx_pos)**2 + (gz - dz_pos)**2 < BUILDING_MIN_DIST**2:
                                 overlap = True
                                 break
@@ -1635,6 +1739,8 @@ class GE3_OT_GenerateCity(Operator):
                         create_building_obj(name, gx, gz, floors, sx, sz, base_gy, rot_y)
                         building_count += 1
                         dummy_building_positions.append((gx, gz))
+                        dummy_building_hash.insert(gx, gz)
+                        placed_building_hash.insert(gx, gz)
                         
         # ──────────────────────────────────────────
         # 3.8 重複する道路タイルの自動クリーンアップ
@@ -1651,23 +1757,26 @@ class GE3_OT_GenerateCity(Operator):
         to_delete_floors = set()
         limit_dist_sq = 60.0**2
 
-        for i in range(len(floors_for_clean)):
-            obj_i, gx_i, gz_i, lane_i = floors_for_clean[i]
-            if obj_i.name in to_delete_floors:
-                continue
-            for j in range(i + 1, len(floors_for_clean)):
-                obj_j, gx_j, gz_j, lane_j = floors_for_clean[j]
-                if obj_j.name in to_delete_floors:
-                    continue
+        # 空間ハッシュによる重複クリーンアップ (cell_size = 60.0)
+        clean_floor_hash = SpatialHash(cell_size=60.0)
+        # 本物道路を先に登録
+        for obj_i, gx_i, gz_i, lane_i in floors_for_clean:
+            if lane_i != -1:
+                clean_floor_hash.insert(gx_i, gz_i)
 
-                dist_sq = (gx_i - gx_j)**2 + (gz_i - gz_j)**2
-                if dist_sq < limit_dist_sq:
-                    # 本物道路同士はゲームの循環スクロールインデックスを維持するため絶対に削除しない
-                    if lane_i == -1:
-                        to_delete_floors.add(obj_i.name)
+        # ダミー道路をチェック
+        for obj_i, gx_i, gz_i, lane_i in floors_for_clean:
+            if lane_i == -1:
+                nearby = clean_floor_hash.get_nearby(gx_i, gz_i)
+                overlap = False
+                for tx, tz in nearby:
+                    if (gx_i - tx)**2 + (gz_i - tz)**2 < limit_dist_sq:
+                        overlap = True
                         break
-                    elif lane_j == -1:
-                        to_delete_floors.add(obj_j.name)
+                if overlap:
+                    to_delete_floors.add(obj_i.name)
+                else:
+                    clean_floor_hash.insert(gx_i, gz_i)
 
         for name in to_delete_floors:
             obj = bpy.data.objects.get(name)
@@ -1691,14 +1800,15 @@ class GE3_OT_GenerateCity(Operator):
                 
         to_delete_buildings = set()
         
-        # 1. 道路（本物+ダミー）との重なりチェック
+        # 1. 道路（本物+ダミー）との重なりチェック (Spatial Hash 化)
         for b_obj in all_buildings:
             bx = b_obj.location.x / SCALE
             bz = b_obj.location.y / SCALE
             
             # プレイヤー走行レーン（lane 0, 1, 2）との衝突判定 (55m保護)
             too_close = False
-            for tx, tz in center_tile_positions:
+            nearby_centers = center_tile_hash.get_nearby(bx, bz)
+            for tx, tz in nearby_centers:
                 if (bx - tx)**2 + (bz - tz)**2 < ROAD_CLEAR_HALF_WIDTH**2:
                     too_close = True
                     break
@@ -1707,7 +1817,8 @@ class GE3_OT_GenerateCity(Operator):
                 continue
                 
             # その他すべての道路およびダミー道路との衝突判定 (38m保護)
-            for tx, tz in all_tile_positions:
+            nearby_all = all_tile_hash.get_nearby(bx, bz)
+            for tx, tz in nearby_all:
                 if (bx - tx)**2 + (bz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
                     too_close = True
                     break
@@ -1715,7 +1826,8 @@ class GE3_OT_GenerateCity(Operator):
                 to_delete_buildings.add(b_obj.name)
                 continue
                 
-            for tx, tz in dummy_floor_positions:
+            nearby_dummies = dummy_floor_hash.get_nearby(bx, bz)
+            for tx, tz in nearby_dummies:
                 if (bx - tx)**2 + (bz - tz)**2 < BUILDING_ROAD_CLEAR_DIST**2:
                     too_close = True
                     break
@@ -1723,21 +1835,24 @@ class GE3_OT_GenerateCity(Operator):
                 to_delete_buildings.add(b_obj.name)
                 continue
 
-        # 2. ビル同士の重なりチェック (BUILDING_MIN_DIST = 30m)
-        for i in range(len(all_buildings)):
-            b1 = all_buildings[i]
-            if b1.name in to_delete_buildings:
+        # 2. ビル同士の重なりチェック (BUILDING_MIN_DIST = 22.0m) (Spatial Hash 化)
+        clean_building_hash = SpatialHash(cell_size=40.0)
+        for b_obj in all_buildings:
+            if b_obj.name in to_delete_buildings:
                 continue
-            b1_x = b1.location.x / SCALE
-            b1_z = b1.location.y / SCALE
-            for j in range(i + 1, len(all_buildings)):
-                b2 = all_buildings[j]
-                if b2.name in to_delete_buildings:
-                    continue
-                b2_x = b2.location.x / SCALE
-                b2_z = b2.location.y / SCALE
-                if (b1_x - b2_x)**2 + (b1_z - b2_z)**2 < BUILDING_MIN_DIST**2:
-                    to_delete_buildings.add(b2.name)
+            bx = b_obj.location.x / SCALE
+            bz = b_obj.location.y / SCALE
+            
+            nearby = clean_building_hash.get_nearby(bx, bz)
+            overlap = False
+            for tx, tz in nearby:
+                if (bx - tx)**2 + (bz - tz)**2 < BUILDING_MIN_DIST**2:
+                    overlap = True
+                    break
+            if overlap:
+                to_delete_buildings.add(b_obj.name)
+            else:
+                clean_building_hash.insert(bx, bz)
 
         # 削除実行
         for b_name in to_delete_buildings:

@@ -420,6 +420,7 @@ private:
 
     // 自機オフセットの定数
     static constexpr float kFighterYOffset = -3.0f;
+    static constexpr float kMaxRollAngle = 0.6f;
 
     // 特攻すり抜け衝突判定用の定数
     static constexpr float kDiveCollisionFrameMovementScale = 0.75f;
@@ -461,12 +462,12 @@ private:
     // ブーストRadialBlur用
     bool isBoosting_ = false;                  // ブースト動作中フラグ
     float boostBlurWidth_ = 0.0f;              // 現在のブラー強度（0.0〜kBoostBlurMax）
-    float boostForwardSpeed_ = 30.0f;          // 現在の前進速度（ブースト中に増加）
+    float boostForwardSpeed_ = 120.0f;          // 現在の前進速度（ブースト中に増加）
     static constexpr float kBoostBlurMax = 0.05f;   // ブースト時の最大ブラー幅
     static constexpr float kBoostBlurFadeIn  = 4.0f; // フェードイン速度
     static constexpr float kBoostBlurFadeOut = 3.0f; // フェードアウト速度
     static constexpr float kBoostSpeedMax  = 480.0f;  // ブースト時最大速度
-    static constexpr float kNormalSpeed    = 30.0f;  // 通常速度
+    static constexpr float kNormalSpeed    = 120.0f;  // 通常速度
 
 public:
     // ゲームフェーズの定義

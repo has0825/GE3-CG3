@@ -1,0 +1,271 @@
+﻿
+FullName                                                                                                               
+--------                                                                                                               
+C:\Users\k024g\Downloads\08.83_1221_LC1Bアカミネ_LC1Bシミズグチ_LC1Bミヤザワ_霊障退治.zip                                               
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還.zip                                                
+C:\Users\k024g\Downloads\1006_LC1Aクラタ_LC1Aタカハシ_LC1Aシミズグチ_※この先落下物あり.zip                                                 
+C:\Users\k024g\Downloads\10d-master.zip                                                                                
+C:\Users\k024g\Downloads\11.25_3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び .zip                                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ.zip                                          
+C:\Users\k024g\Downloads\12.03_1123_LC1Bイトウ_LC1Bシミズグチ_LC1Bスギヤマ_計算迷宮.zip                                                
+C:\Users\k024g\Downloads\1_Game (1).zip                                                                                
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1).zip                                               
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び.zip                                           
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ.zip                                                 
+C:\Users\k024g\Downloads\9.81_1322_LC1Bイケダ_LC1Bシミズグチ_LC1Bヒガシ_たったひとりの最終冒険 (1).zip                                       
+C:\Users\k024g\Downloads\big spider arm.zip                                                                            
+C:\Users\k024g\Downloads\big Spider.zip                                                                                
+C:\Users\k024g\Downloads\cmft-master (1).zip                                                                           
+C:\Users\k024g\Downloads\LC1A_16_シミズグチ_ハル_beest.zip                                                                    
+C:\Users\k024g\Downloads\LC1A_16_シミズグチ_ハル_Society.zip                                                                  
+C:\Users\k024g\Downloads\LE2C_14_シミズグチ_ハル_Weltraum.zip                                                                 
+C:\Users\k024g\Downloads\RepositoryHealthCheck_LE3B_14_シミズグチ_ハル_07_06.zip                                              
+C:\Users\k024g\Downloads\simpleSkin (1).zip                                                                            
+C:\Users\k024g\Downloads\08.83_1221_LC1Bアカミネ_LC1Bシミズグチ_LC1Bミヤザワ_霊障退治\1_Game\NoviceResources\axis\axis.obj              
+C:\Users\k024g\Downloads\08.83_1221_LC1Bアカミネ_LC1Bシミズグチ_LC1Bミヤザワ_霊障退治\1_Game\NoviceResources\cube\cube.obj              
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\axis\axis.blend            
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\axis\axis.obj              
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\block\Block.blend          
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\block\block.obj            
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\bunny\bunny.obj            
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\damageBlock\DamageBlock....
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\damageBlock\damageBlock.obj
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\deathParticle\deathParti...
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\fence\fence.obj            
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\goal\Goal.blend            
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\goal\goal.obj              
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\multiMaterial\multiMater...
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\multiMaterial\multiMater...
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\multiMesh\multiMesh.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\multiMesh\multiMesh.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\plane\plane.blend          
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\plane\plane.obj            
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\Player\Player.blend        
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\Player\Player.obj          
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\skydome\skydome.obj        
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox1\StageBox1.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox1\StageBox1.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox10\StageBox10.blend
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox10\StageBox10.obj  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox2\StageBox2.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox2\StageBox2.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox3\StageBox3.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox3\StageBox3.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox4\StageBox4.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox4\StageBox4.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox5\StageBox5.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox5\StageBox5.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox6\StageBox6.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox6\StageBox6.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox7\StageBox7.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox7\StageBox7.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox8\StageBox8.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox8\StageBox8.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox9\StageBox9.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\StageBox9\StageBox9.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\suzanne\suzanne.obj        
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\teapot\teapot.obj          
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindBottom\WindBottom.blend
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindBottom\WindBottom.obj  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindLeft\WindLeft.blend    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindLeft\WindLeft.obj      
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindRight\WindRight.blend  
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindRight\WindRight.obj    
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindTop\WindTop.blend      
+C:\Users\k024g\Downloads\10.84_2125_LE2Bシマ_LE2Bシミズグチ_LE2Bソネ_宇宙からの帰還\1_Game\resouces\3DModel\WindTop\WindTop.obj        
+C:\Users\k024g\Downloads\1006_LC1Aクラタ_LC1Aタカハシ_LC1Aシミズグチ_※この先落下物あり\1_Game\NoviceResources\axis\axis.obj                
+C:\Users\k024g\Downloads\1006_LC1Aクラタ_LC1Aタカハシ_LC1Aシミズグチ_※この先落下物あり\1_Game\NoviceResources\cube\cube.obj                
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\attackEffect.obj            
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\axis.blend                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\axis.obj                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\brickBlock.obj              
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\bullet.obj                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Clear.obj                   
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\cube.obj                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\deathParticle.obj           
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\debugBlock.obj              
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\enemy41-F.obj               
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\enemyBullet.obj             
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\enemyDeathParticle.obj      
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\enemyWWW.obj                
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\F-14.obj                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Failed.obj                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\ground.obj                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Hello.obj                   
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\LeftShift.obj               
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\lod.obj                     
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\multiMaterial.blend         
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\multiMaterial.obj           
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\multiMesh.blend             
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\multiMesh.obj               
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Nazo.obj                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\No_Image.obj                
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\plane.blend                 
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\plane.gltf                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\plane.obj                   
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\player.obj                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\playerWWW.obj               
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\RSBody.obj                  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\T.obj                       
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Text.obj                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Title.obj                   
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\ulthimaSky.obj              
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Wall.obj                    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\AnimatedCube\AnimatedCube...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\dragon\Dragon.obj           
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\a...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\a...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\b...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\m...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\m...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\m...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\m...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\p...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\p...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\s...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\evaluationTaskResources\t...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\fence\fence.obj             
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\block\Block.obj        
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\breakWall\Stone.obj    
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\button\Button.obj      
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\ghost\Mogura.obj       
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\hammer\Tsuruhashi.obj  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\player\MoguraWithMet...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Game\underGround\UnderGro...
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\hallway\hallway.obj         
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\example.blend         
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\rigid.blend           
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\sneakWalk.blend       
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\sneakWalk.gltf        
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\walk.blend            
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\walk.fbx              
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\human\walk.gltf             
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\pot\pot.obj                 
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\simpleSkin\simpleSkin.gltf  
+C:\Users\k024g\Downloads\11.49_2322_LE2Bイトウ_LE2Bシミズグチ_LE2Bハマダ_独りぼっちの友達ごっこ\1_Game\resources\Star\Confuse.obj            
+C:\Users\k024g\Downloads\12.03_1123_LC1Bイトウ_LC1Bシミズグチ_LC1Bスギヤマ_計算迷宮\1_Game\NoviceResources\axis\axis.obj               
+C:\Users\k024g\Downloads\12.03_1123_LC1Bイトウ_LC1Bシミズグチ_LC1Bスギヤマ_計算迷宮\1_Game\NoviceResources\cube\cube.obj               
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\building\block.obj                                          
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\ClearText.blend                                       
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\text_!!.obj                                           
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\text_a.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\text_C.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\text_e.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\text_l.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\Clear\text_r.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\enemy\body.obj                                              
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\enemy\head.obj                                              
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\gameOver.blend                                     
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_dot.obj                                       
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_e.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_G.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_m.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_O.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_q.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_r.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\gameOver\text_v.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\player\playerBullet.blend                                   
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\player\playerBullet.obj                                     
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\player\playerCasing.blend                                   
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\player\playerCasing.obj                                     
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\AnimatedCube.gltf                                    
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\axis.obj                                             
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\block.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\bunny.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\fence.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\multiMaterial.obj                                    
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\multiMesh.obj                                        
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\plane.gltf                                           
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\plane.obj                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\simpleSkin.gltf                                      
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\sneakWalk.gltf                                       
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\suzanne.obj                                          
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\teapot.obj                                           
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\terrain.obj                                          
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\walk.fbx                                             
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\sample\walk.gltf                                            
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\skydome\skydome.obj                                         
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\text_pushtospace\text_pushtospace.blend                     
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\text_pushtospace\text_pushtospace.obj                       
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\title\text\text_bi.obj                                      
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\title\text\text_hati.obj                                    
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\title\text\text_koro.obj                                    
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\title\text\text_nana.obj                                    
+C:\Users\k024g\Downloads\1_Game (1)\1_Game\resources\model\title\text\TitleText.blend                                  
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\attack_effect\attack_effect.obj  
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\axis\axis.obj                    
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\base\base.obj                    
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\block\block.obj                  
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\circle\circle.obj                
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\cube\cube.obj                    
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\deathParticle\deathParticle.obj  
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\enemy\enemy.obj                  
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\gameOverFont\GameOverFont.obj    
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\GameScene\GameScene.obj          
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\meteorite\meteorite.obj          
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\paddle\paddle.obj                
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\particle\particle.blend          
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\particle\titleFont.blend         
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\player\player.obj                
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\PlayerBullet\PlayerBullet.obj    
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\skydome\SkyDome.obj              
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\Title\Title.obj                  
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\TitleSkydome\TitleSkydome.obj    
+C:\Users\k024g\Downloads\2048_LE2Cシミズグチ_LE2Cチハラ_LE2Cヨシノ_パイ・パトロール (1)\1_Game\Resources\universedome\universedome.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\building\block.obj     
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\building\building.obj  
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\Clear\text_!!.obj      
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\Clear\text_a.obj       
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\Clear\text_C.obj       
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\Clear\text_e.obj       
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\Clear\text_l.obj       
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\Clear\text_r.obj       
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\enemy\body.obj         
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\enemy\head.obj         
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_a.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_dot.obj  
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_e.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_G.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_m.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_O.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_r.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\gameOver\text_v.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerBody.obj  
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerBullet.obj
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerCannon.obj
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerCasing.obj
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerMelee.obj 
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerMissile...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\playerRocketL...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\player\PlayerZenmai.obj
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\sample\plane.obj       
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\skydome\skydome.obj    
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\text_backToTitle\tex...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\text_pushtospace\tex...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\text_retry\text_retr...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\title\text\text_bi.obj 
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\title\text\text_hati...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\title\text\text_koro...
+C:\Users\k024g\Downloads\3122_LE3Bイトウ_LE3Bオオシマ_LE3Bシミズグチ_LE3Bスエヒロ_七転び八転び\1_Game\resources\model\title\text\text_nana...
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\player.obj                         
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Arrow\Arrow.obj              
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\DemoTurtle\DemoTurtle.obj    
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Floor\Floor.obj              
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\MinTurtle\Turtle.obj         
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Player\player.obj            
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Sand\Sand.obj                
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\seaWeed\seaWeed.obj          
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\SkyDome\skydome.obj          
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Stone\Stone.obj              
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Turtle\Turtle.obj            
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Turtle\TurtleForeleg.obj     
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\Turtle\TurtleHindLegs.obj    
+C:\Users\k024g\Downloads\9.42_2228_LE2Bシミズグチ_LE2Bフジイ_LE2Bワタナベ_キクラゲ\1_Game\resources\Model\uni\uni.obj                  
+C:\Users\k024g\Downloads\9.81_1322_LC1Bイケダ_LC1Bシミズグチ_LC1Bヒガシ_たったひとりの最終冒険 (1)\1_Game\NoviceResources\axis\axis.obj      
+C:\Users\k024g\Downloads\9.81_1322_LC1Bイケダ_LC1Bシミズグチ_LC1Bヒガシ_たったひとりの最終冒険 (1)\1_Game\NoviceResources\cube\cube.obj      
+C:\Users\k024g\Downloads\LC1A_16_シミズグチ_ハル_beest\1_Game\NoviceResources\axis\axis.obj                                   
+C:\Users\k024g\Downloads\LC1A_16_シミズグチ_ハル_beest\1_Game\NoviceResources\cube\cube.obj                                   
+C:\Users\k024g\Downloads\LC1A_16_シミズグチ_ハル_Society\1_Game\NoviceResources\axis\axis.obj                                 
+C:\Users\k024g\Downloads\LC1A_16_シミズグチ_ハル_Society\1_Game\NoviceResources\cube\cube.obj                                 
+
+

@@ -135,7 +135,7 @@ void GamePlayScene::Initialize() {
             outfile << "LIMIT_Y=12.0\n";
             outfile << "COLLISION_RADIUS=2.0\n";
             outfile << "SPEED_X=35.0\n";
-            outfile << "SPEED_Y=20.0\n";
+            outfile << "SPEED_Y=50.0\n";
             outfile.close();
         }
     }
@@ -2330,7 +2330,15 @@ void GamePlayScene::Update() {
             if (inputDir.x != 0 || inputDir.y != 0) {
                 inputDir = Normalize(inputDir);
                 float speedFactor = (playerSpeedDebuffTimer_ > 0.0f) ? 0.5f : 1.0f;
-                fighterModel_->transform.translate.x += inputDir.x * playerSpeedX_ * speedFactor * kDeltaTime;
+                
+                // 横移動：傾き（ロール）に応じて移動量を決定し、動き出しをワンテンポ遅らせる
+                float rollFactor = 0.0f;
+                if (std::abs(playerRotationRoll_) > 0.001f) {
+                    rollFactor = -playerRotationRoll_ / kMaxRollAngle;
+                }
+                rollFactor = std::clamp(rollFactor, -1.0f, 1.0f);
+                
+                fighterModel_->transform.translate.x += rollFactor * playerSpeedX_ * speedFactor * kDeltaTime;
                 fighterModel_->transform.translate.y += inputDir.y * playerSpeedY_ * speedFactor * kDeltaTime;
             }
 
@@ -2422,7 +2430,7 @@ void GamePlayScene::Update() {
             // ── 4. バレルロール開始（LSHIFTのブースト切り替え時に連動） ──
 
             // ── 5. 機体の傾き（通常ロール/ピッチ + バレルロール合成） ──
-            float baseRoll  = inputDir.x * -0.6f;
+            float baseRoll  = inputDir.x * -kMaxRollAngle;
             float basePitch = inputDir.y * 0.4f;
             playerRotationRoll_  = std::lerp(playerRotationRoll_,  baseRoll,  0.1f);
             playerRotationPitch_ = std::lerp(playerRotationPitch_, basePitch, 0.1f);
@@ -2831,24 +2839,41 @@ void GamePlayScene::Update() {
             // デフォルトのレティクル位置をレールの進行方向120m前に設定
             Vector3 defaultReticlePos = Add(fighterWorldPos, Scale(playerRailDir, 120.0f));
 
-            float bestDist2D = 30.0f;
-            Enemy* lockedEnemy = nullptr;
-            for (auto& enemy : enemies_) {
-                if (!enemy.isAlive) continue;
-                // レールの進行方向に対して「前方」にいる敵のみロックオン対象
-                Vector3 toEnemy = Subtract(enemy.position, fighterWorldPos);
-                float forwardDot = toEnemy.x * playerRailDir.x + toEnemy.y * playerRailDir.y + toEnemy.z * playerRailDir.z;
-                if (forwardDot > 0.0f) {
-                    float dx = enemy.position.x - fighterWorldPos.x;
-                    float dy = enemy.position.y - fighterWorldPos.y;
-                    float dist2D = std::sqrt(dx * dx + dy * dy);
-                    if (dist2D < bestDist2D) {
-                        bestDist2D = dist2D;
-                        lockedEnemy = &enemy;
+            Vector3 targetReticlePos = defaultReticlePos;
+            if (currentPhase_ == GamePhase::kBossFight) {
+                float dropOffset = 0.0f;
+                if (bossAppearanceTimer_ > 0.0f) {
+                    float appRate = (3.0f - bossAppearanceTimer_) / 3.0f;
+                    dropOffset = 120.0f * (1.0f - appRate) * (1.0f - appRate);
+                }
+                float bodyBounce = 0.0f;
+                if (bossLegSwingSpeed_ > 0.0f) {
+                    bodyBounce = std::sin(bossTime_ * 2.0f) * bossBodyBounceRange_;
+                }
+                targetReticlePos = GetBossPosition(bodyBounce, dropOffset);
+            } else {
+                float bestDist2D = 30.0f;
+                Enemy* lockedEnemy = nullptr;
+                for (auto& enemy : enemies_) {
+                    if (!enemy.isAlive) continue;
+                    // レールの進行方向に対して「前方」にいる敵のみロックオン対象
+                    Vector3 toEnemy = Subtract(enemy.position, fighterWorldPos);
+                    float forwardDot = toEnemy.x * playerRailDir.x + toEnemy.y * playerRailDir.y + toEnemy.z * playerRailDir.z;
+                    if (forwardDot > 0.0f) {
+                        // プレイヤーのローカル空間（右・上）に投影して、画面上での2D距離を計算
+                        float rx = toEnemy.x * playerRailRight.x + toEnemy.y * playerRailRight.y + toEnemy.z * playerRailRight.z;
+                        float ry = toEnemy.x * playerRailUp.x    + toEnemy.y * playerRailUp.y    + toEnemy.z * playerRailUp.z;
+                        float dist2D = std::sqrt(rx * rx + ry * ry);
+                        if (dist2D < bestDist2D) {
+                            bestDist2D = dist2D;
+                            lockedEnemy = &enemy;
+                        }
                     }
                 }
+                if (lockedEnemy) {
+                    targetReticlePos = lockedEnemy->position;
+                }
             }
-            Vector3 targetReticlePos = lockedEnemy ? lockedEnemy->position : defaultReticlePos;
             float aimLerpSpeed = 0.05f;
             aimReticlePos_.x = std::lerp(aimReticlePos_.x, targetReticlePos.x, aimLerpSpeed);
             aimReticlePos_.y = std::lerp(aimReticlePos_.y, targetReticlePos.y, aimLerpSpeed);
@@ -4013,7 +4038,7 @@ void GamePlayScene::Update() {
                         Vector3 toPlayer = Subtract(playerTarget, enemy.position);
 
                         enemy.diveDirection = Normalize(toPlayer);
-                        enemy.speed = 155.0f + boostForwardSpeed_; // プレイヤーの速度に合わせて特攻速度を上げる (ブースト対応)
+                        enemy.speed = 85.0f + boostForwardSpeed_; // プレイヤーの速度に合わせて特攻速度を上げる (ブースト対応)
                     }
                 }
                 else if (enemy.state == Enemy::State::kDive) {
