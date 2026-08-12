@@ -220,10 +220,49 @@
                 </div>
             </section>
 
-            <!-- Slide 7: 開発スケジュールと今後の予定 -->
+            <!-- Slide 7: 技術トピック④ Blender連携 -->
             <section class="slide" id="slide-7">
                 <div class="slide-content">
-                    <h2 class="section-title"><span class="neon-text">06</span> 開発スケジュールと今後の予定</h2>
+                    <h2 class="section-title"><span class="neon-text">06</span> Blender連携：ルート地形生成スクリプトとゲーム内マップの双方向同期</h2>
+                    <div class="grid-2col-heavy-left">
+                        <div class="card glass highlight-card">
+                            <h3>Pythonスクリプトによるプロシージャル地形・ルート生成</h3>
+                            <p><strong>【目的】</strong> レールシューティングの「ステージ進行ルート」と、それを取り巻く地形やオブジェクト配置を、コード上のハードコーディングではなくBlender上のビジュアルエディタで直感的に設計・調整可能にする。</p>
+                            <p><strong>【仕組み】</strong> BlenderアドオンとしてPythonスクリプトを実行し、3Dビューポート内にステージの「ルート曲線」を定義。カーブ上にチェックポイントノードや敵出現トリガーをマーカーとして配置し、周囲の地形メッシュ（高低差）やビル・障害物を視覚的にレイアウト。区画ベースの自動生成パラメータにより、直進・右曲がり・左曲がり・上り坂・下り坂を組み合わせた多様なステージを一括プロシージャル生成。</p>
+
+                            <h3>双方向データ同期パイプライン</h3>
+                            <p><strong>【ゲームへの出力】</strong> Blender側のエクスポートスクリプトが、ルート制御点座標・地形ハイトマップ（OBJメッシュ）・オブジェクト配置情報をテキストデータ（JSON/CSV形式）として書き出し。ゲーム側は起動時またはリロード時にこれを読み込み、ステージを動的に再構築。</p>
+                            <p><strong>【ゲームからの入力】</strong> ゲーム側が出力するプレイデータ（自機位置、敵状態、弾道等）をBlender側のリアルタイム同期ビューアスクリプトが受信し、3Dビューポート上でゲーム状態をリアルタイムに可視化。</p>
+                        </div>
+                        <div class="card glass code-spec">
+                            <h3>💡 4種のBlender連携スクリプト</h3>
+                            <div class="spec-list">
+                                <div class="spec-item">
+                                    <strong>① リアルタイム同期ビューア</strong>
+                                    <span>ゲームが出力するJSON状態データをBlenderが定期的に読み込み、3Dビューポート上のオブジェクト位置・回転を自動更新。ゲームの「今」をBlender上で俯瞰監視。</span>
+                                </div>
+                                <div class="spec-item">
+                                    <strong>② リプレイ再生・キーフレーム生成</strong>
+                                    <span>ゲームが録画したCSVリプレイデータからBlenderアニメーションのキーフレームを一括生成。タイムライン上でプレイ軌跡を再現し、PV撮影やデバッグに活用。</span>
+                                </div>
+                                <div class="spec-item">
+                                    <strong>③ レベルエディタ・配置書き出し</strong>
+                                    <span>Blender上で地形・ビル・敵の初期位置を3Dビューで直感配置。書き出されたレイアウトデータをゲームが起動時に読み込み、ステージを自動構築。プロシージャル街並み・地形も自動生成可能。</span>
+                                </div>
+                                <div class="spec-item">
+                                    <strong>④ パラメータスライダー連携</strong>
+                                    <span>Blenderサイドパネルのスライダーでプレイヤー速度やボスHP等のパラメータを変更。変更値をテキストファイルに書き出し、ゲームがリアルタイムにホットリロード。</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 8: 開発スケジュールと今後の予定 -->
+            <section class="slide" id="slide-8">
+                <div class="slide-content">
+                    <h2 class="section-title"><span class="neon-text">07</span> 開発スケジュールと今後の予定</h2>
                     <div class="schedule-timeline">
                         <div class="timeline-header glass">
                             <span>期間</span>
@@ -264,7 +303,7 @@
         <footer class="bottom-bar glass">
             <button id="prev-btn" class="nav-btn">&lt; PREV</button>
             <div class="slide-indicator">
-                <span id="current-slide-num">1</span> / <span id="total-slide-num">7</span>
+                <span id="current-slide-num">1</span> / <span id="total-slide-num">8</span>
             </div>
             <button id="next-btn" class="nav-btn">NEXT &gt;</button>
         </footer>

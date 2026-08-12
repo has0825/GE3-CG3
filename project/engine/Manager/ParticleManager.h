@@ -50,7 +50,8 @@ public:
         const Vector3& emitterPos,
         const Vector3& leftJetPos = { 0.0f, 0.0f, 0.0f },
         const Vector3& rightJetPos = { 0.0f, 0.0f, 0.0f },
-        const Vector3& jetDirection = { 0.0f, 0.0f, 1.0f });
+        const Vector3& jetDirection = { 0.0f, 0.0f, 1.0f },
+        float playerSpeed = 0.0f);
         
     // 描画処理（各種モデルと対応するテクスチャSRVハンドルを受け取って一括描画）
     void Draw(
@@ -96,7 +97,8 @@ private:
         float cameraZ,
         const Vector3& fighterWorldPos,
         bool isBoosting,
-        const Vector3& jetDirection = { 0.0f, 0.0f, 1.0f });
+        const Vector3& jetDirection = { 0.0f, 0.0f, 1.0f },
+        float playerSpeed = 0.0f);
 
 private:
     ID3D12Device* device_ = nullptr;

@@ -115,7 +115,8 @@ void ParticleManager::Update(
     const Vector3& emitterPos,
     const Vector3& leftJetPos,
     const Vector3& rightJetPos,
-    const Vector3& jetDirection) {
+    const Vector3& jetDirection,
+    float playerSpeed) {
 
     // ── 1. 通常 / 回転パーティクルの更新 ──
 
@@ -128,10 +129,10 @@ void ParticleManager::Update(
             
             if (isFighterMode) {
                 if (isStardust) {
-                    particles_[i] = MakeNewParticle(51, fighterWorldPos, cameraZ, fighterWorldPos, isBoosting, jetDirection); // 51: kTypeStardust
+                    particles_[i] = MakeNewParticle(51, fighterWorldPos, cameraZ, fighterWorldPos, isBoosting, jetDirection, playerSpeed); // 51: kTypeStardust
                 } else {
                     Vector3 jetPos = (i % 2 == 0) ? leftJetPos : rightJetPos;
-                    particles_[i] = MakeNewParticle(50, jetPos, cameraZ, fighterWorldPos, isBoosting, jetDirection); // 50: kTypeJetExhaust
+                    particles_[i] = MakeNewParticle(50, jetPos, cameraZ, fighterWorldPos, isBoosting, jetDirection, playerSpeed); // 50: kTypeJetExhaust
                 }
             } else {
                 // デモモードなど非戦闘機モードでは自動リポップさせず、非表示状態を維持する
@@ -429,7 +430,8 @@ ParticleManager::Particle ParticleManager::MakeNewParticle(
     float cameraZ, 
     const Vector3& fighterWorldPos, 
     bool isBoosting,
-    const Vector3& jetDirection) {
+    const Vector3& jetDirection,
+    float playerSpeed) {
 
     Particle particle;
     particle.scale = { 1.0f, 1.0f, 1.0f };
@@ -537,7 +539,7 @@ ParticleManager::Particle ParticleManager::MakeNewParticle(
 
     case 50: // kTypeJetExhaust (ツインエンジン噴射)
         {
-            std::uniform_real_distribution<float> distSpread(-0.1f, 0.1f);
+            std::uniform_real_distribution<float> distSpread(-0.05f, 0.05f);
             particle.position = {
                 emitterPos.x + distSpread(randomEngine_),
                 emitterPos.y + distSpread(randomEngine_),
@@ -546,24 +548,27 @@ ParticleManager::Particle ParticleManager::MakeNewParticle(
 
             // 進行方向の逆方向（後方）ベクトル
             Vector3 backDir = { -jetDirection.x, -jetDirection.y, -jetDirection.z };
+            Vector3 forwardDir = jetDirection;
 
-            // 後方への噴射速度
-            std::uniform_real_distribution<float> distSpeed(5.0f, 15.0f);
+            // 後方への噴射速度（相対速度）
+            std::uniform_real_distribution<float> distSpeed(5.0f, 9.0f);
             float speed = distSpeed(randomEngine_);
 
-            // ランダムな拡散速度
-            std::uniform_real_distribution<float> distVelSpread(-0.8f, 0.8f);
+            // ランダムな拡散速度と機体慣性を適用した最終ワールド速度
+            std::uniform_real_distribution<float> distVelSpread(-0.4f, 0.4f);
             particle.velocity = {
-                backDir.x * speed + distVelSpread(randomEngine_),
-                backDir.y * speed + distVelSpread(randomEngine_),
-                backDir.z * speed + distVelSpread(randomEngine_)
+                (forwardDir.x * playerSpeed) + (backDir.x * speed) + distVelSpread(randomEngine_),
+                (forwardDir.y * playerSpeed) + (backDir.y * speed) + distVelSpread(randomEngine_),
+                (forwardDir.z * playerSpeed) + (backDir.z * speed) + distVelSpread(randomEngine_)
             };
 
-            std::uniform_real_distribution<float> distScale(0.3f, 0.6f);
+            // サイズを少し大きくして力強い炎にする
+            std::uniform_real_distribution<float> distScale(0.2f, 0.45f);
             float sc = distScale(randomEngine_);
             particle.scale = { sc, sc, sc };
 
-            std::uniform_real_distribution<float> distLife(0.2f, 0.5f);
+            // 寿命を程よく長くして炎を適度に後ろへ伸ばす
+            std::uniform_real_distribution<float> distLife(0.15f, 0.3f);
             particle.lifeTime = distLife(randomEngine_);
 
             float colorSelect = distColor(randomEngine_);

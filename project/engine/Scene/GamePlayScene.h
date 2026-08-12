@@ -72,6 +72,14 @@ public:
     void Update() override;
     void Draw() override;
     
+    // タイトル背景モードの設定・取得
+    void SetTitleMode(bool isTitle) { isTitleMode_ = isTitle; }
+    bool IsTitleMode() const { return isTitleMode_; }
+    void TriggerTitleTransitionBoost();
+
+    // 音声再生ラッパー
+    void PlaySE(const SoundData& soundData, bool loop = false, float volume = 1.0f);
+    
     // デモシーン用メソッド
     void UpdateDemo(float deltaTime);
     void DrawDemo();
@@ -607,6 +615,11 @@ private:
 
     // ── ヒットエフェクト・デモ用メンバ変数 ──
     bool isDemoMode_ = false;                 // デモモードフラグ
+    bool isTitleMode_ = false;                // タイトル背景モードフラグ
+    bool isTitleTransitioning_ = false;       // タイトル遷移演出フラグ
+    Vector3 transitionStartCamPos_ = { 0.0f, 0.0f, 0.0f }; // 遷移開始時のカメラ座標
+    Vector3 transitionStartCamRot_ = { 0.0f, 0.0f, 0.0f }; // 遷移開始時のカメラ回転
+    float titleTransitionTimer_ = 0.0f;             // タイトル遷移アングル補間タイマー
     bool autoPlay_ = true;                  // オートデモ再生フラグ
     float autoPlayTimer_ = 0.0f;             // オートデモタイマー
     float autoPlayInterval_ = 1.0f;          // オートデモ間隔 (秒)

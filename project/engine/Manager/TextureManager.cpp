@@ -25,6 +25,9 @@ TextureManager* TextureManager::GetInstance() {
 }
 
 void TextureManager::Initialize(ID3D12Device* device, std::string directoryPath) {
+    if (device_) {
+        return;
+    }
     device_ = device;
     directoryPath_ = directoryPath;
     descriptorSizeSRV_ = device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);

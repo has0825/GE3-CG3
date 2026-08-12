@@ -19,23 +19,24 @@ void TitleScene::Initialize() {
     // TextureManagerの初期化 (起動時に最初のシーンとなるため必須)
     TextureManager::GetInstance()->Initialize(device, "Resources/");
 
+    // 背景用ゲームプレイシーンの初期化
+    gameplayScene_ = std::make_unique<GamePlayScene>();
+    gameplayScene_->SetTitleMode(true);
+    gameplayScene_->Initialize();
+
     camera_ = std::make_unique<Camera>(WinApp::kClientWidth, WinApp::kClientHeight);
     camera_->SetTranslate({ 0.0f, 0.0f, -40.0f });
 
     // テクスチャロード
     TextureManager::GetInstance()->LoadTexture("Title/white1x1.png");
     TextureManager::GetInstance()->LoadTexture("test.dds"); // 環境マップ用
-    TextureManager::GetInstance()->LoadTexture("cobblestone_street_night_2k.dds"); // 背景用
 
     // モデル読み込み
     titleModel_ = Model::LoadGLTF("Resources/Title/Title.obj", device);
+    titleModel_->SetColor({ 1.0f, 0.0f, 0.0f, 1.0f }); // 文字モデルの色を赤に設定
     titleModel_->transform.scale = { 1.2f, 1.2f, 1.2f }; // サイズを大きく
     titleModel_->transform.rotate = { 0.0f, 0.0f, 0.0f }; // 反転を直すための回転を解除
     titleModel_->transform.translate = { 0.0f, 0.0f, 20.0f }; // 遠く、中央付近に配置
-
-    // Skybox初期化
-    skybox_ = std::make_unique<Skybox>();
-    skybox_->Initialize(device);
 
     // 定数バッファの作成
     transformResource_ = CreateBufferResource(device, sizeof(TransformationMatrix));
@@ -58,6 +59,11 @@ void TitleScene::Finalize() {
 }
 
 void TitleScene::Update() {
+    // 背景用ゲームプレイシーンの更新
+    if (gameplayScene_) {
+        gameplayScene_->Update();
+    }
+
     // 3Dモデルは正面で固定 (回転はなし)
 
     // 行列更新
@@ -74,45 +80,39 @@ void TitleScene::Update() {
     if (inputDelay_ > 0) {
         inputDelay_--;
     } else {
-        // スペースキーでゲームプレイシーンへ遷移
-        if (input_->IsKeyTriggered(DIK_SPACE)) {
-            SceneManager::GetInstance()->ChangeScene("GAMEPLAY");
+        if (isTransitioningToGame_) {
+            transitionTimer_ += 1.0f / 60.0f;
+            if (transitionTimer_ >= kTransitionDuration) {
+                SceneManager::GetInstance()->ChangeScene("GAMEPLAY");
+            }
+        } else {
+            // スペースキーでゲームプレイシーンへ遷移（演出開始）
+            if (input_->IsKeyTriggered(DIK_SPACE)) {
+                isTransitioningToGame_ = true;
+                transitionTimer_ = 0.0f;
+                if (gameplayScene_) {
+                    gameplayScene_->TriggerTitleTransitionBoost();
+                }
+            }
         }
     }
 }
 
 void TitleScene::Draw() {
+    // 1. 背景ゲームシーンの描画
+    if (gameplayScene_) {
+        gameplayScene_->Draw();
+    }
+
     ID3D12GraphicsCommandList* commandList = DirectXCommon::GetInstance()->GetCommandList();
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = DirectXCommon::GetInstance()->GetDsvHandle();
+
+    // 2. 深度バッファのみをクリア（背景画像の上にタイトル3Dモデルを重ねるため）
+    commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
     // デスクリプタヒープのセット
     ID3D12DescriptorHeap* modelHeaps[] = { TextureManager::GetInstance()->GetSrvHeap() };
     commandList->SetDescriptorHeaps(1, modelHeaps);
-
-    // Skyboxの描画
-    if (skybox_) {
-        if (graphicsPipeline_ && graphicsPipeline_->GetSkyboxPipelineState() && graphicsPipeline_->GetRootSignature()) {
-            commandList->SetPipelineState(graphicsPipeline_->GetSkyboxPipelineState());
-            commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
-
-            // カメラのビュー行列を取得し、平行移動成分をゼロにする
-            Matrix4x4 viewMatrix = camera_->GetViewMatrix();
-            viewMatrix.m[3][0] = 0.0f;
-            viewMatrix.m[3][1] = 0.0f;
-            viewMatrix.m[3][2] = 0.0f;
-
-            Matrix4x4 projectionMatrix = camera_->GetProjectionMatrix();
-            Matrix4x4 wvpMatrix = Multiply(viewMatrix, projectionMatrix);
-
-            std::string skyboxTexName = "cobblestone_street_night_2k.dds";
-            // 安全対策: 指定されたテクスチャがキューブマップでない場合は、有効なキューブマップにフォールバックする
-            if (!TextureManager::GetInstance()->GetMetaData(skyboxTexName).IsCubemap()) {
-                skyboxTexName = "test.dds";
-            }
-            D3D12_GPU_DESCRIPTOR_HANDLE skyboxSrvHandle = TextureManager::GetInstance()->GetSrvHandleGPU(skyboxTexName);
-
-            skybox_->Draw(commandList, wvpMatrix, skyboxSrvHandle);
-        }
-    }
 
     if (graphicsPipeline_ && graphicsPipeline_->GetObject3dPipelineState() && graphicsPipeline_->GetObject3dRootSignature()) {
         commandList->SetPipelineState(graphicsPipeline_->GetObject3dPipelineState());

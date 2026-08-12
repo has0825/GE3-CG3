@@ -247,9 +247,15 @@ void GamePlayScene::Initialize() {
     randomIsColorNoise_ = false;
     randomNoiseType_ = 0;
     
-    isTransitioning_ = true;
-    transitionThreshold_ = 1.0f;
-    activePostProcess_ = kDissolve;
+    if (isTitleMode_) {
+        isTransitioning_ = false;
+        transitionThreshold_ = 0.0f;
+        activePostProcess_ = kNone;
+    } else {
+        isTransitioning_ = true;
+        transitionThreshold_ = 1.0f;
+        activePostProcess_ = kDissolve;
+    }
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
     srvDesc.Format = metadata.format;
@@ -317,7 +323,9 @@ void GamePlayScene::Initialize() {
 
     bgmData_ = audio_->LoadAudio("resources/result.mp3");
     jumpSE_ = audio_->LoadAudio("resources/damage.mp3");
-    audio_->PlayWave(bgmData_, true, 0.5f);
+    if (!isTitleMode_) {
+        audio_->PlayWave(bgmData_, true, 0.5f);
+    }
 
     TextureManager::GetInstance()->Initialize(device, "Resources/");
     TextureManager::GetInstance()->LoadTexture("test.dds");
@@ -739,7 +747,10 @@ void GamePlayScene::Initialize() {
     currentPhase_ = GamePhase::kPhase1;
     phaseTimer_ = 0.0f;
     bossTime_ = 0.0f;
-    StartPhaseIntro(1);
+    // タイトルモード時はPHASE演出を出さない。通常モードはディゾルブ完了後に呼ぶ
+    if (isTitleMode_) {
+        phaseIntroTimer_ = -1.0f; // 演出無効
+    }
 
     /*
     // 現在の配置をBlender用にファイル出力する
@@ -1257,7 +1268,7 @@ void GamePlayScene::StartPhaseIntro(int phaseNum) {
 
     // 効果音を鳴らす (少し高めの音量で)
     if (audio_) {
-        audio_->PlayWave(jumpSE_, false, 1.2f);
+        PlaySE(jumpSE_, false, 1.2f);
     }
 }
 
@@ -1534,7 +1545,7 @@ void GamePlayScene::Update() {
                     
                     // 爆発の度に追加爆音SE
                     if (audio_) {
-                        audio_->PlayWave(jumpSE_, false, 1.4f);
+                        PlaySE(jumpSE_, false, 1.4f);
                     }
                 }
                 
@@ -1567,7 +1578,7 @@ void GamePlayScene::Update() {
             
             // 発射SE
             if (audio_) {
-                audio_->PlayWave(jumpSE_, false, 1.5f);
+                PlaySE(jumpSE_, false, 1.5f);
             }
         }
         
@@ -1615,7 +1626,7 @@ void GamePlayScene::Update() {
                 
                 // 大爆発SE
                 if (audio_) {
-                    audio_->PlayWave(jumpSE_, false, 2.0f);
+                    PlaySE(jumpSE_, false, 2.0f);
                 }
                 
                 // 画面インパクトフラッシュ (真っ白に)
@@ -1662,9 +1673,13 @@ void GamePlayScene::Update() {
         }
     }
     
-    if (playerHP_ <= 0.0f) {
+    if (playerHP_ <= 0.0f && !isTitleMode_) {
         SceneManager::GetInstance()->ChangeScene("GAMEOVER");
         return;
+    }
+
+    if (isTitleMode_) {
+        playerHP_ = playerMaxHP_;
     }
 
     // HPVisualの補間更新（滑らかなHPバー減少用）
@@ -1742,7 +1757,7 @@ void GamePlayScene::Update() {
     }
 
     // ── フェーズ自動遷移 ──
-    if (currentPhase_ != GamePhase::kBossFight) {
+    if (!isTitleMode_ && currentPhase_ != GamePhase::kBossFight) {
         phaseTimer_ += kDeltaTime;
         if (phaseTimer_ >= kPhaseDuration) {
             phaseTimer_ = 0.0f;
@@ -1770,7 +1785,7 @@ void GamePlayScene::Update() {
             activeShakeIntensity_ = 3.5f;
             cameraShakeTimeMax_ = 0.50f;
             if (audio_) {
-                audio_->PlayWave(jumpSE_, false, 2.0f); // 大音量で着地SE
+                PlaySE(jumpSE_, false, 2.0f); // 大音量で着地SE
             }
             // 土煙パーティクル
             Vector3 landPos = GetBossPosition(0.0f);
@@ -1795,7 +1810,7 @@ void GamePlayScene::Update() {
             flashAlpha_ = 0.95f;
 
             if (audio_) {
-                audio_->PlayWave(jumpSE_, false, 3.0f); // 大音量の咆哮SE
+                PlaySE(jumpSE_, false, 3.0f); // 大音量の咆哮SE
             }
             
             // ボス位置から赤い高威力エネルギー衝撃波群を大放出
@@ -1899,8 +1914,8 @@ void GamePlayScene::Update() {
         bossTime_ += kDeltaTime * bossLegSwingSpeed_;
     }
 
-    // ボス戦時は雑魚敵をすべて非生存にする
-    if (currentPhase_ == GamePhase::kBossFight) {
+    // ボス戦時またはタイトル背景時は雑魚敵をすべて非生存にする
+    if (currentPhase_ == GamePhase::kBossFight || isTitleMode_) {
         for (auto& enemy : enemies_) {
             enemy.isAlive = false;
         }
@@ -1923,6 +1938,10 @@ void GamePlayScene::Update() {
             activePostProcess_ = kNone;
             // 前のシーンのメモリを完全に解放
             SceneManager::GetInstance()->ClearPreviousScene();
+            // ディゾルブ完了後にPHASE 1演出を開始
+            if (!isTitleMode_) {
+                StartPhaseIntro(1);
+            }
         }
         dissolveParamData_->threshold = transitionThreshold_;
     }
@@ -2129,7 +2148,7 @@ void GamePlayScene::Update() {
 
     // SPACEキーを押した瞬間にSEを再生（戦闘機モード以外のみ。戦闘機モードはブーストSE対応予定）
     if (input_->IsKeyTriggered(DIK_SPACE) && sceneMode_ != SceneMode::kFighter) {
-        audio_->PlayWave(jumpSE_, false, 1.0f);
+        PlaySE(jumpSE_, false, 1.0f);
     }
     EulerTransform& camTrans = camera_->GetTransform();
     HWND hwnd = WinApp::GetInstance()->GetHwnd();
@@ -2174,7 +2193,7 @@ void GamePlayScene::Update() {
     }
 
     // TABキーでモード切替
-    if (input_->IsKeyTriggered(DIK_TAB)) {
+    if (input_->IsKeyTriggered(DIK_TAB) && !isTitleMode_) {
         if (sceneMode_ == SceneMode::kMouse) {
             sceneMode_ = SceneMode::kCamera;
             ShowCursor(FALSE);
@@ -2264,7 +2283,7 @@ void GamePlayScene::Update() {
         // --- 戦闘機（レールシューター）モード ---
 
         // ── ブースト処理（LSHIFTで発動、バレルロール終了と同時に自動で戻る） ────────────────
-        if (input_->IsKeyTriggered(DIK_LSHIFT) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_) {
+        if (input_->IsKeyTriggered(DIK_LSHIFT) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_ && !isTitleMode_) {
             if (!isBarrelRolling_) {
                 isBoosting_ = true;
                 isBarrelRolling_ = true;
@@ -2272,7 +2291,15 @@ void GamePlayScene::Update() {
             }
         }
 
-        if (isBoosting_) {
+        if (isTitleMode_ && isTitleTransitioning_) {
+            if (titleTransitionTimer_ < 1.2f) {
+                boostForwardSpeed_ = kNormalSpeed; // 前半1.2秒は通常速度でカメラ戻しを待つ
+                boostBlurWidth_ = 0.0f;           // ブラーは発生させない
+            } else {
+                boostForwardSpeed_ = 750.0f;       // 後半は勢いよくブーストで飛び去る
+                boostBlurWidth_ = kBoostBlurMax * 0.25f; // 弱いラジアルブラーを適用
+            }
+        } else if (isBoosting_) {
             boostBlurWidth_ += kBoostBlurFadeIn * kDeltaTime * kBoostBlurMax;
             boostBlurWidth_ = (std::min)(boostBlurWidth_, kBoostBlurMax);
             boostForwardSpeed_ += (kBoostSpeedMax - boostForwardSpeed_) * 0.05f;
@@ -2320,7 +2347,7 @@ void GamePlayScene::Update() {
         // ── 3. 自機の横/縦移動（画面内相対）─────────────────────────
         if (fighterModel_) {
             Vector3 inputDir = {0,0,0};
-            if (!(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_) {
+            if (!(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_ && !isTitleMode_) {
                 if (input_->IsKeyPressed(DIK_W)) inputDir.y += 1.0f;
                 if (input_->IsKeyPressed(DIK_S)) inputDir.y -= 1.0f;
                 if (input_->IsKeyPressed(DIK_A)) inputDir.x -= 1.0f;
@@ -2345,6 +2372,25 @@ void GamePlayScene::Update() {
             fighterModel_->transform.translate.x = std::clamp(fighterModel_->transform.translate.x, -playerLimitX_, playerLimitX_);
             fighterModel_->transform.translate.y = std::clamp(fighterModel_->transform.translate.y, -playerLimitY_, playerLimitY_);
 
+            int currentAngleIndex = 0;
+            float localTime = 0.0f;
+            bool isCut = false;
+            if (isTitleMode_) {
+                int numAngles = 4;
+                float angleDuration = 6.0f;
+                currentAngleIndex = static_cast<int>(randomEffectTime_ / angleDuration) % numAngles;
+                localTime = std::fmod(randomEffectTime_, angleDuration);
+
+                static int lastAngleIndex = -1;
+                isCut = (currentAngleIndex != lastAngleIndex);
+                lastAngleIndex = currentAngleIndex;
+
+                // アングル切り替えの瞬間、プレイヤーのZ座標をリセットしてループさせる（ビルや道路の消失を防ぐ）
+                if (isCut && !isTitleTransitioning_) {
+                    fighterWorldZ_ = 100.0f;
+                }
+            }
+
             // ── プレイヤーのワールド座標（Z はfighterWorldZ_を直接使う）──
             Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
             Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
@@ -2355,7 +2401,116 @@ void GamePlayScene::Update() {
             float playerOffsetUp = fighterModel_->transform.translate.y + 17.0f;
             Vector3 fighterWorldPos = Add(playerRailPos, Add(Scale(playerRailRight, fighterModel_->transform.translate.x), Scale(playerRailUp, playerOffsetUp)));
 
-            if (!isBossDefeatedSequence_) {
+            if (isTitleMode_) {
+                if (isTitleTransitioning_) {
+                    // 1.2秒かけてタイトルアングルから「いつものアングル（プレイヤー真後ろ）」へスムーズに戻す
+                    titleTransitionTimer_ += kDeltaTime;
+                    float t = std::clamp(titleTransitionTimer_ / 1.2f, 0.0f, 1.0f);
+
+                    // いつものアングル（プレイヤー真後ろ）の目標位置・回転を計算
+                    float targetCamX = fighterModel_->transform.translate.x * 0.5f;
+                    float targetCamY = fighterModel_->transform.translate.y * 0.5f;
+                    float camOffsetUp = targetCamY + 26.0f;
+                    Vector3 camBackVector = Scale(playerRailDir, -65.0f);
+                    Vector3 targetCamPos = Add(playerRailPos, Add(camBackVector, Add(Scale(playerRailRight, targetCamX), Scale(playerRailUp, camOffsetUp))));
+
+                    Vector3 lookAheadTarget = Add(fighterWorldPos, Scale(playerRailDir, 20.0f));
+                    Vector3 cameraTarget = Add(lookAheadTarget, Scale(playerRailUp, 5.0f));
+                    Vector3 lookDir = Subtract(cameraTarget, targetCamPos);
+                    float lookDist = std::sqrt(lookDir.x * lookDir.x + lookDir.y * lookDir.y + lookDir.z * lookDir.z);
+                    if (lookDist > 0.001f) {
+                        lookDir = Scale(lookDir, 1.0f / lookDist);
+                    } else {
+                        lookDir = playerRailDir;
+                    }
+                    float targetRotY = -std::atan2(lookDir.x, lookDir.z);
+                    float targetRotX = std::atan2(-lookDir.y, std::sqrt(lookDir.x * lookDir.x + lookDir.z * lookDir.z));
+
+                    // 開始アングルから目標アングルへと滑らかに補間
+                    camTrans.translate = Lerp(transitionStartCamPos_, targetCamPos, t);
+
+                    // 角度補間（最短角度差で補間）
+                    float diffY = targetRotY - transitionStartCamRot_.y;
+                    while (diffY < -static_cast<float>(M_PI)) diffY += 2.0f * static_cast<float>(M_PI);
+                    while (diffY > static_cast<float>(M_PI)) diffY -= 2.0f * static_cast<float>(M_PI);
+                    camTrans.rotate.y = transitionStartCamRot_.y + diffY * t;
+
+                    float diffX = targetRotX - transitionStartCamRot_.x;
+                    while (diffX < -static_cast<float>(M_PI)) diffX += 2.0f * static_cast<float>(M_PI);
+                    while (diffX > static_cast<float>(M_PI)) diffX -= 2.0f * static_cast<float>(M_PI);
+                    camTrans.rotate.x = transitionStartCamRot_.x + diffX * t;
+
+                    camTrans.rotate.z = std::lerp(transitionStartCamRot_.z, 0.0f, t);
+                } else {
+                    // ── タイトル画面専用シネマティックカメラワーク ──
+                    Vector3 targetCamPos = { 0,0,0 };
+                    Vector3 cameraTarget = { 0,0,0 };
+
+                if (currentAngleIndex == 0) {
+                    // アングル1: 右斜め後ろの低い位置から見上げる
+                    targetCamPos = Add(playerRailPos, Add(Scale(playerRailRight, 20.0f), Add(Scale(playerRailDir, -35.0f), Scale(playerRailUp, 8.0f))));
+                    cameraTarget = Add(fighterWorldPos, Scale(playerRailUp, 2.0f));
+                }
+                else if (currentAngleIndex == 1) {
+                    // アングル2: 正面クローズアップ（前方から見下ろす）
+                    targetCamPos = Add(playerRailPos, Add(Scale(playerRailRight, -8.0f), Add(Scale(playerRailDir, 45.0f), Scale(playerRailUp, 25.0f))));
+                    cameraTarget = fighterWorldPos;
+                }
+                else if (currentAngleIndex == 2) {
+                    // アングル3: 上空からのダイナミック俯瞰（ゆっくり旋回）
+                    float angle = localTime * 0.2f - 0.5f;
+                    Vector3 offset = Add(Scale(playerRailDir, -55.0f), Scale(playerRailRight, std::sin(angle) * 30.0f));
+                    targetCamPos = Add(playerRailPos, Add(offset, Scale(playerRailUp, 45.0f)));
+                    cameraTarget = Add(fighterWorldPos, Scale(playerRailDir, 10.0f));
+                }
+                else {
+                    // アングル4: サイド並走カメラ（真横から並走して流し撮り）
+                    float forwardOffset = (localTime - 3.0f) * 8.0f;
+                    targetCamPos = Add(playerRailPos, Add(Scale(playerRailDir, forwardOffset), Add(Scale(playerRailRight, -40.0f), Scale(playerRailUp, 18.0f))));
+                    cameraTarget = fighterWorldPos;
+                }
+
+                if (isCut) {
+                    camTrans.translate = targetCamPos;
+                } else {
+                    // 遷移演出中ならカメラ追従を極端に遅くして、プレイヤーだけを飛び去らせる
+                    float posLerpFactor = isTitleTransitioning_ ? 0.005f : 0.2f;
+                    camTrans.translate = Lerp(camTrans.translate, targetCamPos, posLerpFactor);
+                }
+
+                // カメラの回転（注視点への方向）
+                Vector3 lookDir = Subtract(cameraTarget, camTrans.translate);
+                float lookDist = std::sqrt(lookDir.x * lookDir.x + lookDir.y * lookDir.y + lookDir.z * lookDir.z);
+                if (lookDist > 0.001f) {
+                    lookDir = Scale(lookDir, 1.0f / lookDist);
+                } else {
+                    lookDir = playerRailDir;
+                }
+
+                float baseCamRotY = -std::atan2(lookDir.x, lookDir.z);
+                float baseCamRotX = std::atan2(-lookDir.y, std::sqrt(lookDir.x * lookDir.x + lookDir.z * lookDir.z));
+
+                if (isCut) {
+                    camTrans.rotate.y = baseCamRotY;
+                    camTrans.rotate.x = baseCamRotX;
+                    camTrans.rotate.z = 0.0f;
+                } else {
+                    float rotLerpFactor = isTitleTransitioning_ ? 0.01f : 0.15f;
+                    float diffY = baseCamRotY - camTrans.rotate.y;
+                    while (diffY < -static_cast<float>(M_PI)) diffY += 2.0f * static_cast<float>(M_PI);
+                    while (diffY > static_cast<float>(M_PI)) diffY -= 2.0f * static_cast<float>(M_PI);
+                    camTrans.rotate.y += diffY * rotLerpFactor;
+
+                    float diffX = baseCamRotX - camTrans.rotate.x;
+                    while (diffX < -static_cast<float>(M_PI)) diffX += 2.0f * static_cast<float>(M_PI);
+                    while (diffX > static_cast<float>(M_PI)) diffX -= 2.0f * static_cast<float>(M_PI);
+                    camTrans.rotate.x += diffX * rotLerpFactor;
+
+                    camTrans.rotate.z = std::lerp(camTrans.rotate.z, 0.0f, rotLerpFactor);
+                }
+            }
+        }
+        else if (!isBossDefeatedSequence_) {
                 // スターフォックス風のカメラX/Y追従
                 float cameraLag = 0.08f;
                 float targetCamX = fighterModel_->transform.translate.x * 0.5f;
@@ -2451,6 +2606,12 @@ void GamePlayScene::Update() {
                 // easeInOut: 0.5 - 0.5 * cos(π*t) で0から1へスムーズに変化
                 float easedT = 0.5f - 0.5f * std::cos(static_cast<float>(M_PI) * t);
                 rollAngle += easedT * 2.0f * static_cast<float>(M_PI); // ← ベース回転に上乗せ（360度一回転）
+            }
+
+            // タイトル遷移後半（ブースト開始後）は連続スピン（クルクル回転）
+            if (isTitleMode_ && isTitleTransitioning_ && titleTransitionTimer_ >= 1.2f) {
+                float spinTime = titleTransitionTimer_ - 1.2f; // 後半開始からの経過時間
+                rollAngle = spinTime * 4.0f * static_cast<float>(M_PI); // 1秒で2回転
             }
 
             fighterModel_->transform.rotate.z = rollAngle;
@@ -2652,7 +2813,7 @@ void GamePlayScene::Update() {
             }
 
             // ── 背景テクスチャの切り替え（Tキー）──
-            if (input_->IsKeyTriggered(DIK_T)) {
+            if (input_->IsKeyTriggered(DIK_T) && !isTitleMode_) {
                 activeBackgroundTex_ = (activeBackgroundTex_ + 1) % kNumSkyTextures;
             }
 
@@ -2740,7 +2901,7 @@ void GamePlayScene::Update() {
             }
 
             // ── リプレイ録画 (RキーでON/OFF, 録画中は毎フレームCSVに追記) ──
-            if (input_->IsKeyTriggered(DIK_R) && !(phaseIntroTimer_ >= 0.0f)) {
+            if (input_->IsKeyTriggered(DIK_R) && !(phaseIntroTimer_ >= 0.0f) && !isTitleMode_) {
                 replayRecording_ = !replayRecording_;
                 if (replayRecording_) {
                     replayFrameCounter_ = 0;
@@ -2882,7 +3043,7 @@ void GamePlayScene::Update() {
 
             // ボス登場演出中は射撃を禁止
             bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
-            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_ && !isBossIntro) {
+            if (input_->IsKeyTriggered(DIK_SPACE) && !(phaseIntroTimer_ >= 0.0f) && !isBossDefeatedSequence_ && !isBossIntro && !isTitleMode_) {
                 // 翼の発射位置をレールのright/up方向で計算
                 Vector3 leftWing  = Add(fighterWorldPos, Add(Scale(playerRailRight, -2.5f), Scale(playerRailUp, 0.8f)));
                 Vector3 rightWing = Add(fighterWorldPos, Add(Scale(playerRailRight,  2.5f), Scale(playerRailUp, 0.8f)));
@@ -2903,7 +3064,7 @@ void GamePlayScene::Update() {
                         b.lifeTime = 2.0f; b.currentTime = 0.0f; break;
                     }
                 }
-                audio_->PlayWave(jumpSE_, false, 1.0f);
+                PlaySE(jumpSE_, false, 1.0f);
             }
 
             // エイミング(レティクル)の更新
@@ -2937,7 +3098,7 @@ void GamePlayScene::Update() {
                     static uint32_t hitTimer = 0;
                     if (++hitTimer % 15 == 0) {
                         particleManager_->EmitHit(fighterWorldPos);
-                        audio_->PlayWave(jumpSE_, false, 0.8f);
+                        PlaySE(jumpSE_, false, 0.8f);
                     }
                 }
 
@@ -2957,7 +3118,7 @@ void GamePlayScene::Update() {
                         static uint32_t bHitTimer = 0;
                         if (++bHitTimer % 15 == 0) {
                             particleManager_->EmitHit(fighterWorldPos);
-                            audio_->PlayWave(jumpSE_, false, 0.8f);
+                            PlaySE(jumpSE_, false, 0.8f);
                         }
                     }
                 }
@@ -2997,7 +3158,7 @@ void GamePlayScene::Update() {
 
                         // 被弾エフェクトとSE
                         EmitHitEffect(enemy.position);
-                        audio_->PlayWave(jumpSE_, false, 1.2f);
+                        PlaySE(jumpSE_, false, 1.2f);
                     }
                 }
             }
@@ -3038,7 +3199,7 @@ void GamePlayScene::Update() {
 
                     // 被弾エフェクトとSE
                     EmitHitEffect(playerBullets_[i].position);
-                    audio_->PlayWave(jumpSE_, false, 1.2f);
+                    PlaySE(jumpSE_, false, 1.2f);
                 }
             }
             // 非ボスフェーズ時の敵との当たり判定 (球衝突判定)
@@ -3080,11 +3241,11 @@ void GamePlayScene::Update() {
                             }
 
                             // 爆破音を再生
-                            audio_->PlayWave(jumpSE_, false, 1.5f);
+                            PlaySE(jumpSE_, false, 1.5f);
                         } else {
                             // 生存時は小規模な被弾エフェクトとSE
                             EmitHitEffect(playerBullets_[i].position);
-                            audio_->PlayWave(jumpSE_, false, 0.6f);
+                            PlaySE(jumpSE_, false, 0.6f);
                         }
                         break;
                     }
@@ -3281,7 +3442,7 @@ void GamePlayScene::Update() {
                         particleManager_->EmitCylinder(impactPos, lightningColor);
                         particleManager_->EmitRing(impactPos, lightningColor);
                         particleManager_->EmitCustomSparks(impactPos, 25.0f, 15, { 0.5f, 0.5f, 0.5f }, 1.0f);
-                        audio_->PlayWave(jumpSE_, false, 1.7f);
+                        PlaySE(jumpSE_, false, 1.7f);
 
                         // ダメージ判定
                         // レール横方向（右方向ベクトル）の内積などからプレイヤーの左右エリアを判定
@@ -3294,7 +3455,7 @@ void GamePlayScene::Update() {
                             playerHP_ -= 25.0f;
                             if (playerHP_ < 0.0f) playerHP_ = 0.0f;
                             particleManager_->EmitHit(fighterWorldPos);
-                            audio_->PlayWave(jumpSE_, false, 1.2f);
+                            PlaySE(jumpSE_, false, 1.2f);
                         }
                     }
 
@@ -3382,7 +3543,7 @@ void GamePlayScene::Update() {
                     };
                     
                     particleManager_->EmitLaserThread(bossWebFirePos, fighterWorldPos);
-                    audio_->PlayWave(jumpSE_, false, 0.3f);
+                    PlaySE(jumpSE_, false, 0.3f);
                 }
             } else {
                 bossActionState_ = BossActionState::kIdle;
@@ -3420,7 +3581,7 @@ void GamePlayScene::Update() {
                     float speed = 100.0f; // 中速
                     web.velocity = { dir.x * speed, dir.y * speed, dir.z * speed };
                     
-                    audio_->PlayWave(jumpSE_, false, 1.4f);
+                    PlaySE(jumpSE_, false, 1.4f);
                     break;
                 }
             }
@@ -3458,7 +3619,7 @@ void GamePlayScene::Update() {
                     playerSpeedDebuffTimer_ = 3.0f;
 
                     particleManager_->EmitHit(fighterWorldPos);
-                    audio_->PlayWave(jumpSE_, false, 1.5f);
+                    PlaySE(jumpSE_, false, 1.5f);
                 }
                 // 自機を通り越して回避成功したか判定
                 else if (web.position.z < fighterWorldPos.z - 5.0f) {
@@ -3485,7 +3646,7 @@ void GamePlayScene::Update() {
                     if (playerHP_ < 0.0f) playerHP_ = 0.0f;
                     
                     particleManager_->EmitHit(fighterWorldPos);
-                    audio_->PlayWave(jumpSE_, false, 0.5f);
+                    PlaySE(jumpSE_, false, 0.5f);
                 }
             }
         }
@@ -4244,13 +4405,14 @@ void GamePlayScene::Update() {
     if (sceneMode_ == SceneMode::kFighter) {
         // ボス登場演出中は、カメラの円運動によるZ往復運動で再配置が破綻するのを防ぐため、基準Z座標を固定する
         bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
-        float cameraZ = isBossIntro ? (fighterWorldZ_ - 65.0f) : camera_->GetTransform().translate.z;
+        float cameraZ = (isBossIntro || isTitleMode_) ? (fighterWorldZ_ - 65.0f) : camera_->GetTransform().translate.z;
 
         // ビルの画面外再配置（自動直進コースのときのみオブジェクトプールによる再配置を行う）
         if (waypoints_.empty()) {
             for (int i = 0; i < kMaxBuildings; ++i) {
-                // カメラの後方(間隔分)を超えたら、遥か前方（最前方のビルペアの先）に再配置
-                if (buildings_[i].position.z < cameraZ - kBuildingInterval) {
+                // カメラの後方を超えたら再配置（タイトル時は視界外になるよう判定境界を遥か後方に下げる）
+                float cullDist = isTitleMode_ ? 800.0f : kBuildingInterval;
+                if (buildings_[i].position.z < cameraZ - cullDist) {
                     buildings_[i].position.z += (float)kMaxBuildings * kBuildingInterval * 0.25f;
                     
                     // 破壊されているビルを元のきれいな状態にリセット
@@ -4343,7 +4505,7 @@ void GamePlayScene::Update() {
         // 各ビルのワールド行列とWVP行列を計算（距離カリング & 1棟1ドロー統合最適化）
         {
             int cbIndex = 0;
-            float camZ = camera_->GetTransform().translate.z;
+            float camZ = isTitleMode_ ? (fighterWorldZ_ - 65.0f) : camera_->GetTransform().translate.z;
             float camX = camera_->GetTransform().translate.x;
 
             for (size_t i = 0; i < buildings_.size(); ++i) {
@@ -4356,14 +4518,15 @@ void GamePlayScene::Update() {
                 float dx = buildings_[i].position.x - camX;
 
                 // 距離カリング: カメラ後方または前方遠すぎるビルは計算・描画を完全スキップ
-                if (dz < -kBuildingCullBackDist || dz > kBuildingCullFarDist) {
+                float cullBackDist = isTitleMode_ ? 800.0f : kBuildingCullBackDist;
+                if (dz < -cullBackDist || dz > kBuildingCullFarDist) {
                     continue;
                 }
 
                 float distSq = dx * dx + dz * dz;
 
                 // プレイヤーが通るルート近傍および直進延長上のビル(isNearCourseColumn)は視界限界(kBuildingCullFarDist)まで常に詳細描画（荒くしない）
-                bool isDetailView = (buildings_[i].isNearCourseColumn && dz >= -kBuildingCullBackDist && dz <= kBuildingCullFarDist) ||
+                bool isDetailView = (buildings_[i].isNearCourseColumn && dz >= -cullBackDist && dz <= kBuildingCullFarDist) ||
                                     buildings_[i].isDestroyed ||
                                     (distSq <= 120.0f * 120.0f);
 
@@ -4498,8 +4661,8 @@ void GamePlayScene::Update() {
         Vector3 finalDir   = { R_final.m[2][0], R_final.m[2][1], R_final.m[2][2] };
 
         // 姿勢に追従した位置でジェット位置を計算
-        Vector3 localOffsetLeft = Add(Scale(finalRight, -1.0f), Add(Scale(finalUp, 0.8f), Scale(finalDir, 0.0f)));
-        Vector3 localOffsetRight = Add(Scale(finalRight, 0.3f), Add(Scale(finalUp, 0.8f), Scale(finalDir, 0.0f)));
+        Vector3 localOffsetLeft = Add(Scale(finalRight, -1.0f), Add(Scale(finalUp, 1.4f), Scale(finalDir, 6.8f)));
+        Vector3 localOffsetRight = Add(Scale(finalRight, 0.2f), Add(Scale(finalUp, 1.4f), Scale(finalDir, 6.8f)));
         
         leftJetPos  = Add(fighterWorldPos, localOffsetLeft);
         rightJetPos = Add(fighterWorldPos, localOffsetRight);
@@ -4518,7 +4681,8 @@ void GamePlayScene::Update() {
         emitterPos_,
         leftJetPos,
         rightJetPos,
-        jetDirection
+        jetDirection,
+        (isTitleMode_ && !isTitleTransitioning_) ? 0.0f : boostForwardSpeed_
     );
 
     {
@@ -4812,11 +4976,12 @@ void GamePlayScene::Draw() {
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
                 }
 
-                float camZ = camera_->GetTransform().translate.z;
+                float camZ = isTitleMode_ ? (fighterWorldZ_ - 65.0f) : camera_->GetTransform().translate.z;
                 for (int i = 0; i < numLoadedFloors_; ++i) {
                     float dz = floorPositions_[i].z - camZ;
                     // 床タイルの距離カリング（画面外/遠方カリング）
-                    if (dz < -kFloorCullBackDist || dz > kFloorCullFarDist) continue;
+                    float cullBackDist = isTitleMode_ ? 800.0f : kFloorCullBackDist;
+                    if (dz < -cullBackDist || dz > kFloorCullFarDist) continue;
 
                     commandList->SetGraphicsRootConstantBufferView(1, floorTransformResources_[i]->GetGPUVirtualAddress());
                     floorModel_->DrawModel(commandList, TextureManager::GetInstance()->GetSrvHandleGPU("douro.jpg"), TextureManager::GetInstance()->GetSrvHandleGPU("test.dds"));
@@ -4942,7 +5107,7 @@ void GamePlayScene::Draw() {
         
         // エイミング(レティクル)の描画 (ボス登場演出中は非表示)
         bool isBossIntro = (currentPhase_ == GamePhase::kBossFight && bossAppearanceTimer_ > 0.0f);
-        if (!isBossIntro && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
+        if (!isBossIntro && !isTitleMode_ && graphicsPipeline_ && graphicsPipeline_->GetRootSignature()) {
             commandList->SetGraphicsRootSignature(graphicsPipeline_->GetRootSignature());
             commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
@@ -5048,7 +5213,7 @@ void GamePlayScene::Draw() {
             }
 
             // HPバーの描画
-            if (graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+            if (!isTitleMode_ && graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
                 commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
                 if (particleModel_) {
                     // ボスフェーズのときはボスHPバーも含めた5インスタンス、それ以外はプレイヤーHPバーのみの2インスタンスを描画
@@ -5063,7 +5228,7 @@ void GamePlayScene::Draw() {
             }
 
             // 画面蜘蛛の巣の描画（2D）
-            if (screenWebTimer_ > 0.0f && graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
+            if (screenWebTimer_ > 0.0f && !isTitleMode_ && graphicsPipeline_->GetPipelineState(kBlendModeNormal)) {
                 commandList->SetPipelineState(graphicsPipeline_->GetPipelineState(kBlendModeNormal));
                 if (particleModel_) {
                     particleModel_->Draw(commandList, 1, spiderWebSrvHandleGPU_, screenWebSrvHandleGPU_);
@@ -5071,7 +5236,7 @@ void GamePlayScene::Draw() {
             }
 
             // フェーズ演出スプライトの描画 (PHASE 1 / 2)
-            if (phaseIntroTimer_ >= 0.0f) {
+            if (phaseIntroTimer_ >= 0.0f && !isTitleMode_) {
                 float halfClientW = (float)WinApp::kClientWidth / 2.0f;
                 float halfClientH = (float)WinApp::kClientHeight / 2.0f;
                 Matrix4x4 projectionSprite = MakeOrthographicMatrix(-halfClientW, halfClientH, halfClientW, -halfClientH, 0.0f, 100.0f);
@@ -5495,7 +5660,7 @@ void GamePlayScene::UpdateDemo(float deltaTime) {
                     shotBeams_[i].velocity = Scale(Normalize(toTarget), 150.0f);
                     shotBeams_[i].isAlive = true;
                     if (audio_) {
-                        audio_->PlayWave(jumpSE_, false, 0.35f);
+                        PlaySE(jumpSE_, false, 0.35f);
                     }
                     break;
                 }
@@ -5517,7 +5682,7 @@ void GamePlayScene::UpdateDemo(float deltaTime) {
                 meleeState_ = MeleeState::kDash;
                 meleeTimer_ = 0.0f;
                 if (audio_) {
-                    audio_->PlayWave(jumpSE_, false, 0.7f);
+                    PlaySE(jumpSE_, false, 0.7f);
                 }
             }
         }
@@ -5625,11 +5790,46 @@ void GamePlayScene::UpdateDemo(float deltaTime) {
         
         fighterModel_->transform.rotate.x = std::lerp(fighterModel_->transform.rotate.x, recoilPitch, 0.1f);
         
-        fighterTransformData_->World = MakeAffineMatrix(
-            Vector3{0.5f, 0.5f, 0.5f},
-            fighterModel_->transform.rotate,
-            currentFighterPos_
-        );
+        Matrix4x4 worldMatrix;
+        if (sceneMode_ == SceneMode::kFighter) {
+            Vector3 playerRailPos = GetRailPosition(fighterWorldZ_);
+            Vector3 playerRailDir = GetRailDirection(fighterWorldZ_);
+            Vector3 playerRailRight = CalculateRailRight(playerRailDir);
+            Vector3 playerRailUp = CalculateRailUp(playerRailDir, playerRailRight);
+
+            // ローカルの回転（ロール、ピッチ、ヨウは180度反転）
+            float pitch = fighterModel_->transform.rotate.x;
+            float yaw_180 = static_cast<float>(M_PI);
+            float roll = fighterModel_->transform.rotate.z;
+
+            Matrix4x4 rotateY = MakeRotateYMatrix(yaw_180);
+            Matrix4x4 rotateX = MakeRotateXMatrix(pitch);
+            Matrix4x4 rotateZ = MakeRotateZMatrix(roll);
+            Matrix4x4 R_local = Multiply(Multiply(rotateZ, rotateX), rotateY);
+
+            // レールの回転
+            Matrix4x4 R_rail = MakeIdentity4x4();
+            R_rail.m[0][0] = playerRailRight.x; R_rail.m[0][1] = playerRailRight.y; R_rail.m[0][2] = playerRailRight.z;
+            R_rail.m[1][0] = playerRailUp.x;    R_rail.m[1][1] = playerRailUp.y;    R_rail.m[1][2] = playerRailUp.z;
+            R_rail.m[2][0] = playerRailDir.x;   R_rail.m[2][1] = playerRailDir.y;   R_rail.m[2][2] = playerRailDir.z;
+
+            // 最終回転行列
+            Matrix4x4 R_final = Multiply(R_local, R_rail);
+
+            // ワールド行列を構築（スケールは 0.5f 固定、回転は R_final、平行移動は currentFighterPos_）
+            Matrix4x4 scaleMatrix = Matrix4x4MakeScaleMatrix({0.5f, 0.5f, 0.5f});
+            Matrix4x4 translateMatrix = MakeTranslateMatrix(currentFighterPos_);
+            worldMatrix = Multiply(Multiply(scaleMatrix, R_final), translateMatrix);
+        } else {
+            // 通常のアフィン行列
+            worldMatrix = MakeAffineMatrix(
+                Vector3{0.5f, 0.5f, 0.5f},
+                fighterModel_->transform.rotate,
+                currentFighterPos_
+            );
+        }
+
+        fighterTransformData_->World = worldMatrix;
         fighterTransformData_->WVP = Multiply(fighterTransformData_->World, camera_->GetViewProjectionMatrix());
     }
 
@@ -6103,7 +6303,7 @@ void GamePlayScene::DrawDemo() {
                     shotBeams_[i].velocity = Scale(Normalize(toTarget), 150.0f);
                     shotBeams_[i].isAlive = true;
                     if (audio_) {
-                        audio_->PlayWave(jumpSE_, false, 0.35f);
+                        PlaySE(jumpSE_, false, 0.35f);
                     }
                     break;
                 }
@@ -6113,7 +6313,7 @@ void GamePlayScene::DrawDemo() {
                 meleeState_ = MeleeState::kDash;
                 meleeTimer_ = 0.0f;
                 if (audio_) {
-                    audio_->PlayWave(jumpSE_, false, 0.7f);
+                    PlaySE(jumpSE_, false, 0.7f);
                 }
             }
         }
@@ -6400,5 +6600,30 @@ Vector3 GamePlayScene::GetBossPosition(float bodyBounce, float dropOffset, float
     float relativeY = (bossYOffset_ + 20.0f) + bodyBounce + dropOffset + yAttackOffset;
     
     return Add(railPos, Scale(railUp, relativeY));
+}
+
+void GamePlayScene::PlaySE(const SoundData& soundData, bool loop, float volume) {
+    if (!isTitleMode_ && audio_) {
+        audio_->PlayWave(soundData, loop, volume);
+    }
+}
+
+void GamePlayScene::TriggerTitleTransitionBoost() {
+    isTitleTransitioning_ = true;
+    isBoosting_ = false;
+
+    // ブラーやポストプロセスはかけない
+    useRadialBlur_ = false;
+    activePostProcess_ = kNone;
+
+    // 決定音（SE）を通常音量で再生
+    if (audio_) {
+        audio_->PlayWave(jumpSE_, false, 1.0f);
+    }
+
+    // 遷移開始時のカメラ座標と回転を保存（滑らかな戻し補間用）
+    transitionStartCamPos_ = camera_->GetTransform().translate;
+    transitionStartCamRot_ = camera_->GetTransform().rotate;
+    titleTransitionTimer_ = 0.0f;
 }
 
